@@ -682,49 +682,196 @@ const SettingsPanel = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accoun
 // ─────────────────────────────────────────────────────────────────
 // IMPORT WIZARD
 // ─────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
+// IMPORT WIZARD — real PDF parsing via Gemini + preview
+// ─────────────────────────────────────────────────────────────────
+type ParsedTxn = { id:number; data:string; descritivo:string; valor:number; categoria:string; keep:boolean }
+
 const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:Account[],pal:{grad:string,accent:string,soft:string},onDone:()=>void}) => {
-  const [step,setStep] = useState(1)
+  const [step,setStep] = useState<1|2|3>(1)
   const [selAccount,setSelAccount] = useState('')
+  const [parsing,setParsing] = useState(false)
+  const [parseError,setParseError] = useState('')
   const [fileName,setFileName] = useState('')
+  const [parsed,setParsed] = useState<ParsedTxn[]>([])
   const [saving,setSaving] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
-  const buildDemoTxns = () => {
-    const today = new Date().toISOString().split('T')[0]
-    return [{d:'PINGO DOCE',v:-67.80,cat:'Alimentação'},{d:'EDP COMERCIAL',v:-98.40,cat:'Casa'},{d:'SALÁRIO',v:2100.00,cat:'Receita'}].map((t,i)=>({account_id:selAccount,data:today,descritivo:t.d,valor:t.v,categoria:t.cat,categoria_confirmada:true,ai_confianca:0.95,excluir_analise:false,hash:`${selAccount}-${today}-${t.d}-${t.v}-${Date.now()}-${i}`,import_batch_id:null,imovel_id:null,notas:null,subcategoria:null,descritivo_norm:null}))
+
+  const handleFile = async (e:React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if(!file) return
+    setFileName(file.name)
+    setParsing(true)
+    setParseError('')
+    const form = new FormData()
+    form.append('file', file)
+    try {
+      const res = await fetch('/api/parse', {method:'POST', body:form})
+      const data = await res.json()
+      if(!res.ok || data.error) throw new Error(data.error || `Erro ${res.status}`)
+      if(!data.transactions?.length) throw new Error('Nenhuma transação encontrada. Verifica se o ficheiro tem extratos.')
+      setParsed(data.transactions.map((t:any,i:number)=>({
+        id:i, data:t.data, descritivo:t.descritivo, valor:Number(t.valor),
+        categoria: Number(t.valor)>=0 ? 'Receita' : 'Outros', keep:true,
+      })))
+      setStep(3)
+    } catch(err:any) {
+      setParseError(err.message)
+    } finally {
+      setParsing(false)
+    }
   }
-  const onFilePicked = (e:React.ChangeEvent<HTMLInputElement>) => { const file=e.target.files?.[0]; if(file){setFileName(file.name);setStep(3)} }
-  const confirmImport = async () => { if(!selAccount) return; setSaving(true); await saveTransactions(buildDemoTxns() as any); await onDone(); setSaving(false); onClose() }
+
+  const toggleKeep = (id:number) => setParsed(p=>p.map(t=>t.id===id?{...t,keep:!t.keep}:t))
+  const setCat = (id:number,cat:string) => setParsed(p=>p.map(t=>t.id===id?{...t,categoria:cat}:t))
+  const toSave = parsed.filter(t=>t.keep)
+
+  const confirmImport = async () => {
+    setSaving(true)
+    const txns = toSave.map((t,i)=>({
+      account_id:selAccount, data:t.data, descritivo:t.descritivo, valor:t.valor,
+      categoria:t.categoria, categoria_confirmada:false, ai_confianca:null,
+      excluir_analise:false, imovel_classificado:false,
+      hash:`${selAccount}-${t.data}-${t.descritivo.slice(0,20)}-${t.valor}-${Date.now()}-${i}`,
+      import_batch_id:null, imovel_id:null, notas:null, subcategoria:null, descritivo_norm:null,
+    }))
+    await saveTransactions(txns as any)
+    await onDone(); setSaving(false); onClose()
+  }
+
+  const totalRec = toSave.filter(t=>t.valor>0).reduce((s,t)=>s+t.valor,0)
+  const totalDesp = toSave.filter(t=>t.valor<0).reduce((s,t)=>s+Math.abs(t.valor),0)
+  const stepLabel = step===1?'Conta':step===2?'Ficheiro':'Confirmar'
+
   return (
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:100,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
-      <input ref={fileRef} type="file" accept=".pdf,.xlsx,.xls,.csv" onChange={onFilePicked} style={{display:'none'}}/>
-      <div style={{background:T.surface,borderRadius:'20px 20px 0 0',width:'100%',maxWidth:440,maxHeight:'90vh',overflow:'auto',padding:'0 0 24px',fontFamily:'-apple-system,BlinkMacSystemFont,sans-serif'}}>
-        <div style={{display:'flex',alignItems:'center',gap:12,padding:'16px 18px',borderBottom:`1px solid ${T.border}`}}>
-          {step>1&&<button onClick={()=>setStep(s=>s-1)} style={{background:'none',border:'none',cursor:'pointer'}}><ArrowLeft size={18} color={T.textSec}/></button>}
-          <div style={{flex:1}}><div style={{fontSize:15,fontWeight:700,color:T.text}}>Importar Extracto</div><div style={{fontSize:11,color:T.textSec}}>Passo {step} de 3</div></div>
-          <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer'}}><X size={18} color={T.textSec}/></button>
+      <input ref={fileRef} type="file" accept=".pdf,.xlsx,.xls,.csv" onChange={handleFile} style={{display:'none'}}/>
+      <div style={{background:T.surface,borderRadius:'20px 20px 0 0',width:'100%',maxWidth:440,maxHeight:'92vh',display:'flex',flexDirection:'column',fontFamily:'-apple-system,BlinkMacSystemFont,sans-serif'}}>
+        {/* Header */}
+        <div style={{flexShrink:0}}>
+          <div style={{display:'flex',alignItems:'center',gap:12,padding:'16px 18px',borderBottom:`1px solid ${T.border}`}}>
+            {step>1&&!parsing&&<button onClick={()=>{setStep(s=>(s-1) as any);setParseError('')}} style={{background:'none',border:'none',cursor:'pointer'}}><ArrowLeft size={18} color={T.textSec}/></button>}
+            <div style={{flex:1}}>
+              <div style={{fontSize:15,fontWeight:700,color:T.text}}>Importar Extracto</div>
+              <div style={{fontSize:11,color:T.textSec}}>Passo {step} de 3 — {stepLabel}</div>
+            </div>
+            <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer'}}><X size={18} color={T.textSec}/></button>
+          </div>
+          <div style={{height:3,background:T.border}}><div style={{height:'100%',width:`${step/3*100}%`,background:pal.accent,transition:'width 0.3s'}}/></div>
         </div>
-        <div style={{height:3,background:T.border}}><div style={{height:'100%',width:`${step/3*100}%`,background:pal.accent,transition:'width 0.3s'}}/></div>
-        <div style={{padding:'20px 18px'}}>
+
+        {/* Content */}
+        <div style={{flex:1,overflowY:'auto',padding:'20px 18px'}}>
+
+          {/* PASSO 1: seleccionar conta */}
           {step===1&&(
             <div>
-              <div style={{fontSize:13,color:T.textSec,marginBottom:16}}>Primeiro escolhe a conta de destino:</div>
+              <div style={{fontSize:13,color:T.textSec,marginBottom:16}}>Para qual conta é este extracto?</div>
               {accounts.length===0&&<Card><div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Cria primeiro uma conta nas Definições.</div></Card>}
-              {accounts.map(a=>(<div key={a.id} onClick={()=>setSelAccount(a.id)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 16px',background:T.surface2,borderRadius:12,marginBottom:8,cursor:'pointer',border:`1px solid ${selAccount===a.id?pal.accent:T.border}`}}><div><div style={{fontSize:13,fontWeight:600,color:T.text}}>{a.nome}</div><div style={{fontSize:11,color:T.textSec,marginTop:1}}>{a.banco} · {a.titular}</div></div>{selAccount===a.id&&<Check size={16} color={pal.accent}/>}</div>))}
-              {accounts.length>0&&<div style={{marginTop:16}}><Btn onClick={()=>selAccount&&setStep(2)} variant="primary" accent={pal.accent} style={{width:'100%'}}>Continuar →</Btn></div>}
+              {accounts.map(a=>(
+                <div key={a.id} onClick={()=>setSelAccount(a.id)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 16px',background:T.surface2,borderRadius:12,marginBottom:8,cursor:'pointer',border:`1px solid ${selAccount===a.id?pal.accent:T.border}`,transition:'border 0.12s'}}>
+                  <div><div style={{fontSize:13,fontWeight:600,color:T.text}}>{a.nome}</div><div style={{fontSize:11,color:T.textSec,marginTop:1}}>{a.banco} · {a.titular}</div></div>
+                  {selAccount===a.id&&<Check size={16} color={pal.accent}/>}
+                </div>
+              ))}
             </div>
           )}
+
+          {/* PASSO 2: upload + estado */}
           {step===2&&(
             <div>
-              <div style={{fontSize:13,color:T.textSec,marginBottom:16}}>De onde vem o ficheiro?</div>
-              <div onClick={()=>fileRef.current?.click()} style={{display:'flex',alignItems:'center',gap:14,padding:'14px 16px',background:T.surface2,borderRadius:12,marginBottom:10,cursor:'pointer',border:`1px solid ${T.border}`}}><div style={{width:42,height:42,borderRadius:12,background:pal.soft,display:'flex',alignItems:'center',justifyContent:'center'}}><FileText size={20} color={pal.accent}/></div><div><div style={{fontSize:14,fontWeight:600,color:T.text}}>Upload do dispositivo</div><div style={{fontSize:12,color:T.textSec,marginTop:2}}>PDF, Excel ou CSV</div></div></div>
-              <div style={{display:'flex',alignItems:'center',gap:14,padding:'14px 16px',background:T.surface2,borderRadius:12,opacity:0.5,border:`1px solid ${T.border}`}}><div style={{width:42,height:42,borderRadius:12,background:T.surface3,display:'flex',alignItems:'center',justifyContent:'center'}}><HardDrive size={20} color={T.textSec}/></div><div><div style={{fontSize:14,fontWeight:600,color:T.text}}>Google Drive</div><div style={{fontSize:12,color:T.textSec,marginTop:2}}>Em breve (próxima fase)</div></div></div>
+              {!parsing&&!parseError&&(
+                <>
+                  <div style={{fontSize:13,color:T.textSec,marginBottom:16}}>Selecciona o ficheiro do extrato:</div>
+                  <div onClick={()=>fileRef.current?.click()} style={{display:'flex',alignItems:'center',gap:14,padding:'16px',background:T.surface2,borderRadius:12,marginBottom:10,cursor:'pointer',border:`1px solid ${T.border}`}}>
+                    <div style={{width:44,height:44,borderRadius:12,background:pal.soft,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><FileText size={22} color={pal.accent}/></div>
+                    <div><div style={{fontSize:14,fontWeight:600,color:T.text}}>Upload do dispositivo</div><div style={{fontSize:12,color:T.textSec,marginTop:2}}>PDF, Excel ou CSV · Qualquer banco</div></div>
+                  </div>
+                  <div style={{display:'flex',alignItems:'center',gap:14,padding:'16px',background:T.surface2,borderRadius:12,opacity:0.45,border:`1px solid ${T.border}`}}>
+                    <div style={{width:44,height:44,borderRadius:12,background:T.surface3,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><HardDrive size={22} color={T.textSec}/></div>
+                    <div><div style={{fontSize:14,fontWeight:600,color:T.text}}>Google Drive</div><div style={{fontSize:12,color:T.textSec,marginTop:2}}>Em breve</div></div>
+                  </div>
+                </>
+              )}
+              {parsing&&(
+                <div style={{textAlign:'center',padding:'32px 0'}}>
+                  <div style={{width:56,height:56,borderRadius:16,background:pal.soft,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 16px'}}><Zap size={26} color={pal.accent}/></div>
+                  <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:6}}>A processar o PDF…</div>
+                  <div style={{fontSize:12,color:T.textSec,marginBottom:2}}>📄 {fileName}</div>
+                  <div style={{fontSize:12,color:T.textTer}}>O Gemini está a ler o extrato. Pode demorar até 15 segundos.</div>
+                </div>
+              )}
+              {parseError&&(
+                <div>
+                  <div style={{textAlign:'center',padding:'24px 0 16px'}}>
+                    <div style={{fontSize:15,fontWeight:700,color:T.red,marginBottom:8}}>Erro no parsing</div>
+                    <div style={{fontSize:13,color:T.textSec,lineHeight:1.6,marginBottom:20}}>{parseError}</div>
+                  </div>
+                  <Btn onClick={()=>{setParseError('');fileRef.current?.click()}} variant="primary" accent={pal.accent} style={{width:'100%',marginBottom:10}}>Tentar com outro ficheiro</Btn>
+                  <Btn onClick={()=>setParseError('')} variant="ghost" accent={pal.accent} style={{width:'100%'}}>Voltar</Btn>
+                </div>
+              )}
             </div>
           )}
+
+          {/* PASSO 3: preview */}
           {step===3&&(
             <div>
-              <div style={{textAlign:'center',padding:'16px 0 20px'}}><div style={{width:56,height:56,borderRadius:16,background:pal.soft,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 14px'}}><Zap size={26} color={pal.accent}/></div><div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:6}}>Ficheiro recebido</div><div style={{fontSize:12,color:T.textSec,marginBottom:2}}>📄 {fileName}</div><div style={{fontSize:12,color:T.textTer}}>Demo: 3 transações exemplo serão guardadas</div></div>
-              <Card style={{background:pal.soft,padding:'12px 14px',marginBottom:16}}><div style={{fontSize:11,color:T.textSec,lineHeight:1.6}}>ℹ️ O parsing real de PDF com IA será ligado na fase final. Por agora, este passo guarda transações exemplo para testares o fluxo completo até à base de dados.</div></Card>
-              <Btn onClick={confirmImport} variant="primary" accent={pal.accent} style={{width:'100%'}}>{saving?'A guardar…':'✓ Guardar transações exemplo'}</Btn>
+              {/* Resumo */}
+              <div style={{display:'flex',gap:8,marginBottom:14}}>
+                <div style={{flex:1,background:pal.soft,borderRadius:10,padding:'10px 12px',textAlign:'center'}}>
+                  <div style={{fontSize:11,color:T.textSec,marginBottom:2}}>A importar</div>
+                  <div style={{fontSize:16,fontWeight:700,color:T.text}}>{toSave.length}/{parsed.length}</div>
+                </div>
+                <div style={{flex:1,background:'rgba(74,222,128,0.08)',borderRadius:10,padding:'10px 12px',textAlign:'center'}}>
+                  <div style={{fontSize:11,color:T.textSec,marginBottom:2}}>Receitas</div>
+                  <div style={{fontSize:14,fontWeight:700,color:T.green}}>{dec(totalRec)}</div>
+                </div>
+                <div style={{flex:1,background:'rgba(248,113,113,0.08)',borderRadius:10,padding:'10px 12px',textAlign:'center'}}>
+                  <div style={{fontSize:11,color:T.textSec,marginBottom:2}}>Despesas</div>
+                  <div style={{fontSize:14,fontWeight:700,color:T.red}}>{dec(totalDesp)}</div>
+                </div>
+              </div>
+
+              {/* Lista de transações */}
+              <div style={{fontSize:11,color:T.textTer,fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:8}}>
+                Transações encontradas · {fileName}
+              </div>
+              <Card style={{marginBottom:14}}>
+                {parsed.map((t,i)=>(
+                  <div key={t.id} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',borderBottom:i<parsed.length-1?`1px solid ${T.border}`:'none',opacity:t.keep?1:0.4,transition:'opacity 0.15s'}}>
+                    <div onClick={()=>toggleKeep(t.id)} style={{flexShrink:0,cursor:'pointer'}}>
+                      {t.keep?<CheckSquare size={18} color={pal.accent}/>:<Square size={18} color={T.textTer}/>}
+                    </div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:12,fontWeight:500,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div>
+                      <div style={{display:'flex',alignItems:'center',gap:6,marginTop:3}}>
+                        <span style={{fontSize:10,color:T.textTer}}>{t.data}</span>
+                        <select value={t.categoria} onChange={e=>setCat(t.id,e.target.value)} onClick={e=>e.stopPropagation()}
+                          style={{fontSize:10,background:T.surface2,border:`1px solid ${T.border}`,borderRadius:6,padding:'1px 4px',color:T.textSec,outline:'none',cursor:'pointer'}}>
+                          {CAT_LIST.map(c=><option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <div style={{fontSize:13,fontWeight:700,color:t.valor>=0?T.green:T.red,fontFamily:T.mono,whiteSpace:'nowrap',flexShrink:0}}>
+                      {t.valor>=0?'+ ':'− '}{dec(t.valor)}
+                    </div>
+                  </div>
+                ))}
+              </Card>
+            </div>
+          )}
+        </div>
+
+        {/* Footer buttons */}
+        <div style={{flexShrink:0,padding:'12px 18px 20px',borderTop:`1px solid ${T.border}`}}>
+          {step===1&&<Btn onClick={()=>selAccount&&setStep(2)} variant="primary" accent={pal.accent} style={{width:'100%'}} >Continuar →</Btn>}
+          {step===3&&(
+            <div style={{display:'flex',gap:10}}>
+              <Btn onClick={()=>{setStep(2);setParseError('')}} variant="ghost" accent={pal.accent} style={{flex:1}}>← Repetir</Btn>
+              <Btn onClick={confirmImport} variant="primary" accent={pal.accent} style={{flex:2}}>
+                {saving?'A guardar…':`✓ Importar ${toSave.length} transações`}
+              </Btn>
             </div>
           )}
         </div>
@@ -732,6 +879,7 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
     </div>
   )
 }
+
 
 // ─────────────────────────────────────────────────────────────────
 // SCREENS
