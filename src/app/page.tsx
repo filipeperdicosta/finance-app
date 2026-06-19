@@ -79,35 +79,61 @@ const fmtDate = (d:string|null|undefined):string => {
 // ─────────────────────────────────────────────────────────────────
 // HELPERS
 // ─────────────────────────────────────────────────────────────────
-function getMonthLabel(offset:number) {
-  const d = new Date(); d.setMonth(d.getMonth()+offset)
+function getMonthLabel(offset:number, anchorYM?:string) {
+  let d:Date
+  if(anchorYM){ const [y,m]=anchorYM.split('-').map(Number); d=new Date(y,m-1,1) }
+  else d = new Date()
+  d.setMonth(d.getMonth()+offset)
   return MONTHS_SHORT[d.getMonth()]
 }
 function accountSaldo(a:Account) {
   return a.tipo === 'cartão' ? -Math.abs(a.saldo_atual) : a.saldo_atual
 }
+// Mês (YYYY-MM) mais recente entre as transações dadas; null se não houver nenhuma
+function latestMonthWithData(txns:Transaction[]):string|null {
+  if(!txns.length) return null
+  const dates = txns.map(t=>t.data).filter(Boolean).sort()
+  return dates[dates.length-1].slice(0,7) // YYYY-MM
+}
+// Label "Mês AAAA" por extenso a partir de um YYYY-MM (ou mês civil actual se null)
+function monthYearLabel(ym:string|null):string {
+  const now = new Date()
+  if(!ym) return `${MONTHS_FULL[now.getMonth()]} ${now.getFullYear()}`
+  const [y,m] = ym.split('-').map(Number)
+  return `${MONTHS_FULL[m-1]} ${y}`
+}
 
 function computeView(accounts:Account[], transactions:Transaction[], tag:string, selId:string|null) {
   const accs = accounts.filter(a=>a.budget_tag===tag && (selId?a.id===selId:true))
-  if (!accs.length) return {saldo:0,rec:0,desp:0,net:0,cats:[],trend:[],txns:[]}
+  if (!accs.length) return {saldo:0,rec:0,desp:0,net:0,cats:[],trend:[],txns:[],refMonth:null as string|null}
   const ids = new Set(accs.map(a=>a.id))
   const txns = transactions.filter(t=>ids.has(t.account_id))
   const saldo = accs.reduce((s,a)=>s+accountSaldo(a),0)
-  const rec = txns.filter(t=>t.valor>0).reduce((s,t)=>s+t.valor,0)
-  const desp = txns.filter(t=>t.valor<0).reduce((s,t)=>s+Math.abs(t.valor),0)
+
+  // Mês de referência = mês mais recente com transações (não o mês civil actual)
+  const refMonth = latestMonthWithData(txns)
+  const monthTxns = refMonth ? txns.filter(t=>t.data.startsWith(refMonth)) : []
+
+  const rec = monthTxns.filter(t=>t.valor>0).reduce((s,t)=>s+t.valor,0)
+  const desp = monthTxns.filter(t=>t.valor<0).reduce((s,t)=>s+Math.abs(t.valor),0)
   const catMap:Record<string,number> = {}
-  txns.filter(t=>t.valor<0&&t.categoria).forEach(t=>{ catMap[t.categoria!]=(catMap[t.categoria!]||0)+Math.abs(t.valor) })
+  monthTxns.filter(t=>t.valor<0&&t.categoria).forEach(t=>{ catMap[t.categoria!]=(catMap[t.categoria!]||0)+Math.abs(t.valor) })
   const totalDesp = Object.values(catMap).reduce((s,v)=>s+v,0)||1
   const cats = Object.entries(catMap).map(([nome,v])=>({nome,v,pct:Math.round(v/totalDesp*100),...getCatStyle(nome)})).sort((a,b)=>b.v-a.v)
-  const trend = Array.from({length:5},(_,i)=>{
-    const offset=i-4; const d=new Date(); d.setMonth(d.getMonth()+offset)
+
+  // Sparkline: 5 meses terminando no mês de referência (ou vazio se não há dados)
+  const trend = refMonth ? Array.from({length:5},(_,i)=>{
+    const offset=i-4
+    const [ry,rm] = refMonth.split('-').map(Number)
+    const d = new Date(ry,rm-1,1); d.setMonth(d.getMonth()+offset)
     const ym=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
     const mt=txns.filter(t=>t.data.startsWith(ym))
     const mRec=mt.filter(t=>t.valor>0).reduce((s,t)=>s+t.valor,0)
     const mDesp=mt.filter(t=>t.valor<0).reduce((s,t)=>s+Math.abs(t.valor),0)
-    return {m:getMonthLabel(offset),rec:mRec,desp:mDesp,net:+(mRec-mDesp).toFixed(2)}
-  })
-  return {saldo,rec,desp,net:+(rec-desp).toFixed(2),cats,trend,txns:txns.slice(0,8)}
+    return {m:getMonthLabel(offset,refMonth),rec:mRec,desp:mDesp,net:+(mRec-mDesp).toFixed(2)}
+  }) : []
+
+  return {saldo,rec,desp,net:+(rec-desp).toFixed(2),cats,trend,txns:monthTxns.slice(0,8),refMonth}
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -691,55 +717,81 @@ const SettingsPanel = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accoun
 // IMPORT WIZARD
 // ─────────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────
-// IMPORT WIZARD — real PDF parsing via Gemini + preview
+// IMPORT WIZARD — real PDF parsing via Gemini + preview (multi-ficheiro)
 // ─────────────────────────────────────────────────────────────────
-type ParsedTxn = { id:number; data:string; descritivo:string; valor:number; categoria:string; keep:boolean }
+type ParsedTxn = { id:number; data:string; descritivo:string; valor:number; categoria:string; keep:boolean; src:string }
+type FileMeta = { saldo_final:number|null; iban:string|null; numero_conta:string|null; periodo_fim:string|null }
+type ParsedFile = { name:string; meta:FileMeta; ok:boolean; error?:string }
 
 const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:Account[],pal:{grad:string,accent:string,soft:string},onDone:()=>void}) => {
   const [step,setStep] = useState<1|2|3>(1)
   const [selAccount,setSelAccount] = useState('')
   const [parsing,setParsing] = useState(false)
+  const [progress,setProgress] = useState({done:0,total:0})
   const [parseError,setParseError] = useState('')
-  const [fileName,setFileName] = useState('')
+  const [files,setFiles] = useState<ParsedFile[]>([])
   const [parsed,setParsed] = useState<ParsedTxn[]>([])
-  const [meta,setMeta] = useState<{saldo_final:number|null,iban:string|null,numero_conta:string|null}>({saldo_final:null,iban:null,numero_conta:null})
   const [saving,setSaving] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const selAccObj = accounts.find(a=>a.id===selAccount)
 
-  const handleFile = async (e:React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if(!file) return
-    setFileName(file.name)
+  const handleFiles = async (e:React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = Array.from(e.target.files ?? [])
+    if(!fileList.length) return
     setParsing(true)
     setParseError('')
-    const form = new FormData()
-    form.append('file', file)
-    try {
-      const res = await fetch('/api/parse', {method:'POST', body:form})
-      const data = await res.json()
-      if(!res.ok || data.error) throw new Error(data.error || `Erro ${res.status}`)
-      if(!data.transactions?.length) throw new Error('Nenhuma transação encontrada. Verifica se o ficheiro tem extratos.')
-      setParsed(data.transactions.map((t:any,i:number)=>({
-        id:i, data:t.data, descritivo:t.descritivo, valor:Number(t.valor),
-        categoria: Number(t.valor)>=0 ? 'Receita' : 'Outros', keep:true,
-      })))
-      setMeta({
-        saldo_final: data.meta?.saldo_final ?? null,
-        iban: data.meta?.iban ?? null,
-        numero_conta: data.meta?.numero_conta ?? null,
-      })
+    setProgress({done:0,total:fileList.length})
+
+    const allTxns:ParsedTxn[] = []
+    const fileMetas:ParsedFile[] = []
+    let idCounter = 0
+
+    for(const file of fileList) {
+      const form = new FormData()
+      form.append('file', file)
+      try {
+        const res = await fetch('/api/parse', {method:'POST', body:form})
+        const data = await res.json()
+        if(!res.ok || data.error) throw new Error(data.error || `Erro ${res.status}`)
+        const txns = (data.transactions ?? []).map((t:any)=>({
+          id: idCounter++, data:t.data, descritivo:t.descritivo, valor:Number(t.valor),
+          categoria: Number(t.valor)>=0 ? 'Receita' : 'Outros', keep:true, src:file.name,
+        }))
+        allTxns.push(...txns)
+        fileMetas.push({
+          name:file.name, ok:true,
+          meta:{
+            saldo_final: data.meta?.saldo_final ?? null,
+            iban: data.meta?.iban ?? null,
+            numero_conta: data.meta?.numero_conta ?? null,
+            periodo_fim: data.meta?.periodo_fim ?? null,
+          }
+        })
+      } catch(err:any) {
+        fileMetas.push({name:file.name, ok:false, error:err.message, meta:{saldo_final:null,iban:null,numero_conta:null,periodo_fim:null}})
+      }
+      setProgress(p=>({...p, done:p.done+1}))
+    }
+
+    setFiles(fileMetas)
+    setParsed(allTxns)
+    setParsing(false)
+
+    if(!allTxns.length) {
+      setParseError('Nenhuma transação encontrada em nenhum ficheiro. Verifica se os PDFs têm extratos legíveis.')
+    } else {
       setStep(3)
-    } catch(err:any) {
-      setParseError(err.message)
-    } finally {
-      setParsing(false)
     }
   }
 
   const toggleKeep = (id:number) => setParsed(p=>p.map(t=>t.id===id?{...t,keep:!t.keep}:t))
   const setCat = (id:number,cat:string) => setParsed(p=>p.map(t=>t.id===id?{...t,categoria:cat}:t))
   const toSave = parsed.filter(t=>t.keep)
+
+  // Escolhe os metadados do ficheiro com periodo_fim mais recente (o extrato mais actual)
+  const bestMeta = files
+    .filter(f=>f.ok && f.meta.periodo_fim)
+    .sort((a,b)=>(b.meta.periodo_fim ?? '').localeCompare(a.meta.periodo_fim ?? ''))[0]?.meta ?? null
 
   const confirmImport = async () => {
     setSaving(true)
@@ -752,13 +804,19 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
     }))
     await saveTransactions(txns as any)
 
-    // Actualiza saldo da conta com o saldo final do extrato (sempre que disponível)
-    // e preenche IBAN/número de conta apenas se ainda estiverem vazios
-    if(selAccObj){
+    // Só actualiza o saldo se o extrato mais recente for de facto mais recente
+    // que a última actualização já gravada na conta (evita extratos antigos sobrescreverem dados novos)
+    if(selAccObj && bestMeta) {
       const updates:any = {}
-      if(meta.saldo_final !== null) updates.saldo_atual = meta.saldo_final
-      if(meta.iban && !selAccObj.iban) updates.iban = meta.iban
-      if(meta.numero_conta && !selAccObj.numero_conta) updates.numero_conta = meta.numero_conta
+      const novaData = bestMeta.periodo_fim
+      const dataActual = selAccObj.saldo_data
+      const ehMaisRecente = !dataActual || (novaData && novaData > dataActual)
+      if(bestMeta.saldo_final !== null && ehMaisRecente) {
+        updates.saldo_atual = bestMeta.saldo_final
+        updates.saldo_data = novaData
+      }
+      if(bestMeta.iban && !selAccObj.iban) updates.iban = bestMeta.iban
+      if(bestMeta.numero_conta && !selAccObj.numero_conta) updates.numero_conta = bestMeta.numero_conta
       if(Object.keys(updates).length) await updateAccount(selAccObj.id, updates)
     }
 
@@ -767,18 +825,20 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
 
   const totalRec = toSave.filter(t=>t.valor>0).reduce((s,t)=>s+t.valor,0)
   const totalDesp = toSave.filter(t=>t.valor<0).reduce((s,t)=>s+Math.abs(t.valor),0)
-  const stepLabel = step===1?'Conta':step===2?'Ficheiro':'Confirmar'
+  const stepLabel = step===1?'Conta':step===2?'Ficheiros':'Confirmar'
+  const okFiles = files.filter(f=>f.ok)
+  const failedFiles = files.filter(f=>!f.ok)
 
   return (
     <div onClick={()=>!parsing&&onClose()} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:100,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.surface,borderRadius:'20px 20px 0 0',width:'100%',maxWidth:440,maxHeight:'92vh',display:'flex',flexDirection:'column',fontFamily:'-apple-system,BlinkMacSystemFont,sans-serif'}}>
-        <input ref={fileRef} type="file" accept=".pdf,.xlsx,.xls,.csv" onChange={handleFile} style={{display:'none'}}/>
+        <input ref={fileRef} type="file" accept=".pdf,.xlsx,.xls,.csv" multiple onChange={handleFiles} style={{display:'none'}}/>
         {/* Header */}
         <div style={{flexShrink:0}}>
           <div style={{display:'flex',alignItems:'center',gap:12,padding:'16px 18px',borderBottom:`1px solid ${T.border}`}}>
             {step>1&&!parsing&&<button onClick={()=>{setStep(s=>(s-1) as any);setParseError('')}} style={{background:'none',border:'none',cursor:'pointer'}}><ArrowLeft size={18} color={T.textSec}/></button>}
             <div style={{flex:1}}>
-              <div style={{fontSize:15,fontWeight:700,color:T.text}}>Importar Extracto</div>
+              <div style={{fontSize:15,fontWeight:700,color:T.text}}>Importar Extractos</div>
               <div style={{fontSize:11,color:T.textSec}}>Passo {step} de 3 — {stepLabel}</div>
             </div>
             <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer'}}><X size={18} color={T.textSec}/></button>
@@ -792,7 +852,7 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
           {/* PASSO 1: seleccionar conta */}
           {step===1&&(
             <div>
-              <div style={{fontSize:13,color:T.textSec,marginBottom:16}}>Para qual conta é este extracto?</div>
+              <div style={{fontSize:13,color:T.textSec,marginBottom:16}}>Para qual conta são estes extractos?</div>
               {accounts.length===0&&<Card><div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Cria primeiro uma conta nas Definições.</div></Card>}
               {accounts.map(a=>(
                 <div key={a.id} onClick={()=>setSelAccount(a.id)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 16px',background:T.surface2,borderRadius:12,marginBottom:8,cursor:'pointer',border:`1px solid ${selAccount===a.id?pal.accent:T.border}`,transition:'border 0.12s'}}>
@@ -808,10 +868,10 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
             <div>
               {!parsing&&!parseError&&(
                 <>
-                  <div style={{fontSize:13,color:T.textSec,marginBottom:16}}>Selecciona o ficheiro do extrato:</div>
+                  <div style={{fontSize:13,color:T.textSec,marginBottom:16}}>Selecciona um ou vários extractos (podes seleccionar múltiplos meses de uma vez):</div>
                   <div onClick={(e)=>{e.stopPropagation();fileRef.current?.click()}} style={{display:'flex',alignItems:'center',gap:14,padding:'16px',background:T.surface2,borderRadius:12,marginBottom:10,cursor:'pointer',border:`1px solid ${T.border}`}}>
                     <div style={{width:44,height:44,borderRadius:12,background:pal.soft,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><FileText size={22} color={pal.accent}/></div>
-                    <div><div style={{fontSize:14,fontWeight:600,color:T.text}}>Upload do dispositivo</div><div style={{fontSize:12,color:T.textSec,marginTop:2}}>PDF, Excel ou CSV · Qualquer banco</div></div>
+                    <div><div style={{fontSize:14,fontWeight:600,color:T.text}}>Upload do dispositivo</div><div style={{fontSize:12,color:T.textSec,marginTop:2}}>PDF, Excel ou CSV · Vários ficheiros</div></div>
                   </div>
                   <div style={{display:'flex',alignItems:'center',gap:14,padding:'16px',background:T.surface2,borderRadius:12,opacity:0.45,border:`1px solid ${T.border}`}}>
                     <div style={{width:44,height:44,borderRadius:12,background:T.surface3,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><HardDrive size={22} color={T.textSec}/></div>
@@ -822,9 +882,11 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
               {parsing&&(
                 <div style={{textAlign:'center',padding:'32px 0'}}>
                   <div style={{width:56,height:56,borderRadius:16,background:pal.soft,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 16px'}}><Zap size={26} color={pal.accent}/></div>
-                  <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:6}}>A processar o PDF…</div>
-                  <div style={{fontSize:12,color:T.textSec,marginBottom:2}}>📄 {fileName}</div>
-                  <div style={{fontSize:12,color:T.textTer}}>O Gemini está a ler o extrato. Pode demorar até 15 segundos.</div>
+                  <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:6}}>A processar ficheiro {progress.done+1} de {progress.total}…</div>
+                  <div style={{fontSize:12,color:T.textTer}}>O Gemini está a ler os extractos. Pode demorar alguns segundos por ficheiro.</div>
+                  <div style={{height:4,background:T.border,borderRadius:2,marginTop:16,overflow:'hidden'}}>
+                    <div style={{height:'100%',width:`${progress.total?progress.done/progress.total*100:0}%`,background:pal.accent,transition:'width 0.3s'}}/>
+                  </div>
                 </div>
               )}
               {parseError&&(
@@ -859,19 +921,30 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
                 </div>
               </div>
 
+              {/* Ficheiros processados */}
+              {files.length>1&&(
+                <Card style={{marginBottom:14,padding:'10px 14px'}}>
+                  <div style={{fontSize:11,fontWeight:600,color:T.textSec,marginBottom:6}}>📄 {okFiles.length} ficheiros processados{failedFiles.length?` · ${failedFiles.length} falharam`:''}</div>
+                  {failedFiles.map((f,i)=>(<div key={i} style={{fontSize:11,color:T.red,marginTop:2}}>✗ {f.name}: {f.error}</div>))}
+                </Card>
+              )}
+
               {/* O que vai actualizar na conta */}
-              {(meta.saldo_final!==null || (meta.iban&&!selAccObj?.iban) || (meta.numero_conta&&!selAccObj?.numero_conta))&&(
+              {bestMeta&&(bestMeta.saldo_final!==null || (bestMeta.iban&&!selAccObj?.iban) || (bestMeta.numero_conta&&!selAccObj?.numero_conta))&&(
                 <Card style={{background:pal.soft,padding:'11px 14px',marginBottom:14}}>
-                  <div style={{fontSize:11,fontWeight:600,color:pal.accent,marginBottom:6}}>📋 Vai actualizar a conta</div>
-                  {meta.saldo_final!==null&&<div style={{fontSize:12,color:T.textSec,marginBottom:2}}>Saldo → <span style={{color:T.text,fontWeight:600}}>{dec(meta.saldo_final)}</span></div>}
-                  {meta.iban&&!selAccObj?.iban&&<div style={{fontSize:12,color:T.textSec,marginBottom:2}}>IBAN → <span style={{color:T.text,fontWeight:600}}>{meta.iban}</span></div>}
-                  {meta.numero_conta&&!selAccObj?.numero_conta&&<div style={{fontSize:12,color:T.textSec}}>Nº conta → <span style={{color:T.text,fontWeight:600}}>{meta.numero_conta}</span></div>}
+                  <div style={{fontSize:11,fontWeight:600,color:pal.accent,marginBottom:6}}>📋 Vai actualizar a conta (extrato mais recente: {bestMeta.periodo_fim?fmtDate(bestMeta.periodo_fim):'—'})</div>
+                  {bestMeta.saldo_final!==null&&<div style={{fontSize:12,color:T.textSec,marginBottom:2}}>Saldo → <span style={{color:T.text,fontWeight:600}}>{dec(bestMeta.saldo_final)}</span></div>}
+                  {bestMeta.iban&&!selAccObj?.iban&&<div style={{fontSize:12,color:T.textSec,marginBottom:2}}>IBAN → <span style={{color:T.text,fontWeight:600}}>{bestMeta.iban}</span></div>}
+                  {bestMeta.numero_conta&&!selAccObj?.numero_conta&&<div style={{fontSize:12,color:T.textSec}}>Nº conta → <span style={{color:T.text,fontWeight:600}}>{bestMeta.numero_conta}</span></div>}
+                  {selAccObj?.saldo_data&&bestMeta.periodo_fim&&bestMeta.periodo_fim<=selAccObj.saldo_data&&(
+                    <div style={{fontSize:11,color:T.textTer,marginTop:4}}>ℹ️ Saldo não vai mudar: já tens dados mais recentes ({fmtDate(selAccObj.saldo_data)}).</div>
+                  )}
                 </Card>
               )}
 
               {/* Lista de transações */}
               <div style={{fontSize:11,color:T.textTer,fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:8}}>
-                Transações encontradas · {fileName}
+                Transações encontradas
               </div>
               <Card style={{marginBottom:14}}>
                 {parsed.map((t,i)=>(
@@ -904,7 +977,7 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
           {step===1&&<Btn onClick={()=>selAccount&&setStep(2)} variant="primary" accent={pal.accent} style={{width:'100%'}} >Continuar →</Btn>}
           {step===3&&(
             <div style={{display:'flex',gap:10}}>
-              <Btn onClick={()=>{setStep(2);setParseError('')}} variant="ghost" accent={pal.accent} style={{flex:1}}>← Repetir</Btn>
+              <Btn onClick={()=>{setStep(2);setParseError('');setFiles([]);setParsed([])}} variant="ghost" accent={pal.accent} style={{flex:1}}>← Repetir</Btn>
               <Btn onClick={confirmImport} variant="primary" accent={pal.accent} style={{flex:2}}>
                 {saving?'A guardar…':`✓ Importar ${toSave.length} transações`}
               </Btn>
@@ -925,8 +998,7 @@ const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAll,onRefresh}:
   const [editTxn,setEditTxn] = useState<Transaction|null>(null)
   const tagAccs = accounts.filter(a=>a.budget_tag===tag)
   const view = computeView(accounts,transactions,tag,sel)
-  const now = new Date()
-  const period = `${MONTHS_FULL[now.getMonth()]} ${now.getFullYear()}`
+  const period = monthYearLabel(view.refMonth)
   const selName = tagAccs.find(a=>a.id===sel)?.nome.split(' ').slice(-1)[0]
   return (
     <div>
@@ -1067,14 +1139,16 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
   const [showQueue,setShowQueue] = useState(false)
   const [editTxn,setEditTxn] = useState<Transaction|null>(null)
   const [selAcc,setSelAcc] = useState<string|null>(null)
-  const now = new Date()
-  const ym = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`
 
   const investAccounts = accounts.filter(a=>a.budget_tag==='investimento')
   const investAccountIds = new Set(investAccounts.map(a=>a.id))
 
-  // Renda/custos por imóvel (filtra por conta selecionada se houver)
+  // Mês de referência = mês mais recente com transações de imóveis (filtra por conta seleccionada se houver)
   const matchAcc = (t:Transaction) => selAcc ? t.account_id===selAcc : true
+  const imovelTxnsScope = transactions.filter(t=>investAccountIds.has(t.account_id)&&matchAcc(t))
+  const ym = latestMonthWithData(imovelTxnsScope) ?? `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}`
+
+  // Renda/custos por imóvel
   const getImRenda = (id:string) => transactions.filter(t=>t.imovel_id===id&&matchAcc(t)&&t.data.startsWith(ym)&&t.valor>0).reduce((s,t)=>s+t.valor,0)
   const getImCusto = (id:string) => transactions.filter(t=>t.imovel_id===id&&matchAcc(t)&&t.data.startsWith(ym)&&t.valor<0).reduce((s,t)=>s+Math.abs(t.valor),0)
   const linkedAccounts = (imovelId:string) => new Set(contaImovel.filter(ci=>ci.imovel_id===imovelId).map(ci=>ci.account_id))
@@ -1104,13 +1178,21 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
   // Transações recentes das contas de investimento (filtradas por conta selecionada)
   const recentTxns = transactions.filter(t=>investAccountIds.has(t.account_id) && matchAcc(t)).slice(0,8)
 
-  const trend=Array.from({length:5},(_,i)=>{const offset=i-4;const d=new Date();d.setMonth(d.getMonth()+offset);const ym2=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;const mRec=transactions.filter(t=>t.imovel_id&&matchAcc(t)&&t.data.startsWith(ym2)&&t.valor>0).reduce((s,t)=>s+t.valor,0);const mDesp=transactions.filter(t=>t.imovel_id&&matchAcc(t)&&t.data.startsWith(ym2)&&t.valor<0).reduce((s,t)=>s+Math.abs(t.valor),0);return{m:getMonthLabel(offset),rec:mRec,desp:mDesp,net:mRec-mDesp}})
+  const trend=imovelTxnsScope.length?Array.from({length:5},(_,i)=>{
+    const offset=i-4
+    const [ry,rm] = ym.split('-').map(Number)
+    const d = new Date(ry,rm-1,1); d.setMonth(d.getMonth()+offset)
+    const ym2=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
+    const mRec=transactions.filter(t=>t.imovel_id&&matchAcc(t)&&t.data.startsWith(ym2)&&t.valor>0).reduce((s,t)=>s+t.valor,0)
+    const mDesp=transactions.filter(t=>t.imovel_id&&matchAcc(t)&&t.data.startsWith(ym2)&&t.valor<0).reduce((s,t)=>s+Math.abs(t.valor),0)
+    return{m:getMonthLabel(offset,ym),rec:mRec,desp:mDesp,net:mRec-mDesp}
+  }):[]
 
   const imovelNome = (id:string|null) => id ? (imoveis.find(im=>im.id===id)?.nome ?? 'Imóvel') : null
 
   return (
     <div>
-      <Hero pal={pal} title="Conta Corrente Imóveis" period={`${MONTHS_FULL[now.getMonth()]} ${now.getFullYear()}`} mainValue={big(totRes)} mainSuffix="/mês" trend={trend} kpis={imoveisKpis}/>
+      <Hero pal={pal} title="Conta Corrente Imóveis" period={monthYearLabel(imovelTxnsScope.length?ym:null)} mainValue={big(totRes)} mainSuffix="/mês" trend={trend} kpis={imoveisKpis}/>
 
       {/* Toggle valorização */}
       <div onClick={()=>setShowValoriz(v=>!v)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 16px',background:showValoriz?pal.soft:T.surface,borderRadius:12,border:`1px solid ${showValoriz?pal.accent:T.border}`,marginBottom:16,cursor:'pointer',transition:'all 0.15s'}}>

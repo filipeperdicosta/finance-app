@@ -15,6 +15,7 @@ export type Account = {
   titular: string
   ownership_pct: number
   saldo_atual: number
+  saldo_data: string | null
   moeda: string
   ativa: boolean
   ordem: number
