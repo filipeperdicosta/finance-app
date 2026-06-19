@@ -833,7 +833,7 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
                     <div style={{fontSize:15,fontWeight:700,color:T.red,marginBottom:8}}>Erro no parsing</div>
                     <div style={{fontSize:13,color:T.textSec,lineHeight:1.6,marginBottom:20}}>{parseError}</div>
                   </div>
-                  <Btn onClick={(e:any)=>{e.stopPropagation();setParseError('');fileRef.current?.click()}} variant="primary" accent={pal.accent} style={{width:'100%',marginBottom:10}}>Tentar com outro ficheiro</Btn>
+                  <Btn onClick={()=>{setParseError('');fileRef.current?.click()}} variant="primary" accent={pal.accent} style={{width:'100%',marginBottom:10}}>Tentar com outro ficheiro</Btn>
                   <Btn onClick={()=>setParseError('')} variant="ghost" accent={pal.accent} style={{width:'100%'}}>Voltar</Btn>
                 </div>
               )}
