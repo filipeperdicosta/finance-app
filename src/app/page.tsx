@@ -254,7 +254,7 @@ const Toggle = ({val,set,accent}:{val:string,set:(v:string)=>void,accent:string}
 )
 const DynChart = ({data,type}:{data:{m:string,rec:number,desp:number}[],type:string}) => {
   const tip = <Tooltip contentStyle={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,fontSize:12}} formatter={(v:any,k:string)=>[dec(v),k==='rec'?'Receitas':'Despesas']} labelStyle={{color:T.text,fontWeight:600}} cursor={{fill:'rgba(255,255,255,0.03)'}}/>
-  const ax = <XAxis dataKey="m" tick={{fontSize:11,fill:T.textSec}} axisLine={false} tickLine={false}/>
+  const ax = <XAxis dataKey="m" tick={{fontSize:11,fill:T.textSec}} axisLine={false} tickLine={false} interval={0}/>
   const margin = {top:8,right:10,bottom:0,left:10}
   return (
     <ResponsiveContainer width="100%" height={120}>
