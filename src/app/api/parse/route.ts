@@ -152,7 +152,7 @@ export async function POST(req: NextRequest) {
         data: String(t.data ?? '').trim(),
         descritivo: String(t.descritivo ?? '').trim(),
         valor: Number(t.valor) || 0,
-        categoria: CATEGORIES.includes(t.categoria) ? t.categoria : (Number(t.valor) >= 0 ? 'Receita' : 'Despesas Gerais'),
+        categoria: (t.categoria && CATEGORIES.includes(t.categoria)) ? t.categoria : (Number(t.valor) >= 0 ? 'Receita' : 'Despesas Gerais'),
       }))
       .filter(t => t.data && t.descritivo && t.valor !== 0)
 
