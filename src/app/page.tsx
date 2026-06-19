@@ -1212,6 +1212,10 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
   const totRes=totRenda-totCusto
   const ativos=imoveis.filter(im=>im.ativo).length
 
+  // Saldo da(s) conta(s) de investimento — é o valor principal do Hero, igual às outras tabs
+  // (a conta corrente carrega o histórico/"bagagem" anterior, não só o resultado do mês)
+  const saldoContas = (selAcc ? investAccounts.filter(a=>a.id===selAcc) : investAccounts).reduce((s,a)=>s+accountSaldo(a),0)
+
   // Valorização total (100%) e toggle
   const [showValoriz,setShowValoriz] = useState(false)
   const totValoriz = imoveis.reduce((s,im)=>s+(im.valorizacao||0),0)
@@ -1220,7 +1224,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
   const imoveisKpis = [
     {l:'Rendas',v:dec(totRenda),c:'#4ADE80'},
     {l:'Custos',v:dec(totCusto),c:'#F87171'},
-    {l:'Resultado',v:sgn(totRes),c:totRes>=0?'#4ADE80':'#F87171'},
+    {l:'Resultado mês',v:sgn(totRes),c:totRes>=0?'#4ADE80':'#F87171'},
     showValoriz
       ? {l:'Valorização',v:big(totValoriz),c:'#FFF'}
       : {l:'Arrendados',v:`${ativos}/${imoveis.length}`,c:'#FFF'},
@@ -1246,7 +1250,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
 
   return (
     <div>
-      <Hero pal={pal} title="Conta Corrente Imóveis" period={monthYearLabel(imovelTxnsScope.length?ym:null)} mainValue={big(totRes)} mainSuffix="/mês" trend={trend} kpis={imoveisKpis}/>
+      <Hero pal={pal} title="Conta Corrente Imóveis" period={monthYearLabel(imovelTxnsScope.length?ym:null)} mainValue={big(saldoContas)} mainColor={saldoContas<0?'#FCA5A5':'#FFF'} trend={trend} kpis={imoveisKpis}/>
 
       {/* Toggle valorização */}
       <div onClick={()=>setShowValoriz(v=>!v)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 16px',background:showValoriz?pal.soft:T.surface,borderRadius:12,border:`1px solid ${showValoriz?pal.accent:T.border}`,marginBottom:16,cursor:'pointer',transition:'all 0.15s'}}>
