@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const GEMINI_MODEL = 'gemini-2.5-flash'
+const GEMINI_MODEL = 'gemini-2.5-flash-lite'
 
 const PROMPT = `You are a financial data extraction specialist for Portuguese bank statements.
 
-Return ONLY a valid JSON object with exactly 2 keys: "transactions" and "meta".
-No markdown, no explanation — only the JSON object.
+TASK: Read the attached bank statement and extract every transaction.
 
-Format:
+OUTPUT FORMAT (mandatory): Return ONLY a valid JSON object. No markdown, no code fences, no explanation text before or after — just the raw JSON object starting with { and ending with }.
+
 {
   "transactions": [
     { "data": "YYYY-MM-DD", "descritivo": "original description", "valor": -45.80 }
@@ -20,22 +20,25 @@ Format:
   }
 }
 
-TRANSACTION rules:
-1. "valor" is a NUMBER: NEGATIVE for debits/expenses/saídas/débitos, POSITIVE for credits/income/entradas/créditos
-2. Convert dates to YYYY-MM-DD (DD/MM/YYYY → YYYY-MM-DD)
-3. "descritivo" = original description text from PDF, unchanged
-4. Remove € symbols and thousands separators; use period (.) as decimal separator
-5. SKIP: balance rows, totals, opening/closing balance lines, headers
-6. Include EVERY individual transaction, even if there are 50+
+TRANSACTION RULES (apply to every single row in the statement):
+1. "valor" is always a plain NUMBER, never a string. NEGATIVE for debits/expenses/saídas/débitos. POSITIVE for credits/income/entradas/créditos.
+2. Dates: always output YYYY-MM-DD. If the source uses DD/MM/YYYY or DD-MM-YYYY, convert it.
+3. "descritivo": copy the original description text exactly as written in the document.
+4. Strip € symbols and thousands separators (spaces, dots, commas used as thousands marks) from numbers. Use a period (.) only as the decimal separator.
+5. Do NOT include: balance carried forward rows, totals, subtotals, opening/closing balance lines, or column headers.
+6. Extract EVERY individual transaction row — if there are 30, 50, or 100+ rows, include all of them. Do not summarize, truncate, or skip rows to save space.
 
-META rules:
-1. "saldo_final": the closing/final account balance at the END of the statement (number, NOT string)
-2. "iban": full IBAN (e.g. PT50 0010...) or null if not found
-3. "numero_conta": account number digits or null if not found
-4. "periodo_fim": last date of statement period as YYYY-MM-DD, or null
-5. Use null for any field not present in the document
+META RULES:
+1. "saldo_final": the closing/final account balance shown at the end of the statement period, as a plain number.
+2. "iban": the full IBAN if printed on the document (format like PT50...), otherwise null.
+3. "numero_conta": the account number digits if printed, otherwise null.
+4. "periodo_fim": the last date covered by this statement, as YYYY-MM-DD, otherwise null.
+5. Use null (not empty string, not 0) for any meta field that is not present in the document.
 
-If the document is unreadable, scanned as a low-quality image, or has no transactions, still return valid JSON with "transactions": [] and meta fields as null — never return an explanation instead of JSON.`
+EDGE CASES:
+- If the document is a low-quality scan or has no readable transactions, still return valid JSON: {"transactions": [], "meta": {"saldo_final": null, "iban": null, "numero_conta": null, "periodo_fim": null}}
+- Never reply with an explanation instead of JSON, even if you are uncertain.
+- Never wrap the JSON in markdown code fences (no \`\`\`json).`
 
 export async function POST(req: NextRequest) {
   try {
