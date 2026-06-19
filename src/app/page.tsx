@@ -34,17 +34,24 @@ const PAL: Record<string,{grad:string,accent:string,soft:string}> = {
 }
 const tagPal = (tag:string) => tag==='investimento' ? PAL.imoveis : (PAL[tag] ?? PAL.pessoal)
 const PROP_GRAD = {pos:'linear-gradient(145deg,#042b1c,#0d5c38)',neg:'linear-gradient(145deg,#1c0808,#7f1d1d)'}
-const CAT_LIST = ['Alimentação','Casa','Transporte','Saúde','Educação','Lazer','Pessoal','Subscrições','Financeiro','Takeaway','Outros','Receita','Transferência']
+const CAT_LIST = ['Receita','Alimentação','Restauração','Compras','Saúde','Transportes','Lazer','Levantamentos','Utilities','Subscrições','Investimentos','Comissões e Taxas','Transferências','Despesas Gerais']
 const CAT_META: Record<string,{cor:string,icon:string}> = {
-  'Alimentação':{cor:'#4ADE80',icon:'🛒'}, 'Casa':{cor:'#A78BFA',icon:'🏠'},
-  'Casa / Renda':{cor:'#A78BFA',icon:'🏠'}, 'Transporte':{cor:'#22D3EE',icon:'🚗'},
-  'Saúde':{cor:'#38BDF8',icon:'🏥'}, 'Educação':{cor:'#F472B6',icon:'🎓'},
-  'Lazer':{cor:'#FBBF24',icon:'🎭'}, 'Pessoal':{cor:'#FB923C',icon:'👗'},
-  'Subscrições':{cor:'#FB7185',icon:'📱'}, 'Financeiro':{cor:'#94A3B8',icon:'💳'},
-  'Takeaway':{cor:'#F97316',icon:'🛵'}, 'Outros':{cor:'#64748B',icon:'📦'},
-  'Receita':{cor:'#4ADE80',icon:'💰'}, 'Transferência':{cor:'#94A3B8',icon:'🔄'},
+  'Receita':{cor:'#4ADE80',icon:'💰'},
+  'Alimentação':{cor:'#4ADE80',icon:'🛒'},
+  'Restauração':{cor:'#F97316',icon:'🍽️'},
+  'Compras':{cor:'#FB923C',icon:'🛍️'},
+  'Saúde':{cor:'#38BDF8',icon:'🏥'},
+  'Transportes':{cor:'#22D3EE',icon:'🚗'},
+  'Lazer':{cor:'#FBBF24',icon:'🎭'},
+  'Levantamentos':{cor:'#A3A3A3',icon:'💵'},
+  'Utilities':{cor:'#A78BFA',icon:'💡'},
+  'Subscrições':{cor:'#FB7185',icon:'📱'},
+  'Investimentos':{cor:'#60A5FA',icon:'📈'},
+  'Comissões e Taxas':{cor:'#94A3B8',icon:'🏦'},
+  'Transferências':{cor:'#94A3B8',icon:'🔄'},
+  'Despesas Gerais':{cor:'#64748B',icon:'📦'},
 }
-const getCatStyle = (nome:string) => CAT_META[nome] ?? CAT_META['Outros']
+const getCatStyle = (nome:string) => CAT_META[nome] ?? CAT_META['Despesas Gerais']
 const MONTHS_SHORT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
 const MONTHS_FULL = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
 
@@ -342,7 +349,7 @@ const CatRow = ({nome,v,pct,cor,icon,last}:{nome:string,v:number,pct:number,cor:
 )
 const TxnRow = ({t,last,onClick}:{t:Transaction,last:boolean,onClick?:()=>void}) => (
   <div onClick={onClick} style={{display:'flex',alignItems:'center',gap:12,padding:'11px 16px',borderBottom:last?'none':`1px solid ${T.border}`,cursor:onClick?'pointer':'default'}}>
-    <div style={{width:38,height:38,borderRadius:12,background:T.surface2,display:'flex',alignItems:'center',justifyContent:'center',fontSize:17,flexShrink:0}}>{getCatStyle(t.categoria??'Outros').icon}</div>
+    <div style={{width:38,height:38,borderRadius:12,background:T.surface2,display:'flex',alignItems:'center',justifyContent:'center',fontSize:17,flexShrink:0}}>{getCatStyle(t.categoria??'Despesas Gerais').icon}</div>
     <div style={{flex:1,minWidth:0}}>
       <div style={{fontSize:13,fontWeight:500,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div>
       <div style={{fontSize:11,color:T.textSec,marginTop:2}}>{t.categoria??'Sem categoria'} · {t.data}</div>
@@ -358,7 +365,7 @@ const TxnRow = ({t,last,onClick}:{t:Transaction,last:boolean,onClick?:()=>void})
 const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis}:{txn:Transaction,onClose:()=>void,onSaved:()=>void,pal:{accent:string,soft:string},imoveis?:Imovel[]}) => {
   const [descritivo,setDescritivo] = useState(txn.descritivo)
   const [valor,setValor] = useState(String(txn.valor))
-  const [categoria,setCategoria] = useState(txn.categoria??'Outros')
+  const [categoria,setCategoria] = useState(txn.categoria??'Despesas Gerais')
   const [data,setData] = useState(txn.data)
   const [tipo,setTipo] = useState(txn.valor>=0?'receita':'despesa')
   const [imovelId,setImovelId] = useState(txn.imovel_id ?? '')
@@ -449,7 +456,7 @@ const FilterSheet = ({filters,onApply,onClose,pal}:{filters:Filters,onApply:(f:F
 // BATCH RECATEGORIZE SHEET
 // ─────────────────────────────────────────────────────────────────
 const RecategorizeSheet = ({count,onApply,onClose,pal}:{count:number,onApply:(cat:string)=>void,onClose:()=>void,pal:{accent:string,soft:string}}) => {
-  const [cat,setCat] = useState('Outros')
+  const [cat,setCat] = useState('Despesas Gerais')
   return (
     <div onClick={onClose} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:130,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.surface,borderRadius:'20px 20px 0 0',width:'100%',maxWidth:440,padding:'0 0 24px'}}>
@@ -575,7 +582,7 @@ const AllTransactionsScreen = ({allTxns,accounts,tag,pal,onClose,onRefresh,imove
                   return (
                     <div key={t.id} onClick={()=>selectMode?toggleSel(t.id):setEditTxn(t)} style={{display:'flex',alignItems:'center',gap:11,padding:'11px 14px',borderBottom:i<txns.length-1?`1px solid ${T.border}`:'none',cursor:'pointer',background:isSel?pal.soft:'transparent',transition:'background 0.12s'}}>
                       {selectMode&&<div style={{flexShrink:0}}>{isSel?<CheckSquare size={18} color={pal.accent}/>:<Square size={18} color={T.textTer}/>}</div>}
-                      <div style={{width:36,height:36,borderRadius:11,background:T.surface2,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,flexShrink:0}}>{getCatStyle(t.categoria??'Outros').icon}</div>
+                      <div style={{width:36,height:36,borderRadius:11,background:T.surface2,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,flexShrink:0}}>{getCatStyle(t.categoria??'Despesas Gerais').icon}</div>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontSize:13,fontWeight:500,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div>
                         <div style={{fontSize:11,color:T.textSec,marginTop:2}}>{t.categoria??'Sem categoria'} · {t.data}</div>
@@ -809,7 +816,7 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
         if(!res.ok || data.error) throw new Error(data.error || `Erro ${res.status}`)
         const txns = (data.transactions ?? []).map((t:any)=>({
           id: idCounter++, data:t.data, descritivo:t.descritivo, valor:Number(t.valor),
-          categoria: Number(t.valor)>=0 ? 'Receita' : 'Outros', keep:true, src:file.name,
+          categoria: Number(t.valor)>=0 ? 'Receita' : 'Despesas Gerais', keep:true, src:file.name,
         }))
         allTxns.push(...txns)
         fileMetas.push({
@@ -1166,7 +1173,7 @@ const AssignQueue = ({txns,imoveis,onClose,onRefresh,pal}:{txns:Transaction[],im
           {txns.map(t=>(
             <Card key={t.id} style={{marginBottom:10,padding:'13px 14px'}}>
               <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}>
-                <div style={{width:34,height:34,borderRadius:10,background:T.surface2,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0}}>{getCatStyle(t.categoria??'Outros').icon}</div>
+                <div style={{width:34,height:34,borderRadius:10,background:T.surface2,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0}}>{getCatStyle(t.categoria??'Despesas Gerais').icon}</div>
                 <div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:600,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div><div style={{fontSize:11,color:T.textSec}}>{t.data}</div></div>
                 <div style={{fontSize:14,fontWeight:700,color:t.valor>=0?T.green:T.red,fontFamily:T.mono}}>{t.valor>=0?'+ ':'− '}{dec(t.valor)}</div>
               </div>
@@ -1360,7 +1367,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
             const imN = imovelNome(t.imovel_id)
             return (
               <div key={t.id} onClick={()=>setEditTxn(t)} style={{display:'flex',alignItems:'center',gap:12,padding:'11px 16px',borderBottom:i<recentTxns.length-1?`1px solid ${T.border}`:'none',cursor:'pointer'}}>
-                <div style={{width:38,height:38,borderRadius:12,background:T.surface2,display:'flex',alignItems:'center',justifyContent:'center',fontSize:17,flexShrink:0}}>{getCatStyle(t.categoria??'Outros').icon}</div>
+                <div style={{width:38,height:38,borderRadius:12,background:T.surface2,display:'flex',alignItems:'center',justifyContent:'center',fontSize:17,flexShrink:0}}>{getCatStyle(t.categoria??'Despesas Gerais').icon}</div>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:13,fontWeight:500,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div>
                   <div style={{fontSize:11,color:T.textSec,marginTop:2}}>{imN?`🏠 ${imN}`:(t.categoria??'Sem categoria')} · {t.data}</div>
