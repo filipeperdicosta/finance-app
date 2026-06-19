@@ -631,7 +631,7 @@ const AccountForm = ({initial,onClose,onSaved,pal,accountsLen}:{initial:Account|
     setSaving(true)
     const payload = { nome:form.nome, banco:form.banco, tipo:form.tipo as any, budget_tag:form.budget_tag as any, titular:form.titular, ownership_pct:Number(form.ownership_pct), saldo_atual:parseNum(form.saldo_atual), iban:form.iban||null, numero_conta:form.numero_conta||null }
     if(isEdit) await updateAccount(initial!.id, payload)
-    else await saveAccount({...payload, moeda:'EUR', ativa:true, ordem:accountsLen})
+    else await saveAccount({...payload, saldo_data:null, moeda:'EUR', ativa:true, ordem:accountsLen})
     await onSaved(); setSaving(false); onClose()
   }
   return (
