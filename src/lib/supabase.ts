@@ -178,3 +178,80 @@ export async function updateTransactionCategory(id: string, categoria: string) {
     categoria_confirmada: true,
   }).eq('id', id)
 }
+
+// ── Regras de categorização (aprendizagem) ─────────────────────
+export type CategoryRule = {
+  id: string
+  pattern: string
+  categoria: string
+  subcategoria: string | null
+  imovel_id: string | null
+  confianca: number
+  vezes_usada: number
+  ativa: boolean
+  created_at: string
+}
+
+export async function loadCategoryRules() {
+  const { data } = await supabase.from('category_rules').select('*').eq('ativa', true).order('vezes_usada', { ascending: false })
+  return (data ?? []) as CategoryRule[]
+}
+
+// Extrai um "padrão" estável de um descritivo de transação (remove números/datas variáveis)
+export function extractPattern(descritivo: string): string {
+  return descritivo
+    .toUpperCase()
+    .replace(/\d{2}[\/\-]\d{2}[\/\-]\d{2,4}/g, '')   // datas
+    .replace(/\*?\d{4,}/g, '')                         // referências/cartões longos
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .slice(0, 3)                                       // primeiras 3 palavras como padrão
+    .join(' ')
+}
+
+// Cria uma regra nova ou reforça uma existente (incrementa vezes_usada) para o mesmo padrão+categoria
+export async function learnFromCategorization(descritivo: string, categoria: string) {
+  const pattern = extractPattern(descritivo)
+  if (!pattern || pattern.length < 3) return null
+
+  const { data: existing } = await supabase
+    .from('category_rules')
+    .select('*')
+    .eq('pattern', pattern)
+    .maybeSingle()
+
+  if (existing) {
+    if (existing.categoria === categoria) {
+      // Reforça a regra existente
+      return supabase.from('category_rules').update({ vezes_usada: existing.vezes_usada + 1 }).eq('id', existing.id)
+    } else {
+      // Categoria diferente para o mesmo padrão — actualiza para a mais recente (o utilizador corrigiu)
+      return supabase.from('category_rules').update({ categoria, vezes_usada: 1 }).eq('id', existing.id)
+    }
+  } else {
+    return supabase.from('category_rules').insert({ pattern, categoria, confianca: 0.9, vezes_usada: 1, ativa: true })
+  }
+}
+
+// Aplica regras conhecidas a uma lista de transações por importar; devolve a categoria sugerida ou null
+export function matchRule(descritivo: string, rules: CategoryRule[]): string | null {
+  const upper = descritivo.toUpperCase()
+  const sorted = [...rules].sort((a, b) => b.vezes_usada - a.vezes_usada)
+  for (const rule of sorted) {
+    if (rule.pattern && upper.includes(rule.pattern)) return rule.categoria
+  }
+  return null
+}
+
+export async function deleteCategoryRule(id: string) {
+  return supabase.from('category_rules').delete().eq('id', id)
+}
+
+export async function deleteCategoryRules(ids: string[]) {
+  return supabase.from('category_rules').delete().in('id', ids)
+}
+
+export async function updateCategoryRule(id: string, categoria: string) {
+  return supabase.from('category_rules').update({ categoria }).eq('id', id)
+}

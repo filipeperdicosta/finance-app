@@ -9,13 +9,15 @@ import {
   Home, User, Building2, TrendingUp, Upload, Settings, X, Plus, Check,
   ArrowLeft, Trash2, FileText, HardDrive, Zap, RefreshCw, Edit2, CreditCard,
   Filter, CheckSquare, Square, Tag, Calendar, SlidersHorizontal, Link2, Inbox,
+  Sparkles, Target, BrainCircuit,
 } from 'lucide-react'
 import {
   supabase, loadAllData, loadAllTransactions, saveAccount, deleteAccount, updateAccount,
   saveTransactions, updateTransaction, deleteTransaction, deleteTransactions, recategorizeTransactions,
   saveImovel, updateImovel, deleteImovel, linkContaImovel, unlinkContaImovel,
   assignTransactionToImovel, assignTransactionsToImovel,
-  type Account, type Transaction, type Imovel, type ImovelRenda, type ContaImovel,
+  loadCategoryRules, learnFromCategorization, matchRule, deleteCategoryRule, deleteCategoryRules, updateCategoryRule,
+  type Account, type Transaction, type Imovel, type ImovelRenda, type ContaImovel, type CategoryRule,
 } from '@/lib/supabase'
 
 // ─────────────────────────────────────────────────────────────────
@@ -34,7 +36,7 @@ const PAL: Record<string,{grad:string,accent:string,soft:string}> = {
 }
 const tagPal = (tag:string) => tag==='investimento' ? PAL.imoveis : (PAL[tag] ?? PAL.pessoal)
 const PROP_GRAD = {pos:'linear-gradient(145deg,#042b1c,#0d5c38)',neg:'linear-gradient(145deg,#1c0808,#7f1d1d)'}
-const CAT_LIST = ['Receita','Alimentação','Restauração','Compras','Saúde','Transportes','Lazer','Levantamentos','Utilities','Subscrições','Investimentos','Comissões e Taxas','Transferências','Despesas Gerais']
+const CAT_LIST = ['Receita','Alimentação','Restauração','Compras','Saúde','Transportes','Lazer','Levantamentos','Habitação','Utilities','Subscrições','Investimentos','Comissões e Taxas','Transferências','Despesas Gerais']
 const CAT_META: Record<string,{cor:string,icon:string}> = {
   'Receita':{cor:'#4ADE80',icon:'💰'},
   'Alimentação':{cor:'#4ADE80',icon:'🛒'},
@@ -44,7 +46,8 @@ const CAT_META: Record<string,{cor:string,icon:string}> = {
   'Transportes':{cor:'#22D3EE',icon:'🚗'},
   'Lazer':{cor:'#FBBF24',icon:'🎭'},
   'Levantamentos':{cor:'#A3A3A3',icon:'💵'},
-  'Utilities':{cor:'#A78BFA',icon:'💡'},
+  'Habitação':{cor:'#A78BFA',icon:'🏠'},
+  'Utilities':{cor:'#818CF8',icon:'💡'},
   'Subscrições':{cor:'#FB7185',icon:'📱'},
   'Investimentos':{cor:'#60A5FA',icon:'📈'},
   'Comissões e Taxas':{cor:'#94A3B8',icon:'🏦'},
@@ -382,6 +385,8 @@ const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis}:{txn:Transaction,onClose:
       fields.imovel_classificado = true
     }
     await updateTransaction(txn.id, fields)
+    // Aprendizagem: reforça/cria a regra com base na categoria escolhida manualmente
+    await learnFromCategorization(descritivo, categoria)
     await onSaved(); setSaving(false); onClose()
   }
   const del = async () => {
@@ -522,7 +527,10 @@ const AllTransactionsScreen = ({allTxns,accounts,tag,pal,onClose,onRefresh,imove
     setSelected(new Set()); setSelectMode(false); await onRefresh()
   }
   const doRecat = async (cat:string) => {
+    const selectedTxns = filtered.filter(t=>selected.has(t.id))
     await recategorizeTransactions(Array.from(selected), cat)
+    // Aprendizagem: reforça/cria regras para cada descritivo recategorizado em lote
+    for(const t of selectedTxns) await learnFromCategorization(t.descritivo, cat)
     setShowRecat(false); setSelected(new Set()); setSelectMode(false); await onRefresh()
   }
 
@@ -717,11 +725,106 @@ const AccountForm = ({initial,onClose,onSaved,pal,accountsLen}:{initial:Account|
 }
 
 // ─────────────────────────────────────────────────────────────────
+// RULES SCREEN — gestão de regras de categorização aprendidas (com bulk)
+// ─────────────────────────────────────────────────────────────────
+const RulesScreen = ({onClose,pal}:{onClose:()=>void,pal:{accent:string,soft:string}}) => {
+  const [rules,setRules] = useState<CategoryRule[]>([])
+  const [loading,setLoading] = useState(true)
+  const [selectMode,setSelectMode] = useState(false)
+  const [selected,setSelected] = useState<Set<string>>(new Set())
+  const [showRecat,setShowRecat] = useState(false)
+
+  const load = useCallback(async()=>{ setLoading(true); const r = await loadCategoryRules(); setRules(r); setLoading(false) },[])
+  useEffect(()=>{ load() },[load])
+
+  const toggleSel = (id:string) => { const n=new Set(selected); n.has(id)?n.delete(id):n.add(id); setSelected(n) }
+  const selectAll = () => { selected.size===rules.length ? setSelected(new Set()) : setSelected(new Set(rules.map(r=>r.id))) }
+  const doDelete = async () => {
+    if(!confirm(`Apagar ${selected.size} regras? As transações já categorizadas não são afectadas.`)) return
+    await deleteCategoryRules(Array.from(selected))
+    setSelected(new Set()); setSelectMode(false); await load()
+  }
+  const doDeleteOne = async (id:string) => {
+    if(!confirm('Apagar esta regra?')) return
+    await deleteCategoryRule(id); await load()
+  }
+  const doRecatRules = async (cat:string) => {
+    for(const id of selected) await updateCategoryRule(id, cat)
+    setShowRecat(false); setSelected(new Set()); setSelectMode(false); await load()
+  }
+
+  return (
+    <div style={{position:'fixed',inset:0,background:T.bg,zIndex:90,overflowY:'auto',fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
+      <div style={{maxWidth:440,margin:'0 auto'}}>
+        <div style={{position:'sticky',top:0,zIndex:10,background:T.surface,borderBottom:`1px solid ${T.border}`}}>
+          <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px'}}>
+            <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ArrowLeft size={18} color={T.textSec}/></button>
+            <div style={{flex:1}}>
+              <div style={{fontSize:16,fontWeight:700,color:T.text}}>Regras Aprendidas</div>
+              <div style={{fontSize:11,color:T.textSec}}>{rules.length} padrões guardados</div>
+            </div>
+            <button onClick={()=>{setSelectMode(!selectMode);setSelected(new Set())}} style={{background:selectMode?pal.accent:T.surface2,border:'none',borderRadius:10,padding:'7px 10px',cursor:'pointer'}}>
+              <CheckSquare size={14} color={selectMode?'#0B0B12':T.textSec}/>
+            </button>
+          </div>
+          {selectMode&&(
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 16px',background:pal.soft,borderTop:`1px solid ${T.border}`}}>
+              <button onClick={selectAll} style={{display:'flex',alignItems:'center',gap:6,background:'none',border:'none',cursor:'pointer'}}>
+                {selected.size===rules.length&&rules.length>0?<CheckSquare size={16} color={pal.accent}/>:<Square size={16} color={T.textSec}/>}
+                <span style={{fontSize:12,color:pal.accent,fontWeight:600}}>{selected.size>0?`${selected.size} selecionadas`:'Selecionar todas'}</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div style={{padding:'14px 14px 100px'}}>
+          <Card style={{background:pal.soft,padding:'12px 14px',marginBottom:16}}>
+            <div style={{fontSize:12,color:T.textSec,lineHeight:1.6}}>
+              <BrainCircuit size={13} style={{display:'inline',marginRight:4,verticalAlign:-2}}/>
+              Sempre que categorizas uma transação manualmente (ou aceitas uma sugestão da IA), a app guarda o padrão aqui. Nas próximas importações, estas regras têm prioridade sobre a IA.
+            </div>
+          </Card>
+
+          {loading&&<div style={{textAlign:'center',padding:32,color:T.textSec,fontSize:13}}>A carregar…</div>}
+          {!loading&&rules.length===0&&<Card><div style={{padding:32,textAlign:'center',color:T.textSec,fontSize:13}}>Ainda sem regras. Categoriza algumas transações para começares a ensinar a app.</div></Card>}
+
+          {rules.map((r,i)=>{
+            const isSel = selected.has(r.id)
+            return (
+              <Card key={r.id} style={{marginBottom:8,padding:'12px 14px',background:isSel?pal.soft:T.surface}}>
+                <div onClick={()=>selectMode?toggleSel(r.id):undefined} style={{display:'flex',alignItems:'center',gap:10,cursor:selectMode?'pointer':'default'}}>
+                  {selectMode&&<div style={{flexShrink:0}}>{isSel?<CheckSquare size={18} color={pal.accent}/>:<Square size={18} color={T.textTer}/>}</div>}
+                  <div style={{width:34,height:34,borderRadius:10,background:T.surface2,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0}}>{getCatStyle(r.categoria).icon}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:600,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>"{r.pattern}"</div>
+                    <div style={{fontSize:11,color:T.textSec,marginTop:1}}>→ {r.categoria} · usada {r.vezes_usada}×</div>
+                  </div>
+                  {!selectMode&&<button onClick={()=>doDeleteOne(r.id)} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><Trash2 size={14} color={T.textTer}/></button>}
+                </div>
+              </Card>
+            )
+          })}
+        </div>
+
+        {selectMode && selected.size>0 && (
+          <div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:440,background:T.surface,borderTop:`1px solid ${T.border}`,padding:'12px 16px 20px',display:'flex',gap:10,zIndex:20}}>
+            <Btn onClick={()=>setShowRecat(true)} variant="ghost" accent={pal.accent} style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',gap:6}}><Tag size={15}/> Mudar categoria</Btn>
+            <Btn onClick={doDelete} variant="danger" accent={pal.accent} style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',gap:6}}><Trash2 size={15}/> Apagar ({selected.size})</Btn>
+          </div>
+        )}
+      </div>
+      {showRecat&&<RecategorizeSheet count={selected.size} onApply={doRecatRules} onClose={()=>setShowRecat(false)} pal={pal}/>}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────
 // SETTINGS
 // ─────────────────────────────────────────────────────────────────
 const SettingsPanel = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accounts:Account[],onRefresh:()=>void,pal:{accent:string,soft:string}}) => {
   const [formOpen,setFormOpen] = useState(false)
   const [editing,setEditing] = useState<Account|null>(null)
+  const [showRules,setShowRules] = useState(false)
   const openNew = () => { setEditing(null); setFormOpen(true) }
   const openEdit = (a:Account) => { setEditing(a); setFormOpen(true) }
   const del = async (id:string) => { if(!confirm('Apagar esta conta? As transações associadas também serão removidas.')) return; await deleteAccount(id); await onRefresh() }
@@ -766,10 +869,16 @@ const SettingsPanel = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accoun
           {accounts.length>0&&(
             <button onClick={resetAllSaldos} style={{width:'100%',background:'none',border:'none',cursor:'pointer',padding:'6px 4px',color:T.textTer,fontSize:11,marginBottom:14,textAlign:'left'}}>↺ Zerar saldo de todas as contas</button>
           )}
+          <button onClick={()=>setShowRules(true)} style={{width:'100%',display:'flex',alignItems:'center',gap:10,background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,padding:'12px 14px',cursor:'pointer',marginBottom:14}}>
+            <BrainCircuit size={16} color={pal.accent}/>
+            <span style={{flex:1,textAlign:'left',fontSize:13,fontWeight:600,color:T.text}}>Regras Aprendidas</span>
+            <span style={{fontSize:11,color:T.textTer}}>›</span>
+          </button>
           <button onClick={async()=>{await supabase.auth.signOut();window.location.reload()}} style={{width:'100%',background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,padding:'12px',color:T.red,fontSize:13,fontWeight:600,cursor:'pointer'}}>Terminar sessão</button>
         </div>
       </div>
       {formOpen&&<AccountForm initial={editing} onClose={()=>setFormOpen(false)} onSaved={onRefresh} pal={pal} accountsLen={accounts.length}/>}
+      {showRules&&<RulesScreen onClose={()=>setShowRules(false)} pal={pal}/>}
     </div>
   )
 }
@@ -780,7 +889,7 @@ const SettingsPanel = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accoun
 // ─────────────────────────────────────────────────────────────────
 // IMPORT WIZARD — real PDF parsing via Gemini + preview (multi-ficheiro)
 // ─────────────────────────────────────────────────────────────────
-type ParsedTxn = { id:number; data:string; descritivo:string; valor:number; categoria:string; keep:boolean; src:string }
+type ParsedTxn = { id:number; data:string; descritivo:string; valor:number; categoria:string; keep:boolean; src:string; catSrc:'regra'|'ia'|'manual' }
 type FileMeta = { saldo_final:number|null; iban:string|null; numero_conta:string|null; periodo_fim:string|null }
 type ParsedFile = { name:string; meta:FileMeta; ok:boolean; error?:string }
 
@@ -793,8 +902,11 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
   const [files,setFiles] = useState<ParsedFile[]>([])
   const [parsed,setParsed] = useState<ParsedTxn[]>([])
   const [saving,setSaving] = useState(false)
+  const [rules,setRules] = useState<CategoryRule[]>([])
   const fileRef = useRef<HTMLInputElement>(null)
   const selAccObj = accounts.find(a=>a.id===selAccount)
+
+  useEffect(()=>{ loadCategoryRules().then(setRules) },[])
 
   const handleFiles = async (e:React.ChangeEvent<HTMLInputElement>) => {
     const fileList = Array.from(e.target.files ?? [])
@@ -814,10 +926,16 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
         const res = await fetch('/api/parse', {method:'POST', body:form})
         const data = await res.json()
         if(!res.ok || data.error) throw new Error(data.error || `Erro ${res.status}`)
-        const txns = (data.transactions ?? []).map((t:any)=>({
-          id: idCounter++, data:t.data, descritivo:t.descritivo, valor:Number(t.valor),
-          categoria: Number(t.valor)>=0 ? 'Receita' : 'Despesas Gerais', keep:true, src:file.name,
-        }))
+        const txns = (data.transactions ?? []).map((t:any)=>{
+          // Prioridade: regra aprendida > sugestão do Gemini > fallback por sinal
+          const ruleCat = matchRule(t.descritivo, rules)
+          const cat = ruleCat ?? t.categoria ?? (Number(t.valor)>=0 ? 'Receita' : 'Despesas Gerais')
+          return {
+            id: idCounter++, data:t.data, descritivo:t.descritivo, valor:Number(t.valor),
+            categoria: cat, keep:true, src:file.name,
+            catSrc: (ruleCat ? 'regra' : 'ia') as 'regra'|'ia'|'manual',
+          }
+        })
         allTxns.push(...txns)
         fileMetas.push({
           name:file.name, ok:true,
@@ -846,7 +964,7 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
   }
 
   const toggleKeep = (id:number) => setParsed(p=>p.map(t=>t.id===id?{...t,keep:!t.keep}:t))
-  const setCat = (id:number,cat:string) => setParsed(p=>p.map(t=>t.id===id?{...t,categoria:cat}:t))
+  const setCat = (id:number,cat:string) => setParsed(p=>p.map(t=>t.id===id?{...t,categoria:cat,catSrc:'manual' as const}:t))
   const toSave = parsed.filter(t=>t.keep)
 
   // Escolhe os metadados do ficheiro com periodo_fim mais recente (o extrato mais actual)
@@ -864,6 +982,12 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
       import_batch_id:null, imovel_id:null, notas:null, subcategoria:null, descritivo_norm:null,
     }))
     await saveTransactions(txns as any)
+
+    // Aprendizagem: reforça/cria regras com base na categoria final de cada transação importada
+    // (cobre tanto sugestões da IA aceites como correcções manuais no preview)
+    for(const t of toSave) {
+      await learnFromCategorization(t.descritivo, t.categoria)
+    }
 
     // Só actualiza o saldo se o extrato mais recente for de facto mais recente
     // que a última actualização já gravada na conta (evita extratos antigos sobrescreverem dados novos)
@@ -1004,8 +1128,12 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
               )}
 
               {/* Lista de transações */}
-              <div style={{fontSize:11,color:T.textTer,fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:8}}>
-                Transações encontradas
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                <span style={{fontSize:11,color:T.textTer,fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase'}}>Transações encontradas</span>
+                <div style={{display:'flex',gap:8}}>
+                  <span style={{fontSize:10,color:T.textTer,display:'flex',alignItems:'center',gap:3}}><Target size={10}/> regra</span>
+                  <span style={{fontSize:10,color:T.textTer,display:'flex',alignItems:'center',gap:3}}><Sparkles size={10}/> IA</span>
+                </div>
               </div>
               <Card style={{marginBottom:14}}>
                 {parsed.map((t,i)=>(
@@ -1017,6 +1145,8 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
                       <div style={{fontSize:12,fontWeight:500,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div>
                       <div style={{display:'flex',alignItems:'center',gap:6,marginTop:3}}>
                         <span style={{fontSize:10,color:T.textTer}}>{t.data}</span>
+                        {t.catSrc==='regra'&&<Target size={10} color={pal.accent}/>}
+                        {t.catSrc==='ia'&&<Sparkles size={10} color={T.textTer}/>}
                         <select value={t.categoria} onChange={e=>setCat(t.id,e.target.value)} onClick={e=>e.stopPropagation()}
                           style={{fontSize:10,background:T.surface2,border:`1px solid ${T.border}`,borderRadius:6,padding:'1px 4px',color:T.textSec,outline:'none',cursor:'pointer'}}>
                           {CAT_LIST.map(c=><option key={c} value={c}>{c}</option>)}

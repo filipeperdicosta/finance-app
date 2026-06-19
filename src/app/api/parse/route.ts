@@ -2,15 +2,17 @@ import { NextRequest, NextResponse } from 'next/server'
 
 const GEMINI_MODEL = 'gemini-2.5-flash-lite'
 
+const CATEGORIES = ['Receita','Alimentação','Restauração','Compras','Saúde','Transportes','Lazer','Levantamentos','Habitação','Utilities','Subscrições','Investimentos','Comissões e Taxas','Transferências','Despesas Gerais']
+
 const PROMPT = `You are a financial data extraction specialist for Portuguese bank statements.
 
-TASK: Read the attached bank statement and extract every transaction.
+TASK: Read the attached bank statement, extract every transaction, and classify each one into a category.
 
 OUTPUT FORMAT (mandatory): Return ONLY a valid JSON object. No markdown, no code fences, no explanation text before or after — just the raw JSON object starting with { and ending with }.
 
 {
   "transactions": [
-    { "data": "YYYY-MM-DD", "descritivo": "original description", "valor": -45.80 }
+    { "data": "YYYY-MM-DD", "descritivo": "original description", "valor": -45.80, "categoria": "Alimentação" }
   ],
   "meta": {
     "saldo_final": 835.57,
@@ -27,6 +29,11 @@ TRANSACTION RULES (apply to every single row in the statement):
 4. Strip € symbols and thousands separators (spaces, dots, commas used as thousands marks) from numbers. Use a period (.) only as the decimal separator.
 5. Do NOT include: balance carried forward rows, totals, subtotals, opening/closing balance lines, or column headers.
 6. Extract EVERY individual transaction row — if there are 30, 50, or 100+ rows, include all of them. Do not summarize, truncate, or skip rows to save space.
+
+CATEGORY RULES:
+1. "categoria" must be exactly one of this list (copy the exact spelling): ${CATEGORIES.join(', ')}
+2. Choose based on the merchant/description. Examples: supermarket chains → "Alimentação"; restaurants, cafés, bars → "Restauração"; fuel, tolls, public transport, ride-hailing → "Transportes"; pharmacy, clinics, hospitals → "Saúde"; ATM withdrawals → "Levantamentos"; mortgage/rent payments → "Habitação"; electricity/water/gas/internet/phone bills → "Utilities"; streaming/software/memberships → "Subscrições"; brokerage/stock purchases → "Investimentos"; bank fees/charges → "Comissões e Taxas"; transfers between own accounts or to other people → "Transferências"; salary/income/positive amounts → "Receita".
+3. If genuinely unsure, use "Despesas Gerais" as a safe default — never invent a category outside the list.
 
 META RULES:
 1. "saldo_final": the closing/final account balance shown at the end of the statement period, as a plain number.
@@ -106,7 +113,7 @@ export async function POST(req: NextRequest) {
 
     const clean = rawText.replace(/```(?:json)?[\r\n]*/g, '').replace(/```/g, '').trim()
 
-    let transactions: { data: string; descritivo: string; valor: number }[] = []
+    let transactions: { data: string; descritivo: string; valor: number; categoria?: string }[] = []
     let meta: { saldo_final: number | null; iban: string | null; numero_conta: string | null; periodo_fim: string | null } =
       { saldo_final: null, iban: null, numero_conta: null, periodo_fim: null }
     let parseFailed = false
@@ -145,6 +152,7 @@ export async function POST(req: NextRequest) {
         data: String(t.data ?? '').trim(),
         descritivo: String(t.descritivo ?? '').trim(),
         valor: Number(t.valor) || 0,
+        categoria: CATEGORIES.includes(t.categoria) ? t.categoria : (Number(t.valor) >= 0 ? 'Receita' : 'Despesas Gerais'),
       }))
       .filter(t => t.data && t.descritivo && t.valor !== 0)
 
