@@ -172,6 +172,45 @@ const MoneyInp = ({label,value,onChange,placeholder,hint}:{label:string,value:st
     {hint&&<div style={{fontSize:11,color:T.textSec,marginTop:5,lineHeight:1.5}}>{hint}</div>}
   </div>
 )
+// Campo de data: mostra/edita sempre em DD/MM/AAAA (independente do idioma do browser),
+// mas guarda e devolve sempre ISO YYYY-MM-DD (o que a base de dados espera).
+const isoToDisplay = (iso:string) => {
+  if(!iso) return ''
+  const [y,m,d] = iso.split('-')
+  if(!y||!m||!d) return ''
+  return `${d}/${m}/${y}`
+}
+const displayToIso = (disp:string) => {
+  const digits = disp.replace(/\D/g,'')
+  if(digits.length<8) return ''
+  const d = digits.slice(0,2), m = digits.slice(2,4), y = digits.slice(4,8)
+  return `${y}-${m}-${d}`
+}
+const maskDateInput = (raw:string) => {
+  const digits = raw.replace(/\D/g,'').slice(0,8)
+  let out = digits
+  if(digits.length>=5) out = `${digits.slice(0,2)}/${digits.slice(2,4)}/${digits.slice(4)}`
+  else if(digits.length>=3) out = `${digits.slice(0,2)}/${digits.slice(2)}`
+  return out
+}
+const DateInp = ({label,value,onChange}:{label:string,value:string,onChange:(iso:string)=>void}) => {
+  const [display,setDisplay] = useState(isoToDisplay(value))
+  useEffect(()=>{ setDisplay(isoToDisplay(value)) },[value])
+  return (
+    <div style={{marginBottom:14}}>
+      <div style={{fontSize:11,color:T.textSec,fontWeight:600,marginBottom:5,textTransform:'uppercase',letterSpacing:'0.06em'}}>{label}</div>
+      <input inputMode="numeric" value={display} placeholder="DD/MM/AAAA"
+        onChange={e=>{
+          const masked = maskDateInput(e.target.value)
+          setDisplay(masked)
+          const iso = displayToIso(masked)
+          if(iso) onChange(iso)
+          else if(!masked) onChange('')
+        }}
+        style={{width:'100%',background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,padding:'10px 12px',color:T.text,fontSize:13,outline:'none',boxSizing:'border-box',fontFamily:T.mono}}/>
+    </div>
+  )
+}
 const Sel = ({label,value,onChange,options}:{label:string,value:string,onChange:(v:string)=>void,options:{value:string,label:string}[]}) => (
   <div style={{marginBottom:14}}>
     <div style={{fontSize:11,color:T.textSec,fontWeight:600,marginBottom:5,textTransform:'uppercase',letterSpacing:'0.06em'}}>{label}</div>
@@ -216,11 +255,12 @@ const Toggle = ({val,set,accent}:{val:string,set:(v:string)=>void,accent:string}
 const DynChart = ({data,type}:{data:{m:string,rec:number,desp:number}[],type:string}) => {
   const tip = <Tooltip contentStyle={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,fontSize:12}} formatter={(v:any,k:string)=>[dec(v),k==='rec'?'Receitas':'Despesas']} labelStyle={{color:T.text,fontWeight:600}} cursor={{fill:'rgba(255,255,255,0.03)'}}/>
   const ax = <XAxis dataKey="m" tick={{fontSize:11,fill:T.textSec}} axisLine={false} tickLine={false}/>
+  const margin = {top:8,right:10,bottom:0,left:10}
   return (
     <ResponsiveContainer width="100%" height={120}>
-      {type==='Bar'?(<BarChart data={data} barCategoryGap="25%" barGap={3}>{ax}<YAxis hide/>{tip}<Bar dataKey="rec" fill="rgba(74,222,128,0.4)" radius={[4,4,0,0]} maxBarSize={26}/><Bar dataKey="desp" fill="rgba(248,113,113,0.4)" radius={[4,4,0,0]} maxBarSize={26}/></BarChart>
-      ):type==='Linha'?(<LineChart data={data}>{ax}<YAxis hide/>{tip}<Line dataKey="rec" stroke={T.green} strokeWidth={2} dot={{fill:T.green,r:3,strokeWidth:0}}/><Line dataKey="desp" stroke={T.red} strokeWidth={2} dot={{fill:T.red,r:3,strokeWidth:0}}/></LineChart>
-      ):(<AreaChart data={data}>{ax}<YAxis hide/>{tip}<Area dataKey="rec" stroke={T.green} strokeWidth={2} fill="rgba(74,222,128,0.12)"/><Area dataKey="desp" stroke={T.red} strokeWidth={2} fill="rgba(248,113,113,0.12)"/></AreaChart>)}
+      {type==='Bar'?(<BarChart data={data} barCategoryGap="25%" barGap={3} margin={margin}>{ax}<YAxis hide/>{tip}<Bar dataKey="rec" fill="rgba(74,222,128,0.4)" radius={[4,4,0,0]} maxBarSize={26}/><Bar dataKey="desp" fill="rgba(248,113,113,0.4)" radius={[4,4,0,0]} maxBarSize={26}/></BarChart>
+      ):type==='Linha'?(<LineChart data={data} margin={margin}>{ax}<YAxis hide/>{tip}<Line dataKey="rec" stroke={T.green} strokeWidth={2} dot={{fill:T.green,r:3,strokeWidth:0}}/><Line dataKey="desp" stroke={T.red} strokeWidth={2} dot={{fill:T.red,r:3,strokeWidth:0}}/></LineChart>
+      ):(<AreaChart data={data} margin={margin}>{ax}<YAxis hide/>{tip}<Area dataKey="rec" stroke={T.green} strokeWidth={2} fill="rgba(74,222,128,0.12)"/><Area dataKey="desp" stroke={T.red} strokeWidth={2} fill="rgba(248,113,113,0.12)"/></AreaChart>)}
     </ResponsiveContainer>
   )
 }
@@ -355,7 +395,7 @@ const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis}:{txn:Transaction,onClose:
           <MoneyInp label="Valor (€)" value={valor.replace('-','')} onChange={setValor}/>
           <Sel label="Categoria" value={categoria} onChange={setCategoria} options={CAT_LIST.map(c=>({value:c,label:`${getCatStyle(c).icon} ${c}`}))}/>
           {hasImoveis&&<Sel label="Imóvel associado" value={imovelId} onChange={setImovelId} options={[{value:'',label:'Geral (nenhum imóvel)'},...imoveis!.map(im=>({value:im.id,label:`🏠 ${im.nome}`}))]}/>}
-          <Inp label="Data" value={data} onChange={setData} type="date"/>
+          <DateInp label="Data" value={data} onChange={setData}/>
           <div style={{display:'flex',gap:10,marginTop:4}}>
             <Btn onClick={del} variant="danger" accent={pal.accent} style={{flex:1}}>Apagar</Btn>
             <Btn onClick={submit} variant="primary" accent={pal.accent} style={{flex:2}}>{saving?'A guardar…':'Guardar'}</Btn>
@@ -385,8 +425,8 @@ const FilterSheet = ({filters,onApply,onClose,pal}:{filters:Filters,onApply:(f:F
         <div style={{padding:'20px 18px'}}>
           <div style={{fontSize:11,color:T.textTer,fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:10}}>Intervalo de datas</div>
           <div style={{display:'flex',gap:10}}>
-            <div style={{flex:1}}><Inp label="De" value={f.dateFrom} onChange={upd('dateFrom')} type="date"/></div>
-            <div style={{flex:1}}><Inp label="Até" value={f.dateTo} onChange={upd('dateTo')} type="date"/></div>
+            <div style={{flex:1}}><DateInp label="De" value={f.dateFrom} onChange={upd('dateFrom')}/></div>
+            <div style={{flex:1}}><DateInp label="Até" value={f.dateTo} onChange={upd('dateTo')}/></div>
           </div>
           <Sel label="Tipo de transação" value={f.tipo} onChange={upd('tipo')} options={[{value:'todos',label:'Todas'},{value:'receita',label:'🟢 Só receitas'},{value:'despesa',label:'🔴 Só despesas'}]}/>
           <div style={{fontSize:11,color:T.textTer,fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:10}}>Intervalo de valores (€)</div>
@@ -1066,7 +1106,7 @@ const ImovelForm = ({initial,accounts,linkedAccountIds,onClose,onSaved,pal,imove
 
           <div style={{fontSize:11,color:T.textTer,fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:10,marginTop:4}}>Valorização (valor de mercado)</div>
           <MoneyInp label="Valor estimado (€)" value={form.valorizacao} onChange={f('valorizacao')} placeholder="ex: 250 000,00"/>
-          <Inp label="Data da última actualização" value={form.valorizacao_data} onChange={f('valorizacao_data')} type="date"/>
+          <DateInp label="Data da última actualização" value={form.valorizacao_data} onChange={f('valorizacao_data')}/>
           <div style={{fontSize:11,color:T.textSec,marginTop:-8,marginBottom:14,lineHeight:1.5}}>Informativo. Só entra nos totais quando ligas o toggle "Incluir valorização".</div>
 
           <div style={{fontSize:11,color:T.textTer,fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:10,marginTop:4}}>Contas associadas</div>
