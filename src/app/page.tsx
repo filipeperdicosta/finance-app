@@ -771,8 +771,8 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
 
   return (
     <div onClick={()=>!parsing&&onClose()} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:100,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
-      <input ref={fileRef} type="file" accept=".pdf,.xlsx,.xls,.csv" onChange={handleFile} style={{display:'none'}}/>
       <div onClick={e=>e.stopPropagation()} style={{background:T.surface,borderRadius:'20px 20px 0 0',width:'100%',maxWidth:440,maxHeight:'92vh',display:'flex',flexDirection:'column',fontFamily:'-apple-system,BlinkMacSystemFont,sans-serif'}}>
+        <input ref={fileRef} type="file" accept=".pdf,.xlsx,.xls,.csv" onChange={handleFile} style={{display:'none'}}/>
         {/* Header */}
         <div style={{flexShrink:0}}>
           <div style={{display:'flex',alignItems:'center',gap:12,padding:'16px 18px',borderBottom:`1px solid ${T.border}`}}>
@@ -809,7 +809,7 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
               {!parsing&&!parseError&&(
                 <>
                   <div style={{fontSize:13,color:T.textSec,marginBottom:16}}>Selecciona o ficheiro do extrato:</div>
-                  <div onClick={()=>fileRef.current?.click()} style={{display:'flex',alignItems:'center',gap:14,padding:'16px',background:T.surface2,borderRadius:12,marginBottom:10,cursor:'pointer',border:`1px solid ${T.border}`}}>
+                  <div onClick={(e)=>{e.stopPropagation();fileRef.current?.click()}} style={{display:'flex',alignItems:'center',gap:14,padding:'16px',background:T.surface2,borderRadius:12,marginBottom:10,cursor:'pointer',border:`1px solid ${T.border}`}}>
                     <div style={{width:44,height:44,borderRadius:12,background:pal.soft,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><FileText size={22} color={pal.accent}/></div>
                     <div><div style={{fontSize:14,fontWeight:600,color:T.text}}>Upload do dispositivo</div><div style={{fontSize:12,color:T.textSec,marginTop:2}}>PDF, Excel ou CSV · Qualquer banco</div></div>
                   </div>
@@ -833,7 +833,7 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
                     <div style={{fontSize:15,fontWeight:700,color:T.red,marginBottom:8}}>Erro no parsing</div>
                     <div style={{fontSize:13,color:T.textSec,lineHeight:1.6,marginBottom:20}}>{parseError}</div>
                   </div>
-                  <Btn onClick={()=>{setParseError('');fileRef.current?.click()}} variant="primary" accent={pal.accent} style={{width:'100%',marginBottom:10}}>Tentar com outro ficheiro</Btn>
+                  <Btn onClick={(e:any)=>{e.stopPropagation();setParseError('');fileRef.current?.click()}} variant="primary" accent={pal.accent} style={{width:'100%',marginBottom:10}}>Tentar com outro ficheiro</Btn>
                   <Btn onClick={()=>setParseError('')} variant="ghost" accent={pal.accent} style={{width:'100%'}}>Voltar</Btn>
                 </div>
               )}
