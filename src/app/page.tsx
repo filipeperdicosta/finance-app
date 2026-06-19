@@ -749,7 +749,7 @@ const RulesScreen = ({onClose,pal}:{onClose:()=>void,pal:{accent:string,soft:str
     await deleteCategoryRule(id); await load()
   }
   const doRecatRules = async (cat:string) => {
-    for(const id of selected) await updateCategoryRule(id, cat)
+    for(const id of Array.from(selected)) await updateCategoryRule(id, cat)
     setShowRecat(false); setSelected(new Set()); setSelectMode(false); await load()
   }
 
