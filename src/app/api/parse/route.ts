@@ -1,41 +1,50 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-// Modelo actual (2.5-flash — gemini-1.5 foi descontinuado em 2026)
 const GEMINI_MODEL = 'gemini-2.5-flash'
 
-const PROMPT = `You are a financial data extraction specialist.
-Extract ALL individual transactions from this bank statement PDF.
+const PROMPT = `You are a financial data extraction specialist for Portuguese bank statements.
 
-Return ONLY a valid JSON array — no markdown, no explanation, just the array.
+Return ONLY a valid JSON object with exactly 2 keys: "transactions" and "meta".
+No markdown, no explanation — only the JSON object.
 
-Each transaction must have exactly these 3 fields:
-[
-  { "data": "YYYY-MM-DD", "descritivo": "original description", "valor": -45.80 }
-]
+Format:
+{
+  "transactions": [
+    { "data": "YYYY-MM-DD", "descritivo": "original description", "valor": -45.80 }
+  ],
+  "meta": {
+    "saldo_final": 835.57,
+    "iban": "PT50 0010 0000 0000 0000 0000 0",
+    "numero_conta": "12345678",
+    "periodo_fim": "2026-01-31"
+  }
+}
 
-Critical rules:
-1. "valor" is always a NUMBER: NEGATIVE for debits/expenses, POSITIVE for credits/income
-2. "data" must be YYYY-MM-DD (convert DD/MM/YYYY or DD-MM-YYYY)
-3. "descritivo" = the original description text from the PDF
-4. Remove currency symbols and thousands separators from amounts
-5. Use period (.) as decimal separator in the number
-6. SKIP: balance rows, totals, opening/closing balance, header rows
-7. Include EVERY individual transaction
+TRANSACTION rules:
+1. "valor" is a NUMBER: NEGATIVE for debits/expenses/saídas/débitos, POSITIVE for credits/income/entradas/créditos
+2. Convert dates to YYYY-MM-DD (DD/MM/YYYY → YYYY-MM-DD)
+3. "descritivo" = original description text from PDF, unchanged
+4. Remove € symbols and thousands separators; use period (.) as decimal separator
+5. SKIP: balance rows, totals, opening/closing balance lines, headers
+6. Include EVERY individual transaction
 
-If no transactions found, return: []`
+META rules:
+1. "saldo_final": the closing/final account balance at the END of the statement (number, NOT string)
+2. "iban": full IBAN (e.g. PT50 0010...) or null if not found
+3. "numero_conta": account number digits or null if not found
+4. "periodo_fim": last date of statement period as YYYY-MM-DD, or null
+5. Use null for any field not present in the document
+
+If no transactions found, use [] for transactions and null for all meta fields.`
 
 export async function POST(req: NextRequest) {
   try {
     const apiKey = process.env.GEMINI_API_KEY
-    if (!apiKey) {
-      return NextResponse.json({ error: 'GEMINI_API_KEY não configurada' }, { status: 500 })
-    }
+    if (!apiKey) return NextResponse.json({ error: 'GEMINI_API_KEY não configurada' }, { status: 500 })
 
     const formData = await req.formData()
     const file = formData.get('file') as File | null
-    if (!file) {
-      return NextResponse.json({ error: 'Ficheiro não recebido' }, { status: 400 })
-    }
+    if (!file) return NextResponse.json({ error: 'Ficheiro não recebido' }, { status: 400 })
 
     const name = file.name.toLowerCase()
     let mimeType = 'application/pdf'
@@ -52,12 +61,10 @@ export async function POST(req: NextRequest) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{
-            parts: [
-              { inline_data: { mime_type: mimeType, data: base64 } },
-              { text: PROMPT }
-            ]
-          }],
+          contents: [{ parts: [
+            { inline_data: { mime_type: mimeType, data: base64 } },
+            { text: PROMPT }
+          ]}],
           generationConfig: { temperature: 0.1, maxOutputTokens: 8192 }
         })
       }
@@ -66,25 +73,38 @@ export async function POST(req: NextRequest) {
     if (!geminiRes.ok) {
       const errText = await geminiRes.text()
       console.error('Gemini error:', geminiRes.status, errText)
-      if (geminiRes.status === 400) return NextResponse.json({ error: 'API key inválida ou ficheiro não suportado' }, { status: 400 })
       if (geminiRes.status === 429) return NextResponse.json({ error: 'Limite da API atingido. Aguarda alguns segundos.' }, { status: 429 })
       return NextResponse.json({ error: `Erro Gemini: ${geminiRes.status}` }, { status: 500 })
     }
 
     const geminiData = await geminiRes.json()
-    const rawText: string = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text ?? '[]'
-
+    const rawText: string = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}'
     const clean = rawText.replace(/```(?:json)?[\r\n]*/g, '').replace(/```/g, '').trim()
 
     let transactions: { data: string; descritivo: string; valor: number }[] = []
+    let meta: { saldo_final: number | null; iban: string | null; numero_conta: string | null; periodo_fim: string | null } =
+      { saldo_final: null, iban: null, numero_conta: null, periodo_fim: null }
+
     try {
       const parsed = JSON.parse(clean)
-      transactions = Array.isArray(parsed) ? parsed : []
-    } catch {
-      const match = clean.match(/\[[\s\S]*\]/)
-      if (match) {
-        try { transactions = JSON.parse(match[0]) } catch { transactions = [] }
+      if (Array.isArray(parsed)) {
+        // Legacy: model returned just an array
+        transactions = parsed
+      } else {
+        transactions = Array.isArray(parsed.transactions) ? parsed.transactions : []
+        if (parsed.meta) {
+          meta = {
+            saldo_final: parsed.meta.saldo_final != null ? Number(parsed.meta.saldo_final) : null,
+            iban: parsed.meta.iban ?? null,
+            numero_conta: parsed.meta.numero_conta ?? null,
+            periodo_fim: parsed.meta.periodo_fim ?? null,
+          }
+        }
       }
+    } catch {
+      // Try to salvage a transactions array from text
+      const match = clean.match(/\[[\s\S]*\]/)
+      if (match) { try { transactions = JSON.parse(match[0]) } catch { transactions = [] } }
     }
 
     transactions = transactions
@@ -95,7 +115,7 @@ export async function POST(req: NextRequest) {
       }))
       .filter(t => t.data && t.descritivo && t.valor !== 0)
 
-    return NextResponse.json({ transactions, count: transactions.length })
+    return NextResponse.json({ transactions, meta, count: transactions.length })
 
   } catch (err: any) {
     console.error('Parse route error:', err)

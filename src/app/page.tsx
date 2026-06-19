@@ -317,8 +317,8 @@ const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis}:{txn:Transaction,onClose:
   }
 
   return (
-    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:120,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
-      <div style={{background:T.surface,borderRadius:'20px 20px 0 0',width:'100%',maxWidth:440,maxHeight:'88vh',overflow:'auto',padding:'0 0 24px'}}>
+    <div onClick={onClose} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:120,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.surface,borderRadius:'20px 20px 0 0',width:'100%',maxWidth:440,maxHeight:'88vh',overflow:'auto',padding:'0 0 24px'}}>
         <div style={{display:'flex',alignItems:'center',padding:'16px 18px',borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,background:T.surface}}>
           <div style={{flex:1,fontSize:15,fontWeight:700,color:T.text}}>Editar Transação</div>
           <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer'}}><X size={18} color={T.textSec}/></button>
@@ -350,8 +350,8 @@ const FilterSheet = ({filters,onApply,onClose,pal}:{filters:Filters,onApply:(f:F
   const [f,setF] = useState<Filters>(filters)
   const upd = (k:keyof Filters)=>(v:string)=>setF({...f,[k]:v})
   return (
-    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:120,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
-      <div style={{background:T.surface,borderRadius:'20px 20px 0 0',width:'100%',maxWidth:440,maxHeight:'88vh',overflow:'auto',padding:'0 0 24px'}}>
+    <div onClick={onClose} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:120,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.surface,borderRadius:'20px 20px 0 0',width:'100%',maxWidth:440,maxHeight:'88vh',overflow:'auto',padding:'0 0 24px'}}>
         <div style={{display:'flex',alignItems:'center',padding:'16px 18px',borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,background:T.surface}}>
           <div style={{flex:1,fontSize:15,fontWeight:700,color:T.text}}>Filtros</div>
           <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer'}}><X size={18} color={T.textSec}/></button>
@@ -385,8 +385,8 @@ const FilterSheet = ({filters,onApply,onClose,pal}:{filters:Filters,onApply:(f:F
 const RecategorizeSheet = ({count,onApply,onClose,pal}:{count:number,onApply:(cat:string)=>void,onClose:()=>void,pal:{accent:string,soft:string}}) => {
   const [cat,setCat] = useState('Outros')
   return (
-    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:130,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
-      <div style={{background:T.surface,borderRadius:'20px 20px 0 0',width:'100%',maxWidth:440,padding:'0 0 24px'}}>
+    <div onClick={onClose} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:130,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.surface,borderRadius:'20px 20px 0 0',width:'100%',maxWidth:440,padding:'0 0 24px'}}>
         <div style={{display:'flex',alignItems:'center',padding:'16px 18px',borderBottom:`1px solid ${T.border}`}}>
           <div style={{flex:1,fontSize:15,fontWeight:700,color:T.text}}>Recategorizar {count} transações</div>
           <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer'}}><X size={18} color={T.textSec}/></button>
@@ -609,8 +609,8 @@ const AccountForm = ({initial,onClose,onSaved,pal,accountsLen}:{initial:Account|
     await onSaved(); setSaving(false); onClose()
   }
   return (
-    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:110,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
-      <div style={{background:T.surface,borderRadius:'20px 20px 0 0',width:'100%',maxWidth:440,maxHeight:'88vh',overflow:'auto',padding:'0 0 24px'}}>
+    <div onClick={onClose} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:110,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.surface,borderRadius:'20px 20px 0 0',width:'100%',maxWidth:440,maxHeight:'88vh',overflow:'auto',padding:'0 0 24px'}}>
         <div style={{display:'flex',alignItems:'center',padding:'16px 18px',borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,background:T.surface}}>
           <div style={{flex:1,fontSize:15,fontWeight:700,color:T.text}}>{isEdit?'Editar Conta':'Nova Conta'}</div>
           <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer'}}><X size={18} color={T.textSec}/></button>
@@ -622,7 +622,15 @@ const AccountForm = ({initial,onClose,onSaved,pal,accountsLen}:{initial:Account|
           <Sel label="Budget" value={form.budget_tag} onChange={f('budget_tag')} options={[{value:'familiar',label:'🟠 Familiar'},{value:'pessoal',label:'🟢 Pessoal'},{value:'investimento',label:'🔵 Investimento'}]}/>
           <Inp label="Titular" value={form.titular} onChange={f('titular')} placeholder="ex: Eu, Cici, Conjunto"/>
           <Inp label="% propriedade" value={form.ownership_pct} onChange={f('ownership_pct')} type="number"/>
-          <MoneyInp label={form.tipo==='cartão'?'Valor em dívida (€)':'Saldo actual (€)'} value={form.saldo_atual} onChange={f('saldo_atual')} hint={form.tipo==='cartão'?'💳 Cartão de crédito: o valor em dívida é mostrado como negativo no saldo.':undefined}/>
+          {isEdit ? (
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:11,color:T.textSec,fontWeight:600,marginBottom:5,textTransform:'uppercase',letterSpacing:'0.06em'}}>Saldo actual</div>
+              <div style={{background:T.surface3,border:`1px solid ${T.border}`,borderRadius:10,padding:'10px 12px',color:T.textSec,fontSize:13,fontFamily:T.mono}}>{dec(Number(form.saldo_atual)||0)}</div>
+              <div style={{fontSize:11,color:T.textSec,marginTop:5,lineHeight:1.5}}>Actualizado automaticamente a cada extracto importado. Não é editável manualmente.</div>
+            </div>
+          ) : (
+            <MoneyInp label={form.tipo==='cartão'?'Valor inicial em dívida (€)':'Saldo inicial (€)'} value={form.saldo_atual} onChange={f('saldo_atual')} hint="Ponto de partida antes do primeiro extracto importado. Depois passa a ser actualizado automaticamente."/>
+          )}
           <Inp label="IBAN (opcional)" value={form.iban} onChange={f('iban')} placeholder="PT50 0000 0000 0000 0000 0000 0"/>
           <Inp label="Número de conta (opcional)" value={form.numero_conta} onChange={f('numero_conta')} placeholder="ex: 0000 0000 0000"/>
           <div style={{display:'flex',gap:10}}>
@@ -694,8 +702,10 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
   const [parseError,setParseError] = useState('')
   const [fileName,setFileName] = useState('')
   const [parsed,setParsed] = useState<ParsedTxn[]>([])
+  const [meta,setMeta] = useState<{saldo_final:number|null,iban:string|null,numero_conta:string|null}>({saldo_final:null,iban:null,numero_conta:null})
   const [saving,setSaving] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const selAccObj = accounts.find(a=>a.id===selAccount)
 
   const handleFile = async (e:React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -714,6 +724,11 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
         id:i, data:t.data, descritivo:t.descritivo, valor:Number(t.valor),
         categoria: Number(t.valor)>=0 ? 'Receita' : 'Outros', keep:true,
       })))
+      setMeta({
+        saldo_final: data.meta?.saldo_final ?? null,
+        iban: data.meta?.iban ?? null,
+        numero_conta: data.meta?.numero_conta ?? null,
+      })
       setStep(3)
     } catch(err:any) {
       setParseError(err.message)
@@ -736,6 +751,17 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
       import_batch_id:null, imovel_id:null, notas:null, subcategoria:null, descritivo_norm:null,
     }))
     await saveTransactions(txns as any)
+
+    // Actualiza saldo da conta com o saldo final do extrato (sempre que disponível)
+    // e preenche IBAN/número de conta apenas se ainda estiverem vazios
+    if(selAccObj){
+      const updates:any = {}
+      if(meta.saldo_final !== null) updates.saldo_atual = meta.saldo_final
+      if(meta.iban && !selAccObj.iban) updates.iban = meta.iban
+      if(meta.numero_conta && !selAccObj.numero_conta) updates.numero_conta = meta.numero_conta
+      if(Object.keys(updates).length) await updateAccount(selAccObj.id, updates)
+    }
+
     await onDone(); setSaving(false); onClose()
   }
 
@@ -744,9 +770,9 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
   const stepLabel = step===1?'Conta':step===2?'Ficheiro':'Confirmar'
 
   return (
-    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:100,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
+    <div onClick={()=>!parsing&&onClose()} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:100,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
       <input ref={fileRef} type="file" accept=".pdf,.xlsx,.xls,.csv" onChange={handleFile} style={{display:'none'}}/>
-      <div style={{background:T.surface,borderRadius:'20px 20px 0 0',width:'100%',maxWidth:440,maxHeight:'92vh',display:'flex',flexDirection:'column',fontFamily:'-apple-system,BlinkMacSystemFont,sans-serif'}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.surface,borderRadius:'20px 20px 0 0',width:'100%',maxWidth:440,maxHeight:'92vh',display:'flex',flexDirection:'column',fontFamily:'-apple-system,BlinkMacSystemFont,sans-serif'}}>
         {/* Header */}
         <div style={{flexShrink:0}}>
           <div style={{display:'flex',alignItems:'center',gap:12,padding:'16px 18px',borderBottom:`1px solid ${T.border}`}}>
@@ -832,6 +858,16 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
                   <div style={{fontSize:14,fontWeight:700,color:T.red}}>{dec(totalDesp)}</div>
                 </div>
               </div>
+
+              {/* O que vai actualizar na conta */}
+              {(meta.saldo_final!==null || (meta.iban&&!selAccObj?.iban) || (meta.numero_conta&&!selAccObj?.numero_conta))&&(
+                <Card style={{background:pal.soft,padding:'11px 14px',marginBottom:14}}>
+                  <div style={{fontSize:11,fontWeight:600,color:pal.accent,marginBottom:6}}>📋 Vai actualizar a conta</div>
+                  {meta.saldo_final!==null&&<div style={{fontSize:12,color:T.textSec,marginBottom:2}}>Saldo → <span style={{color:T.text,fontWeight:600}}>{dec(meta.saldo_final)}</span></div>}
+                  {meta.iban&&!selAccObj?.iban&&<div style={{fontSize:12,color:T.textSec,marginBottom:2}}>IBAN → <span style={{color:T.text,fontWeight:600}}>{meta.iban}</span></div>}
+                  {meta.numero_conta&&!selAccObj?.numero_conta&&<div style={{fontSize:12,color:T.textSec}}>Nº conta → <span style={{color:T.text,fontWeight:600}}>{meta.numero_conta}</span></div>}
+                </Card>
+              )}
 
               {/* Lista de transações */}
               <div style={{fontSize:11,color:T.textTer,fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:8}}>
@@ -942,8 +978,8 @@ const ImovelForm = ({initial,accounts,linkedAccountIds,onClose,onSaved,pal,imove
   }
 
   return (
-    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:120,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
-      <div style={{background:T.surface,borderRadius:'20px 20px 0 0',width:'100%',maxWidth:440,maxHeight:'88vh',overflow:'auto',padding:'0 0 24px'}}>
+    <div onClick={onClose} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:120,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.surface,borderRadius:'20px 20px 0 0',width:'100%',maxWidth:440,maxHeight:'88vh',overflow:'auto',padding:'0 0 24px'}}>
         <div style={{display:'flex',alignItems:'center',padding:'16px 18px',borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,background:T.surface}}>
           <div style={{flex:1,fontSize:15,fontWeight:700,color:T.text}}>{isEdit?'Editar Imóvel':'Novo Imóvel'}</div>
           <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer'}}><X size={18} color={T.textSec}/></button>
