@@ -147,13 +147,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'A resposta do Gemini não veio em formato válido. Tenta novamente — por vezes ajuda repetir o pedido.' }, { status: 422 })
     }
 
+    // Diagnóstico: regista as categorias cruas devolvidas pelo Gemini (antes de validar)
+    const rawCats = transactions.slice(0, 5).map(t => t.categoria)
+    console.log('Categorias cruas do Gemini (amostra):', JSON.stringify(rawCats))
+
+    // Matching tolerante a maiúsculas/espaços (o Gemini por vezes devolve "alimentação" ou " Alimentação ")
+    const normalizeCat = (s: string) => s?.trim().toLowerCase()
+    const catLookup = new Map(CATEGORIES.map(c => [normalizeCat(c), c]))
+
     transactions = transactions
-      .map(t => ({
-        data: String(t.data ?? '').trim(),
-        descritivo: String(t.descritivo ?? '').trim(),
-        valor: Number(t.valor) || 0,
-        categoria: (t.categoria && CATEGORIES.includes(t.categoria)) ? t.categoria : (Number(t.valor) >= 0 ? 'Receita' : 'Despesas Gerais'),
-      }))
+      .map(t => {
+        const matched = t.categoria ? catLookup.get(normalizeCat(t.categoria)) : undefined
+        return {
+          data: String(t.data ?? '').trim(),
+          descritivo: String(t.descritivo ?? '').trim(),
+          valor: Number(t.valor) || 0,
+          categoria: matched ?? (Number(t.valor) >= 0 ? 'Receita' : 'Despesas Gerais'),
+        }
+      })
       .filter(t => t.data && t.descritivo && t.valor !== 0)
 
     return NextResponse.json({ transactions, meta, count: transactions.length })

@@ -1145,8 +1145,8 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
                       <div style={{fontSize:12,fontWeight:500,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div>
                       <div style={{display:'flex',alignItems:'center',gap:6,marginTop:3}}>
                         <span style={{fontSize:10,color:T.textTer}}>{t.data}</span>
-                        {t.catSrc==='regra'&&<Target size={10} color={pal.accent}/>}
-                        {t.catSrc==='ia'&&<Sparkles size={10} color={T.textTer}/>}
+                        {t.catSrc==='regra'&&<span style={{display:'flex',alignItems:'center',gap:2,background:pal.soft,borderRadius:4,padding:'1px 5px'}}><Target size={9} color={pal.accent}/><span style={{fontSize:9,color:pal.accent,fontWeight:600}}>regra</span></span>}
+                        {t.catSrc==='ia'&&<span style={{display:'flex',alignItems:'center',gap:2,background:'rgba(167,139,250,0.12)',borderRadius:4,padding:'1px 5px'}}><Sparkles size={9} color="#A78BFA"/><span style={{fontSize:9,color:'#A78BFA',fontWeight:600}}>IA</span></span>}
                         <select value={t.categoria} onChange={e=>setCat(t.id,e.target.value)} onClick={e=>e.stopPropagation()}
                           style={{fontSize:10,background:T.surface2,border:`1px solid ${T.border}`,borderRadius:6,padding:'1px 4px',color:T.textSec,outline:'none',cursor:'pointer'}}>
                           {CAT_LIST.map(c=><option key={c} value={c}>{c}</option>)}
