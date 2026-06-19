@@ -718,6 +718,16 @@ const SettingsPanel = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accoun
   const openNew = () => { setEditing(null); setFormOpen(true) }
   const openEdit = (a:Account) => { setEditing(a); setFormOpen(true) }
   const del = async (id:string) => { if(!confirm('Apagar esta conta? As transações associadas também serão removidas.')) return; await deleteAccount(id); await onRefresh() }
+  const resetSaldo = async (a:Account) => {
+    if(!confirm(`Zerar o saldo de "${a.nome}"? Volta a €0,00 até importares um novo extracto.`)) return
+    await updateAccount(a.id, {saldo_atual:0, saldo_data:null})
+    await onRefresh()
+  }
+  const resetAllSaldos = async () => {
+    if(!confirm(`Zerar o saldo de TODAS as ${accounts.length} contas? Esta acção não pode ser desfeita.`)) return
+    for(const a of accounts) await updateAccount(a.id, {saldo_atual:0, saldo_data:null})
+    await onRefresh()
+  }
   return (
     <div style={{position:'fixed',inset:0,background:T.bg,zIndex:90,overflowY:'auto',fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
       <div style={{maxWidth:440,margin:'0 auto'}}>
@@ -731,13 +741,14 @@ const SettingsPanel = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accoun
             <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase'}}>Contas ({accounts.length})</span>
             <button onClick={openNew} style={{display:'flex',alignItems:'center',gap:4,background:pal.soft,border:'none',borderRadius:8,padding:'4px 10px',cursor:'pointer'}}><Plus size={12} color={pal.accent}/><span style={{fontSize:11,color:pal.accent,fontWeight:600}}>Adicionar</span></button>
           </div>
-          <Card style={{marginBottom:20}}>
+          <Card style={{marginBottom:14}}>
             {accounts.map((a,i)=>{
               const p=tagPal(a.budget_tag)
               return (
-                <div key={a.id} style={{display:'flex',alignItems:'center',gap:12,padding:'12px 16px',borderBottom:i<accounts.length-1?`1px solid ${T.border}`:'none'}}>
+                <div key={a.id} style={{display:'flex',alignItems:'center',gap:10,padding:'12px 16px',borderBottom:i<accounts.length-1?`1px solid ${T.border}`:'none'}}>
                   <div style={{width:10,height:10,borderRadius:'50%',background:p.accent,flexShrink:0}}/>
-                  <div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:600,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{a.nome}</div><div style={{fontSize:11,color:T.textSec}}>{a.banco} · {a.titular} · {a.ownership_pct}%{a.iban?` · ${a.iban.slice(0,8)}…`:''}</div></div>
+                  <div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:600,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{a.nome}</div><div style={{fontSize:11,color:T.textSec}}>{a.banco} · {dec(accountSaldo(a))}{a.saldo_data?` · ${fmtDate(a.saldo_data)}`:''}</div></div>
+                  <button onClick={()=>resetSaldo(a)} title="Zerar saldo" style={{background:'none',border:'none',cursor:'pointer',padding:4}}><RefreshCw size={13} color={T.textTer}/></button>
                   <button onClick={()=>openEdit(a)} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><Edit2 size={14} color={pal.accent}/></button>
                   <button onClick={()=>del(a.id)} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><Trash2 size={14} color={T.textTer}/></button>
                 </div>
@@ -745,6 +756,9 @@ const SettingsPanel = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accoun
             })}
             {!accounts.length&&<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem contas configuradas.</div>}
           </Card>
+          {accounts.length>0&&(
+            <button onClick={resetAllSaldos} style={{width:'100%',background:'none',border:'none',cursor:'pointer',padding:'6px 4px',color:T.textTer,fontSize:11,marginBottom:14,textAlign:'left'}}>↺ Zerar saldo de todas as contas</button>
+          )}
           <button onClick={async()=>{await supabase.auth.signOut();window.location.reload()}} style={{width:'100%',background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,padding:'12px',color:T.red,fontSize:13,fontWeight:600,cursor:'pointer'}}>Terminar sessão</button>
         </div>
       </div>
