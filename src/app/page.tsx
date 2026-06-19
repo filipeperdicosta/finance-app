@@ -36,10 +36,10 @@ const PAL: Record<string,{grad:string,accent:string,soft:string}> = {
 }
 const tagPal = (tag:string) => tag==='investimento' ? PAL.imoveis : (PAL[tag] ?? PAL.pessoal)
 const PROP_GRAD = {pos:'linear-gradient(145deg,#042b1c,#0d5c38)',neg:'linear-gradient(145deg,#1c0808,#7f1d1d)'}
-const CAT_LIST = ['Receita','Alimentação','Restauração','Compras','Saúde','Transportes','Lazer','Levantamentos','Habitação','Utilities','Subscrições','Investimentos','Comissões e Taxas','Transferências','Despesas Gerais']
+const CAT_LIST = ['Receita','Groceries','Restauração','Compras','Saúde','Transportes','Lazer','Levantamentos','Habitação','Utilities','Subscrições','Investimentos','Comissões e Taxas','Transferências','Despesas Gerais']
 const CAT_META: Record<string,{cor:string,icon:string}> = {
   'Receita':{cor:'#4ADE80',icon:'💰'},
-  'Alimentação':{cor:'#4ADE80',icon:'🛒'},
+  'Groceries':{cor:'#4ADE80',icon:'🛒'},
   'Restauração':{cor:'#F97316',icon:'🍽️'},
   'Compras':{cor:'#FB923C',icon:'🛍️'},
   'Saúde':{cor:'#38BDF8',icon:'🏥'},

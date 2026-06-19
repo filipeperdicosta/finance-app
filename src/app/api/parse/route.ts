@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 const GEMINI_MODEL = 'gemini-2.5-flash-lite'
 
-const CATEGORIES = ['Receita','Alimentação','Restauração','Compras','Saúde','Transportes','Lazer','Levantamentos','Habitação','Utilities','Subscrições','Investimentos','Comissões e Taxas','Transferências','Despesas Gerais']
+const CATEGORIES = ['Receita','Groceries','Restauração','Compras','Saúde','Transportes','Lazer','Levantamentos','Habitação','Utilities','Subscrições','Investimentos','Comissões e Taxas','Transferências','Despesas Gerais']
 
 const PROMPT = `You are a financial data extraction specialist for Portuguese bank statements.
 
@@ -12,7 +12,7 @@ OUTPUT FORMAT (mandatory): Return ONLY a valid JSON object. No markdown, no code
 
 {
   "transactions": [
-    { "data": "YYYY-MM-DD", "descritivo": "original description", "valor": -45.80, "categoria": "Alimentação" }
+    { "data": "YYYY-MM-DD", "descritivo": "original description", "valor": -45.80, "categoria": "Groceries" }
   ],
   "meta": {
     "saldo_final": 835.57,
@@ -32,7 +32,7 @@ TRANSACTION RULES (apply to every single row in the statement):
 
 CATEGORY RULES:
 1. "categoria" must be exactly one of this list (copy the exact spelling): ${CATEGORIES.join(', ')}
-2. Choose based on the merchant/description. Examples: supermarket chains → "Alimentação"; restaurants, cafés, bars → "Restauração"; fuel, tolls, public transport, ride-hailing → "Transportes"; pharmacy, clinics, hospitals → "Saúde"; ATM withdrawals → "Levantamentos"; mortgage/rent payments → "Habitação"; electricity/water/gas/internet/phone bills → "Utilities"; streaming/software/memberships → "Subscrições"; brokerage/stock purchases → "Investimentos"; bank fees/charges → "Comissões e Taxas"; transfers between own accounts or to other people → "Transferências"; salary/income/positive amounts → "Receita".
+2. Choose based on the merchant/description. Examples: supermarket chains and grocery stores → "Groceries"; restaurants, cafés, bars → "Restauração"; fuel, tolls, public transport, ride-hailing → "Transportes"; pharmacy, clinics, hospitals → "Saúde"; ATM withdrawals → "Levantamentos"; mortgage/rent payments → "Habitação"; electricity/water/gas/internet/phone bills → "Utilities"; streaming/software/memberships → "Subscrições"; brokerage/stock purchases → "Investimentos"; bank fees/charges → "Comissões e Taxas"; transfers between own accounts or to other people → "Transferências"; salary/income/positive amounts → "Receita".
 3. If genuinely unsure, use "Despesas Gerais" as a safe default — never invent a category outside the list.
 
 META RULES:
@@ -151,7 +151,7 @@ export async function POST(req: NextRequest) {
     const rawCats = transactions.slice(0, 5).map(t => t.categoria)
     console.log('Categorias cruas do Gemini (amostra):', JSON.stringify(rawCats))
 
-    // Matching tolerante a maiúsculas/espaços (o Gemini por vezes devolve "alimentação" ou " Alimentação ")
+    // Matching tolerante a maiúsculas/espaços (o Gemini por vezes devolve "groceries" em vez de "Groceries")
     const normalizeCat = (s: string) => s?.trim().toLowerCase()
     const catLookup = new Map(CATEGORIES.map(c => [normalizeCat(c), c]))
 
