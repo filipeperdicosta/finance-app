@@ -70,6 +70,15 @@ const dec = (n:number) => {
   return '€'+i.toString().replace(/\B(?=(\d{3})+(?!\d))/g,' ')+','+Math.round((a-i)*100).toString().padStart(2,'0')
 }
 const sgn = (n:number) => (n>=0?'+ ':'− ')+dec(n)
+// Formato curto para eixo de gráfico: 600, 1 200, ou 1,2k (≥1000 com 1 casa se não for redondo)
+const compact = (n:number) => {
+  const a = Math.abs(n)
+  if(a < 1000) return Math.round(a).toString()
+  const k = a/1000
+  const rounded = Math.round(k*10)/10
+  const str = rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(1).replace('.',',')
+  return str+'k'
+}
 // Converte input do utilizador (aceita vírgula ou ponto decimal, espaços nos milhares) para número
 const parseNum = (s:string) => {
   if(!s) return 0
@@ -237,26 +246,32 @@ const Sel = ({label,value,onChange,options}:{label:string,value:string,onChange:
 const Leg = ({c,l,line}:{c:string,l:string,line?:boolean}) => (
   <div style={{display:'flex',alignItems:'center',gap:4}}><div style={{width:line?10:7,height:line?2:7,borderRadius:line?1:2,background:c}}/><span style={{fontSize:9,color:'rgba(255,255,255,0.38)'}}>{l}</span></div>
 )
-const Spark = ({trend}:{trend:{m:string,rec:number,desp:number,net:number}[]}) => (
-  <>
-    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
-      <span style={{fontSize:9,color:'rgba(255,255,255,0.28)',textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:600}}>Tendência — 5 meses</span>
-      <div style={{display:'flex',gap:10}}><Leg c={T.green} l="Rec" line/><Leg c={T.red} l="Desp" line/><Leg c="rgba(255,255,255,0.4)" l="Saldo"/></div>
-    </div>
-    <div style={{height:50}}>
-      <ResponsiveContainer width="100%" height="100%">
-        <ComposedChart data={trend} margin={{top:4,right:0,bottom:0,left:0}}>
-          <Bar dataKey="net" fill="rgba(255,255,255,0.18)" radius={[2,2,0,0]} maxBarSize={16}/>
-          <Line dataKey="rec" stroke={T.green} strokeWidth={1.75} dot={false}/>
-          <Line dataKey="desp" stroke={T.red} strokeWidth={1.75} dot={false}/>
-        </ComposedChart>
-      </ResponsiveContainer>
-    </div>
-    <div style={{display:'flex',justifyContent:'space-between',marginTop:2}}>
-      {trend.map((d,i)=><span key={i} style={{fontSize:9,color:'rgba(255,255,255,0.2)',flex:1,textAlign:'center'}}>{d.m}</span>)}
-    </div>
-  </>
-)
+const Spark = ({trend}:{trend:{m:string,rec:number,desp:number,net:number}[]}) => {
+  const maxVal = Math.max(...trend.map(d=>Math.max(d.rec,d.desp)), 1)
+  const midVal = maxVal/2
+  return (
+    <>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+        <span style={{fontSize:9,color:'rgba(255,255,255,0.28)',textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:600}}>Tendência — 5 meses</span>
+        <div style={{display:'flex',gap:10}}><Leg c={T.green} l="Rec" line/><Leg c={T.red} l="Desp" line/><Leg c="rgba(255,255,255,0.4)" l="Saldo"/></div>
+      </div>
+      <div style={{position:'relative',height:50}}>
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={trend} margin={{top:4,right:28,bottom:0,left:0}}>
+            <Bar dataKey="net" fill="rgba(255,255,255,0.18)" radius={[2,2,0,0]} maxBarSize={16}/>
+            <Line dataKey="rec" stroke={T.green} strokeWidth={1.75} dot={false}/>
+            <Line dataKey="desp" stroke={T.red} strokeWidth={1.75} dot={false}/>
+          </ComposedChart>
+        </ResponsiveContainer>
+        <div style={{position:'absolute',top:4,right:0,fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(maxVal)}</div>
+        <div style={{position:'absolute',top:'50%',right:0,transform:'translateY(-50%)',fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(midVal)}</div>
+      </div>
+      <div style={{display:'flex',justifyContent:'space-between',marginTop:2}}>
+        {trend.map((d,i)=><span key={i} style={{fontSize:9,color:'rgba(255,255,255,0.2)',flex:1,textAlign:'center'}}>{d.m}</span>)}
+      </div>
+    </>
+  )
+}
 const Toggle = ({val,set,accent}:{val:string,set:(v:string)=>void,accent:string}) => (
   <div style={{display:'flex',background:T.surface2,borderRadius:8,padding:2,gap:1}}>
     {['Bar','Linha','Área'].map(t=>(<button key={t} onClick={()=>set(t)} style={{padding:'3px 9px',borderRadius:6,border:'none',cursor:'pointer',background:val===t?accent:'transparent',color:val===t?'#0B0B12':T.textSec,fontSize:10,fontWeight:val===t?700:400,transition:'all 0.12s'}}>{t}</button>))}
@@ -265,51 +280,27 @@ const Toggle = ({val,set,accent}:{val:string,set:(v:string)=>void,accent:string}
 const DynChart = ({data,type}:{data:{m:string,rec:number,desp:number}[],type:string}) => {
   const tip = <Tooltip contentStyle={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,fontSize:12}} formatter={(v:any,k:string)=>[dec(v),k==='rec'?'Receitas':'Despesas']} labelStyle={{color:T.text,fontWeight:600}} cursor={{fill:'rgba(255,255,255,0.03)'}}/>
   const ax = <XAxis dataKey="m" tick={{fontSize:11,fill:T.textSec}} axisLine={false} tickLine={false} interval={0}/>
-  const margin = {top:8,right:10,bottom:0,left:10}
+  const margin = {top:8,right:6,bottom:0,left:10}
+  const maxVal = Math.max(...data.map(d=>Math.max(d.rec,d.desp)), 1)
+  const midVal = maxVal/2
+  const yAxis = <YAxis orientation="right" axisLine={false} tickLine={false} domain={[0,maxVal*1.05]} ticks={[midVal,maxVal]} tickFormatter={(v:number)=>compact(v)} tick={{fontSize:10,fill:T.textTer}} width={32}/>
   return (
     <ResponsiveContainer width="100%" height={120}>
-      {type==='Bar'?(<BarChart data={data} barCategoryGap="25%" barGap={3} margin={margin}>{ax}<YAxis hide/>{tip}<Bar dataKey="rec" fill="rgba(74,222,128,0.4)" radius={[4,4,0,0]} maxBarSize={26}/><Bar dataKey="desp" fill="rgba(248,113,113,0.4)" radius={[4,4,0,0]} maxBarSize={26}/></BarChart>
-      ):type==='Linha'?(<LineChart data={data} margin={margin}>{ax}<YAxis hide/>{tip}<Line dataKey="rec" stroke={T.green} strokeWidth={2} dot={{fill:T.green,r:3,strokeWidth:0}}/><Line dataKey="desp" stroke={T.red} strokeWidth={2} dot={{fill:T.red,r:3,strokeWidth:0}}/></LineChart>
-      ):(<AreaChart data={data} margin={margin}>{ax}<YAxis hide/>{tip}<Area dataKey="rec" stroke={T.green} strokeWidth={2} fill="rgba(74,222,128,0.12)"/><Area dataKey="desp" stroke={T.red} strokeWidth={2} fill="rgba(248,113,113,0.12)"/></AreaChart>)}
+      {type==='Bar'?(<BarChart data={data} barCategoryGap="25%" barGap={3} margin={margin}>{ax}{yAxis}{tip}<Bar dataKey="rec" fill="rgba(74,222,128,0.4)" radius={[4,4,0,0]} maxBarSize={26}/><Bar dataKey="desp" fill="rgba(248,113,113,0.4)" radius={[4,4,0,0]} maxBarSize={26}/></BarChart>
+      ):type==='Linha'?(<LineChart data={data} margin={margin}>{ax}{yAxis}{tip}<Line dataKey="rec" stroke={T.green} strokeWidth={2} dot={false}/><Line dataKey="desp" stroke={T.red} strokeWidth={2} dot={false}/></LineChart>
+      ):(<AreaChart data={data} margin={margin}>{ax}{yAxis}{tip}<Area dataKey="rec" stroke={T.green} strokeWidth={2} fill="rgba(74,222,128,0.12)"/><Area dataKey="desp" stroke={T.red} strokeWidth={2} fill="rgba(248,113,113,0.12)"/></AreaChart>)}
     </ResponsiveContainer>
   )
 }
-const TrendTile = ({data,accent,categorias,allTransactions,accounts,refMonth}:{data:{m:string,rec:number,desp:number}[],accent:string,categorias?:string[],allTransactions?:Transaction[],accounts?:Account[],refMonth?:string|null}) => {
+const TrendTile = ({data,accent,catFilter}:{data:{m:string,rec:number,desp:number}[],accent:string,catFilter?:string|null}) => {
   const [type,setType] = useState('Linha')
-  const [catFilter,setCatFilter] = useState('')
-  const hasCatFilter = categorias && categorias.length>0 && allTransactions && accounts && refMonth
-
-  // Quando uma categoria está seleccionada, recalcula a trend só com essa categoria (despesas)
-  const filteredData = useMemo(()=>{
-    if(!catFilter || !hasCatFilter) return data
-    const accIds = new Set(accounts!.map(a=>a.id))
-    return Array.from({length:5},(_,i)=>{
-      const offset=i-4
-      const [ry,rm] = refMonth!.split('-').map(Number)
-      const d = new Date(ry,rm-1,1); d.setMonth(d.getMonth()+offset)
-      const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
-      const mTxns = allTransactions!.filter(t=>accIds.has(t.account_id)&&t.data.startsWith(ym)&&t.categoria===catFilter&&t.valor<0)
-      const total = mTxns.reduce((s,t)=>s+Math.abs(t.valor),0)
-      return {m:getMonthLabel(offset,refMonth!),rec:0,desp:total}
-    })
-  },[catFilter,data,hasCatFilter,allTransactions,accounts,refMonth])
-
   return (
     <div style={{marginBottom:20}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'0 2px',gap:8}}>
-        <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase',whiteSpace:'nowrap'}}>Evolução mensal</span>
-        <div style={{display:'flex',gap:6,alignItems:'center',minWidth:0}}>
-          {hasCatFilter&&(
-            <select value={catFilter} onChange={e=>setCatFilter(e.target.value)}
-              style={{fontSize:10,background:T.surface2,border:`1px solid ${T.border}`,borderRadius:6,padding:'4px 6px',color:T.textSec,outline:'none',cursor:'pointer',maxWidth:100}}>
-              <option value="">Geral</option>
-              {categorias!.map(c=><option key={c} value={c}>{c}</option>)}
-            </select>
-          )}
-          <Toggle val={type} set={setType} accent={accent}/>
-        </div>
+        <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase',whiteSpace:'nowrap'}}>{catFilter?`Evolução — ${catFilter}`:'Evolução mensal'}</span>
+        <Toggle val={type} set={setType} accent={accent}/>
       </div>
-      <Card style={{padding:'14px 14px 8px'}}><DynChart data={filteredData} type={type}/></Card>
+      <Card style={{padding:'14px 14px 8px'}}><DynChart data={data} type={type}/></Card>
     </div>
   )
 }
@@ -750,6 +741,41 @@ const AccountForm = ({initial,onClose,onSaved,pal,accountsLen}:{initial:Account|
     </div>
   )
 }
+
+// ─────────────────────────────────────────────────────────────────
+// ALL CATEGORIES SCREEN — grid 2 colunas, toque vai a transações filtradas
+// ─────────────────────────────────────────────────────────────────
+const AllCategoriesScreen = ({cats,period,subtitle,onClose,onSelectCategoria,pal}:{cats:{nome:string,v:number,pct:number,cor:string,icon:string}[],period:string,subtitle:string,onClose:()=>void,onSelectCategoria:(categoria:string)=>void,pal:{accent:string,soft:string}}) => (
+  <div style={{position:'fixed',inset:0,background:T.bg,zIndex:85,overflowY:'auto',fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
+    <div style={{maxWidth:440,margin:'0 auto'}}>
+      <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',background:T.surface,borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,zIndex:10}}>
+        <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ArrowLeft size={18} color={T.textSec}/></button>
+        <div style={{flex:1}}>
+          <div style={{fontSize:16,fontWeight:700,color:T.text}}>Todas as categorias</div>
+          <div style={{fontSize:11,color:T.textSec}}>{period} · {subtitle}</div>
+        </div>
+      </div>
+      <div style={{padding:14}}>
+        {cats.length===0&&<Card><div style={{padding:32,textAlign:'center',color:T.textSec,fontSize:13}}>Sem despesas categorizadas este mês.</div></Card>}
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+          {cats.map((c,i)=>(
+            <div key={i} onClick={()=>onSelectCategoria(c.nome)} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:12,padding:12,cursor:'pointer'}}>
+              <div style={{display:'flex',alignItems:'center',gap:7,marginBottom:6}}>
+                <span style={{fontSize:16}}>{c.icon}</span>
+                <span style={{fontSize:11,color:T.text,fontWeight:600,flex:1,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{c.nome}</span>
+              </div>
+              <div style={{display:'flex',alignItems:'baseline',justifyContent:'space-between',marginBottom:4}}>
+                <span style={{fontSize:13,color:T.text,fontWeight:700,fontFamily:T.mono}}>{dec(c.v)}</span>
+                <span style={{fontSize:9,color:T.textTer,fontWeight:600}}>{c.pct}%</span>
+              </div>
+              <div style={{height:3,borderRadius:2,background:T.border}}><div style={{width:`${c.pct}%`,height:'100%',borderRadius:2,background:c.cor}}/></div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  </div>
+)
 
 // ─────────────────────────────────────────────────────────────────
 // RULES SCREEN — gestão de regras de categorização aprendidas (com bulk)
@@ -1211,29 +1237,65 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
 // ─────────────────────────────────────────────────────────────────
 // SCREENS
 // ─────────────────────────────────────────────────────────────────
-const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAll,onRefresh}:{accounts:Account[],transactions:Transaction[],tag:string,pal:{grad:string,accent:string,soft:string},title:string,onViewAll:(categoria?:string)=>void,onRefresh:()=>void}) => {
+const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAllTxns,onRefresh}:{accounts:Account[],transactions:Transaction[],tag:string,pal:{grad:string,accent:string,soft:string},title:string,onViewAllTxns:(categoria?:string)=>void,onRefresh:()=>void}) => {
   const [sel,setSel] = useState<string|null>(null)
+  const [catSel,setCatSel] = useState<string|null>(null)
   const [editTxn,setEditTxn] = useState<Transaction|null>(null)
+  const [showAllCats,setShowAllCats] = useState(false)
   const tagAccs = accounts.filter(a=>a.budget_tag===tag)
   const view = computeView(accounts,transactions,tag,sel)
   const period = monthYearLabel(view.refMonth)
   const selName = tagAccs.find(a=>a.id===sel)?.nome.split(' ').slice(-1)[0]
   const topCats = view.cats.slice(0,8)
   const hasMore = view.cats.length>8
+
+  // Quando uma categoria está seleccionada, filtra gráfico + lista de transações abaixo
+  const catTrend = useMemo(()=>{
+    if(!catSel || !view.refMonth) return view.trend
+    const accIds = new Set((sel?tagAccs.filter(a=>a.id===sel):tagAccs).map(a=>a.id))
+    return Array.from({length:5},(_,i)=>{
+      const offset=i-4
+      const [ry,rm] = view.refMonth!.split('-').map(Number)
+      const d = new Date(ry,rm-1,1); d.setMonth(d.getMonth()+offset)
+      const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
+      const total = transactions.filter(t=>accIds.has(t.account_id)&&t.data.startsWith(ym)&&t.categoria===catSel&&t.valor<0).reduce((s,t)=>s+Math.abs(t.valor),0)
+      return {m:getMonthLabel(offset,view.refMonth!),rec:0,desp:total}
+    })
+  },[catSel,view.trend,view.refMonth,transactions,sel,tagAccs])
+
+  const catTxns = useMemo(()=>{
+    if(!catSel) return view.txns
+    return view.txns.filter(t=>t.categoria===catSel)
+  },[catSel,view.txns])
+
   return (
     <div>
       <Hero pal={pal} title={title} period={period} mainValue={big(view.saldo)} mainColor={view.saldo<0?'#FCA5A5':'#FFF'} trend={view.trend} kpis={[{l:'Receitas',v:dec(view.rec),c:'#4ADE80'},{l:'Despesas',v:dec(view.desp),c:'#F87171'},{l:'Saldo mês',v:sgn(view.net),c:view.net>=0?'#4ADE80':'#F87171'}]}/>
       <AccountList accounts={tagAccs} sel={sel} onSel={setSel} pal={pal}/>
       <div style={{marginBottom:20}}>
-        <Lbl title={sel?`Despesas — ${selName}`:'Despesas'} action={hasMore?'Ver todas →':undefined} accent={pal.accent} onAction={hasMore?()=>onViewAll():undefined}/>
-        <Card>{topCats.length?topCats.map((c,i,a)=><CatRow key={i} {...c} last={i===a.length-1} onClick={()=>onViewAll(c.nome)}/>):<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem despesas este mês. Importa um extracto.</div>}</Card>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'0 2px'}}>
+          <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase'}}>{sel?`Despesas — ${selName}`:'Despesas'}</span>
+          <div style={{display:'flex',gap:10}}>
+            {catSel&&<span onClick={()=>setCatSel(null)} style={{fontSize:12,color:pal.accent,fontWeight:600,cursor:'pointer'}}>✕ Ver tudo</span>}
+            {hasMore&&!catSel&&<span onClick={()=>setShowAllCats(true)} style={{fontSize:12,color:pal.accent,fontWeight:600,cursor:'pointer'}}>Ver todas →</span>}
+          </div>
+        </div>
+        <Card>{topCats.length?topCats.map((c,i,a)=>{
+          const active = catSel===c.nome
+          return (
+            <div key={i} onClick={()=>setCatSel(active?null:c.nome)} style={{borderLeft:active?`3px solid ${pal.accent}`:'3px solid transparent',background:active?pal.soft:'transparent',transition:'all 0.12s'}}>
+              <CatRow {...c} last={i===a.length-1}/>
+            </div>
+          )
+        }):<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem despesas este mês. Importa um extracto.</div>}</Card>
       </div>
-      <TrendTile data={view.trend} accent={pal.accent} categorias={view.cats.map(c=>c.nome)} allTransactions={transactions} accounts={tagAccs} refMonth={view.refMonth}/>
+      <TrendTile data={catTrend} accent={pal.accent} catFilter={catSel}/>
       <div style={{marginBottom:20}}>
-        <Lbl title="Últimas transações" action="Ver todas →" accent={pal.accent} onAction={()=>onViewAll()}/>
-        <Card>{view.txns.length?view.txns.map((t,i)=><TxnRow key={t.id} t={t} last={i===view.txns.length-1} onClick={()=>setEditTxn(t)}/>):<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem transações. Importa o teu primeiro extracto.</div>}</Card>
+        <Lbl title={catSel?`Transações — ${catSel}`:'Últimas transações'} action="Ver todas →" accent={pal.accent} onAction={()=>onViewAllTxns(catSel??undefined)}/>
+        <Card>{catTxns.length?catTxns.map((t,i)=><TxnRow key={t.id} t={t} last={i===catTxns.length-1} onClick={()=>setEditTxn(t)}/>):<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem transações. Importa o teu primeiro extracto.</div>}</Card>
       </div>
       {editTxn&&<TxnEditForm txn={editTxn} onClose={()=>setEditTxn(null)} onSaved={onRefresh} pal={pal}/>}
+      {showAllCats&&<AllCategoriesScreen cats={view.cats} period={period} subtitle={title.replace('Conta Corrente ','')} onClose={()=>setShowAllCats(false)} onSelectCategoria={(cat)=>{setShowAllCats(false);onViewAllTxns(cat)}} pal={pal}/>}
     </div>
   )
 }
@@ -1652,8 +1714,8 @@ export default function Page() {
   if(!session) return <LoginScreen onLogin={()=>{setLoading(true);load();loadFull()}}/>
 
   const screens:Record<string,React.ReactNode> = {
-    familiar:   <BudgetScreen accounts={accounts} transactions={transactions} tag="familiar" pal={PAL.familiar} title="Conta Corrente Familiar" onViewAll={openAllTxns} onRefresh={async()=>{await refreshAll();showToast('✓ Transação actualizada')}}/>,
-    pessoal:    <BudgetScreen accounts={accounts} transactions={transactions} tag="pessoal"  pal={PAL.pessoal}  title="Conta Corrente Pessoal" onViewAll={openAllTxns} onRefresh={async()=>{await refreshAll();showToast('✓ Transação actualizada')}}/>,
+    familiar:   <BudgetScreen accounts={accounts} transactions={transactions} tag="familiar" pal={PAL.familiar} title="Conta Corrente Familiar" onViewAllTxns={openAllTxns} onRefresh={async()=>{await refreshAll();showToast('✓ Transação actualizada')}}/>,
+    pessoal:    <BudgetScreen accounts={accounts} transactions={transactions} tag="pessoal"  pal={PAL.pessoal}  title="Conta Corrente Pessoal" onViewAllTxns={openAllTxns} onRefresh={async()=>{await refreshAll();showToast('✓ Transação actualizada')}}/>,
     imoveis:    <ImoveisScreen imoveis={imoveis} transactions={transactions} accounts={accounts} contaImovel={contaImovel} pal={PAL.imoveis} onRefresh={async()=>{await refreshAll();showToast('✓ Imóveis actualizados')}} onViewAll={()=>openAllTxns()}/>,
     patrimonio: <PatrimonioScreen accounts={accounts} imoveis={imoveis} pal={PAL.patrimonio}/>,
   }
