@@ -297,8 +297,8 @@ const DynChart = ({data,type}:{data:{m:string,rec:number,desp:number}[],type:str
   const yAxis = <YAxis orientation="right" axisLine={false} tickLine={false} domain={[0,maxVal*1.05]} ticks={[midVal,maxVal]} tickFormatter={(v:number)=>compact(v)} tick={{fontSize:10,fill:T.textTer}} width={32}/>
   // Linhas de referência exactamente nos mesmos valores dos ticks do eixo Y (garantido alinhado)
   const refLines = <>
-    <ReferenceLine y={midVal} stroke={T.border} strokeWidth={1}/>
-    <ReferenceLine y={maxVal} stroke={T.border} strokeWidth={1}/>
+    <ReferenceLine y={midVal} stroke="rgba(255,255,255,0.12)" strokeWidth={1}/>
+    <ReferenceLine y={maxVal} stroke="rgba(255,255,255,0.12)" strokeWidth={1}/>
   </>
   if(!hasData) return (
     <div style={{height:120,display:'flex',alignItems:'center',justifyContent:'center'}}>
