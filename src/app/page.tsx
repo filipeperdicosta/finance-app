@@ -265,8 +265,8 @@ const Spark = ({trend}:{trend:{m:string,rec:number,desp:number,net:number}[]}) =
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={trend} margin={{top:4,right:28,bottom:0,left:0}}>
               <YAxis hide domain={[0,maxVal*1.05]} ticks={[midVal,maxVal]}/>
-              <ReferenceLine y={midVal} stroke="rgba(255,255,255,0.07)" strokeWidth={1}/>
-              <ReferenceLine y={maxVal} stroke="rgba(255,255,255,0.07)" strokeWidth={1}/>
+              <ReferenceLine y={midVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
+              <ReferenceLine y={maxVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
               <Bar dataKey="net" fill="rgba(255,255,255,0.18)" radius={[2,2,0,0]} maxBarSize={16}/>
               <Line dataKey="rec" stroke={T.green} strokeWidth={1.75} dot={false}/>
               <Line dataKey="desp" stroke={T.red} strokeWidth={1.75} dot={false}/>
@@ -295,11 +295,6 @@ const DynChart = ({data,type}:{data:{m:string,rec:number,desp:number}[],type:str
   const hasData = maxVal>0
   const midVal = maxVal/2
   const yAxis = <YAxis orientation="right" axisLine={false} tickLine={false} domain={[0,maxVal*1.05]} ticks={[midVal,maxVal]} tickFormatter={(v:number)=>compact(v)} tick={{fontSize:10,fill:T.textTer}} width={32}/>
-  // Linhas de referência exactamente nos mesmos valores dos ticks do eixo Y (garantido alinhado)
-  const refLines = <>
-    <ReferenceLine y={midVal} stroke="rgba(255,255,255,0.12)" strokeWidth={1}/>
-    <ReferenceLine y={maxVal} stroke="rgba(255,255,255,0.12)" strokeWidth={1}/>
-  </>
   if(!hasData) return (
     <div style={{height:120,display:'flex',alignItems:'center',justifyContent:'center'}}>
       <span style={{fontSize:12,color:T.textTer}}>Sem dados para mostrar</span>
@@ -307,9 +302,31 @@ const DynChart = ({data,type}:{data:{m:string,rec:number,desp:number}[],type:str
   )
   return (
     <ResponsiveContainer width="100%" height={120}>
-      {type==='Bar'?(<BarChart data={data} barCategoryGap="25%" barGap={3} margin={margin}>{refLines}{ax}{yAxis}{tip}<Bar dataKey="rec" fill="rgba(74,222,128,0.4)" radius={[4,4,0,0]} maxBarSize={26}/><Bar dataKey="desp" fill="rgba(248,113,113,0.4)" radius={[4,4,0,0]} maxBarSize={26}/></BarChart>
-      ):type==='Linha'?(<LineChart data={data} margin={margin}>{refLines}{ax}{yAxis}{tip}<Line dataKey="rec" stroke={T.green} strokeWidth={2} dot={false}/><Line dataKey="desp" stroke={T.red} strokeWidth={2} dot={false}/></LineChart>
-      ):(<AreaChart data={data} margin={margin}>{refLines}{ax}{yAxis}{tip}<Area dataKey="rec" stroke={T.green} strokeWidth={2} fill="rgba(74,222,128,0.12)"/><Area dataKey="desp" stroke={T.red} strokeWidth={2} fill="rgba(248,113,113,0.12)"/></AreaChart>)}
+      {type==='Bar'?(
+        <BarChart data={data} barCategoryGap="25%" barGap={3} margin={margin}>
+          {ax}{yAxis}{tip}
+          <ReferenceLine y={midVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
+          <ReferenceLine y={maxVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
+          <Bar dataKey="rec" fill="rgba(74,222,128,0.4)" radius={[4,4,0,0]} maxBarSize={26}/>
+          <Bar dataKey="desp" fill="rgba(248,113,113,0.4)" radius={[4,4,0,0]} maxBarSize={26}/>
+        </BarChart>
+      ):type==='Linha'?(
+        <LineChart data={data} margin={margin}>
+          {ax}{yAxis}{tip}
+          <ReferenceLine y={midVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
+          <ReferenceLine y={maxVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
+          <Line dataKey="rec" stroke={T.green} strokeWidth={2} dot={false}/>
+          <Line dataKey="desp" stroke={T.red} strokeWidth={2} dot={false}/>
+        </LineChart>
+      ):(
+        <AreaChart data={data} margin={margin}>
+          {ax}{yAxis}{tip}
+          <ReferenceLine y={midVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
+          <ReferenceLine y={maxVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
+          <Area dataKey="rec" stroke={T.green} strokeWidth={2} fill="rgba(74,222,128,0.12)"/>
+          <Area dataKey="desp" stroke={T.red} strokeWidth={2} fill="rgba(248,113,113,0.12)"/>
+        </AreaChart>
+      )}
     </ResponsiveContainer>
   )
 }
