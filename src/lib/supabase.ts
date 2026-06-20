@@ -21,6 +21,8 @@ export type Account = {
   ordem: number
   iban: string | null
   numero_conta: string | null
+  drive_folder_id: string | null
+  drive_folder_name: string | null
   created_at: string
 }
 
@@ -254,4 +256,60 @@ export async function deleteCategoryRules(ids: string[]) {
 
 export async function updateCategoryRule(id: string, categoria: string) {
   return supabase.from('category_rules').update({ categoria }).eq('id', id)
+}
+
+// ── Google Drive ────────────────────────────────────────────────
+export type DriveToken = {
+  id: string
+  user_id: string
+  account_email: string | null
+  connected_at: string
+  expires_at: string
+}
+
+export type DriveFile = {
+  id: string
+  account_id: string
+  google_file_id: string
+  filename: string
+  mime_type: string | null
+  modified_time: string | null
+  status: 'pendente' | 'importado' | 'ignorado'
+  import_batch_id: string | null
+  discovered_at: string
+  imported_at: string | null
+}
+
+// Estado da ligação Drive do utilizador actual (sem expor tokens ao cliente)
+export async function getDriveConnectionStatus() {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
+  const { data } = await supabase
+    .from('google_drive_tokens')
+    .select('id, user_id, account_email, connected_at, expires_at')
+    .eq('user_id', user.id)
+    .maybeSingle()
+  return data as DriveToken | null
+}
+
+export async function disconnectDrive() {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
+  return supabase.from('google_drive_tokens').delete().eq('user_id', user.id)
+}
+
+// URL para iniciar o fluxo OAuth (usado num <a href> ou window.location)
+export async function getDriveAuthUrl() {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
+  return `/api/auth/google?user_id=${user.id}`
+}
+
+export async function updateAccountDriveFolder(accountId: string, folderId: string | null, folderName: string | null) {
+  return supabase.from('accounts').update({ drive_folder_id: folderId, drive_folder_name: folderName }).eq('id', accountId)
+}
+
+export async function loadDriveFiles(accountId: string) {
+  const { data } = await supabase.from('drive_files').select('*').eq('account_id', accountId).order('modified_time', { ascending: false })
+  return (data ?? []) as DriveFile[]
 }

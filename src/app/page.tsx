@@ -9,7 +9,7 @@ import {
   Home, User, Building2, TrendingUp, Upload, Settings, X, Plus, Check,
   ArrowLeft, Trash2, FileText, HardDrive, Zap, RefreshCw, Edit2, CreditCard,
   Filter, CheckSquare, Square, Tag, Calendar, SlidersHorizontal, Link2, Inbox,
-  Sparkles, Target, BrainCircuit,
+  Sparkles, Target, BrainCircuit, Folder, ChevronRight, AlertTriangle, Bell,
 } from 'lucide-react'
 import {
   supabase, loadAllData, loadAllTransactions, saveAccount, deleteAccount, updateAccount,
@@ -17,7 +17,9 @@ import {
   saveImovel, updateImovel, deleteImovel, linkContaImovel, unlinkContaImovel,
   assignTransactionToImovel, assignTransactionsToImovel,
   loadCategoryRules, learnFromCategorization, matchRule, deleteCategoryRule, deleteCategoryRules, updateCategoryRule,
+  getDriveConnectionStatus, disconnectDrive, getDriveAuthUrl, updateAccountDriveFolder, loadDriveFiles,
   type Account, type Transaction, type Imovel, type ImovelRenda, type ContaImovel, type CategoryRule,
+  type DriveToken, type DriveFile,
 } from '@/lib/supabase'
 
 // ─────────────────────────────────────────────────────────────────
@@ -909,6 +911,187 @@ const RulesScreen = ({onClose,pal}:{onClose:()=>void,pal:{accent:string,soft:str
   )
 }
 
+
+// ─────────────────────────────────────────────────────────────────
+// DRIVE FOLDER PICKER — navega pastas da Drive para associar a uma conta
+// ─────────────────────────────────────────────────────────────────
+const DriveFolderPicker = ({account,onClose,onSaved,pal}:{account:Account,onClose:()=>void,onSaved:()=>void,pal:{accent:string,soft:string}}) => {
+  const [path,setPath] = useState<{id:string,name:string}[]>([{id:'root',name:'Meu Drive'}])
+  const [folders,setFolders] = useState<{id:string,name:string}[]>([])
+  const [selected,setSelected] = useState<{id:string,name:string}|null>(null)
+  const [fileCount,setFileCount] = useState<number|null>(null)
+  const [loading,setLoading] = useState(true)
+  const [saving,setSaving] = useState(false)
+
+  const currentFolder = path[path.length-1]
+
+  const loadFolders = useCallback(async(parentId:string)=>{
+    setLoading(true)
+    const { data:{user} } = await supabase.auth.getUser()
+    if(!user) return
+    const res = await fetch(`/api/drive/folders?user_id=${user.id}&parent=${parentId}`)
+    const data = await res.json()
+    setFolders(data.folders ?? [])
+    setLoading(false)
+  },[])
+
+  const checkFileCount = useCallback(async(folderId:string)=>{
+    const { data:{user} } = await supabase.auth.getUser()
+    if(!user) return
+    const res = await fetch(`/api/drive/files?user_id=${user.id}&folder_id=${folderId}`)
+    const data = await res.json()
+    setFileCount((data.files ?? []).length)
+  },[])
+
+  useEffect(()=>{ loadFolders(currentFolder.id) },[currentFolder.id, loadFolders])
+  useEffect(()=>{ if(selected) checkFileCount(selected.id) },[selected, checkFileCount])
+
+  const enterFolder = (f:{id:string,name:string}) => {
+    setPath([...path,f]); setSelected(null); setFileCount(null)
+  }
+  const goBackTo = (idx:number) => {
+    setPath(path.slice(0,idx+1)); setSelected(null); setFileCount(null)
+  }
+
+  const confirm = async () => {
+    if(!selected) return
+    setSaving(true)
+    await updateAccountDriveFolder(account.id, selected.id, [...path.slice(1).map(p=>p.name),selected.name].join('/'))
+    await onSaved(); setSaving(false); onClose()
+  }
+
+  return (
+    <div onClick={onClose} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:120,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.surface,borderRadius:'20px 20px 0 0',width:'100%',maxWidth:440,maxHeight:'88vh',display:'flex',flexDirection:'column',fontFamily:'-apple-system,BlinkMacSystemFont,sans-serif'}}>
+        <div style={{display:'flex',alignItems:'center',padding:'16px 18px',borderBottom:`1px solid ${T.border}`}}>
+          <div style={{flex:1}}>
+            <div style={{fontSize:15,fontWeight:700,color:T.text}}>Escolher pasta</div>
+            <div style={{fontSize:11,color:T.textSec}}>{account.nome}</div>
+          </div>
+          <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer'}}><X size={18} color={T.textSec}/></button>
+        </div>
+        <div style={{padding:'14px 18px 0'}}>
+          <div style={{fontSize:11,color:T.textSec,marginBottom:12,lineHeight:1.5}}>
+            A app vai ler os PDFs desta pasta automaticamente. Não cria nem altera ficheiros — apenas leitura.
+          </div>
+          <div style={{display:'flex',flexWrap:'wrap',gap:4,fontSize:11,color:T.textTer,marginBottom:8}}>
+            {path.map((p,i)=>(
+              <span key={p.id} onClick={()=>goBackTo(i)} style={{cursor:'pointer',color:i===path.length-1?pal.accent:T.textTer,fontWeight:i===path.length-1?600:400}}>
+                {p.name}{i<path.length-1?' / ':''}
+              </span>
+            ))}
+          </div>
+        </div>
+        <div style={{flex:1,overflowY:'auto',padding:'0 18px'}}>
+          <Card style={{marginBottom:14}}>
+            {loading&&<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>A carregar pastas…</div>}
+            {!loading&&folders.length===0&&<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem subpastas aqui.</div>}
+            {!loading&&folders.map((f,i)=>{
+              const isSel = selected?.id===f.id
+              return (
+                <div key={f.id} style={{display:'flex',alignItems:'center',gap:10,padding:'12px 14px',borderBottom:i<folders.length-1?`1px solid ${T.border}`:'none',background:isSel?pal.soft:'transparent',borderLeft:isSel?`3px solid ${pal.accent}`:'3px solid transparent'}}>
+                  <div onClick={()=>setSelected(isSel?null:f)} style={{display:'flex',alignItems:'center',gap:10,flex:1,cursor:'pointer'}}>
+                    <Folder size={16} color={isSel?pal.accent:T.textSec}/>
+                    <span style={{fontSize:13,color:isSel?pal.accent:T.text,fontWeight:isSel?700:400,flex:1}}>{f.name}</span>
+                    {isSel&&<Check size={14} color={pal.accent}/>}
+                  </div>
+                  <button onClick={()=>enterFolder(f)} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ChevronRight size={14} color={T.textTer}/></button>
+                </div>
+              )
+            })}
+          </Card>
+          {selected&&fileCount!==null&&(
+            <Card style={{background:pal.soft,padding:'10px 12px',marginBottom:14}}>
+              <div style={{fontSize:11,color:T.green,fontWeight:600}}>✓ {fileCount} ficheiro{fileCount!==1?'s':''} encontrado{fileCount!==1?'s':''} nesta pasta</div>
+            </Card>
+          )}
+        </div>
+        <div style={{flexShrink:0,padding:'12px 18px 20px',borderTop:`1px solid ${T.border}`}}>
+          <Btn onClick={confirm} variant="primary" accent={pal.accent} style={{width:'100%',opacity:selected?1:0.4}}>{saving?'A guardar…':'Confirmar pasta'}</Btn>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────
+// DRIVE SETTINGS SCREEN
+// ─────────────────────────────────────────────────────────────────
+const DriveSettingsScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accounts:Account[],onRefresh:()=>void,pal:{accent:string,soft:string}}) => {
+  const [status,setStatus] = useState<DriveToken|null|undefined>(undefined)
+  const [pickerAccount,setPickerAccount] = useState<Account|null>(null)
+  const [connecting,setConnecting] = useState(false)
+
+  const load = useCallback(async()=>{ const s = await getDriveConnectionStatus(); setStatus(s) },[])
+  useEffect(()=>{ load() },[load])
+
+  const connect = async () => {
+    setConnecting(true)
+    const url = await getDriveAuthUrl()
+    if(url) window.location.href = url
+  }
+  const disconnect = async () => {
+    if(!confirm('Desligar o Google Drive? As pastas associadas às contas mantêm-se guardadas.')) return
+    await disconnectDrive(); await load()
+  }
+
+  return (
+    <div style={{position:'fixed',inset:0,background:T.bg,zIndex:90,overflowY:'auto',fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
+      <div style={{maxWidth:440,margin:'0 auto'}}>
+        <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',background:T.surface,borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,zIndex:10}}>
+          <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ArrowLeft size={18} color={T.textSec}/></button>
+          <div style={{fontSize:16,fontWeight:700,color:T.text,flex:1}}>Google Drive</div>
+        </div>
+        <div style={{padding:'16px 14px'}}>
+          {status===undefined&&<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>A verificar ligação…</div>}
+
+          {status===null&&(
+            <Card style={{padding:16,marginBottom:16,textAlign:'center'}}>
+              <HardDrive size={28} color={T.textSec} style={{marginBottom:10}}/>
+              <div style={{fontSize:13,color:T.text,fontWeight:600,marginBottom:6}}>Drive não ligada</div>
+              <div style={{fontSize:11,color:T.textSec,marginBottom:14,lineHeight:1.5}}>Liga a tua Google Drive para importares extractos automaticamente das pastas que escolheres.</div>
+              <Btn onClick={connect} variant="primary" accent={pal.accent} style={{width:'100%'}}>{connecting?'A ligar…':'Ligar Google Drive'}</Btn>
+            </Card>
+          )}
+
+          {status&&(
+            <>
+              <Card style={{padding:14,marginBottom:16,display:'flex',alignItems:'center',gap:12}}>
+                <div style={{width:40,height:40,borderRadius:10,background:'rgba(74,222,128,0.12)',display:'flex',alignItems:'center',justifyContent:'center'}}><Check size={18} color={T.green}/></div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:13,fontWeight:600,color:T.text}}>Ligado</div>
+                  <div style={{fontSize:11,color:T.textSec}}>{status.account_email ?? 'conta Google'} · só leitura</div>
+                </div>
+                <span onClick={disconnect} style={{fontSize:11,color:T.red,cursor:'pointer'}}>Desligar</span>
+              </Card>
+
+              <div style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase',marginBottom:8}}>Pastas associadas</div>
+              <Card>
+                {accounts.map((a,i)=>(
+                  <div key={a.id} onClick={()=>setPickerAccount(a)} style={{display:'flex',alignItems:'center',gap:10,padding:'12px 14px',borderBottom:i<accounts.length-1?`1px solid ${T.border}`:'none',cursor:'pointer'}}>
+                    <div style={{width:30,height:30,borderRadius:8,background:T.surface2,display:'flex',alignItems:'center',justifyContent:'center'}}><Folder size={14} color={a.drive_folder_id?pal.accent:T.textTer}/></div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:12,color:T.text,fontWeight:600}}>{a.nome}</div>
+                      {a.drive_folder_id?<div style={{fontSize:10,color:T.green,marginTop:1}}>📂 {a.drive_folder_name}</div>:<div style={{fontSize:10,color:'#FBBF24',marginTop:1}}>⚠ Sem pasta associada</div>}
+                    </div>
+                    <span style={{fontSize:11,color:a.drive_folder_id?T.textSec:pal.accent,fontWeight:a.drive_folder_id?400:600}}>{a.drive_folder_id?'Alterar':'Associar'}</span>
+                  </div>
+                ))}
+                {!accounts.length&&<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem contas configuradas.</div>}
+              </Card>
+
+              <div style={{marginTop:16,fontSize:11,color:T.textTer,lineHeight:1.6,padding:'0 4px'}}>
+                ℹ️ A pasta de cada conta também pode ser configurada directamente no ecrã de editar conta.
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+      {pickerAccount&&<DriveFolderPicker account={pickerAccount} onClose={()=>setPickerAccount(null)} onSaved={onRefresh} pal={pal}/>}
+    </div>
+  )
+}
+
 // ─────────────────────────────────────────────────────────────────
 // SETTINGS
 // ─────────────────────────────────────────────────────────────────
@@ -916,6 +1099,7 @@ const SettingsPanel = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accoun
   const [formOpen,setFormOpen] = useState(false)
   const [editing,setEditing] = useState<Account|null>(null)
   const [showRules,setShowRules] = useState(false)
+  const [showDrive,setShowDrive] = useState(false)
   const openNew = () => { setEditing(null); setFormOpen(true) }
   const openEdit = (a:Account) => { setEditing(a); setFormOpen(true) }
   const del = async (id:string) => { if(!confirm('Apagar esta conta? As transações associadas também serão removidas.')) return; await deleteAccount(id); await onRefresh() }
@@ -960,6 +1144,11 @@ const SettingsPanel = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accoun
           {accounts.length>0&&(
             <button onClick={resetAllSaldos} style={{width:'100%',background:'none',border:'none',cursor:'pointer',padding:'6px 4px',color:T.textTer,fontSize:11,marginBottom:14,textAlign:'left'}}>↺ Zerar saldo de todas as contas</button>
           )}
+          <button onClick={()=>setShowDrive(true)} style={{width:'100%',display:'flex',alignItems:'center',gap:10,background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,padding:'12px 14px',cursor:'pointer',marginBottom:10}}>
+            <HardDrive size={16} color={pal.accent}/>
+            <span style={{flex:1,textAlign:'left',fontSize:13,fontWeight:600,color:T.text}}>Google Drive</span>
+            <span style={{fontSize:11,color:T.textTer}}>›</span>
+          </button>
           <button onClick={()=>setShowRules(true)} style={{width:'100%',display:'flex',alignItems:'center',gap:10,background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,padding:'12px 14px',cursor:'pointer',marginBottom:14}}>
             <BrainCircuit size={16} color={pal.accent}/>
             <span style={{flex:1,textAlign:'left',fontSize:13,fontWeight:600,color:T.text}}>Regras Aprendidas</span>
@@ -970,6 +1159,7 @@ const SettingsPanel = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accoun
       </div>
       {formOpen&&<AccountForm initial={editing} onClose={()=>setFormOpen(false)} onSaved={onRefresh} pal={pal} accountsLen={accounts.length}/>}
       {showRules&&<RulesScreen onClose={()=>setShowRules(false)} pal={pal}/>}
+      {showDrive&&<DriveSettingsScreen onClose={()=>setShowDrive(false)} accounts={accounts} onRefresh={onRefresh} pal={pal}/>}
     </div>
   )
 }
@@ -1745,6 +1935,18 @@ export default function Page() {
     const {data:{subscription}} = supabase.auth.onAuthStateChange((_,session)=>{ setSession(session); if(session){load();loadFull()} else {setLoading(false);setSession(null)} })
     return ()=>subscription.unsubscribe()
   },[load,loadFull])
+
+  // Trata o regresso do fluxo OAuth da Google (?drive_connected=1 ou ?drive_error=...)
+  useEffect(()=>{
+    const params = new URLSearchParams(window.location.search)
+    if(params.get('drive_connected')) {
+      showToast('✓ Google Drive ligado')
+      window.history.replaceState({}, '', window.location.pathname)
+    } else if(params.get('drive_error')) {
+      showToast('✗ Erro ao ligar Google Drive')
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+  },[showToast])
 
   const pal = PAL[tab]
 
