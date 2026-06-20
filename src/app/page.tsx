@@ -274,15 +274,42 @@ const DynChart = ({data,type}:{data:{m:string,rec:number,desp:number}[],type:str
     </ResponsiveContainer>
   )
 }
-const TrendTile = ({data,accent}:{data:{m:string,rec:number,desp:number}[],accent:string}) => {
+const TrendTile = ({data,accent,categorias,allTransactions,accounts,refMonth}:{data:{m:string,rec:number,desp:number}[],accent:string,categorias?:string[],allTransactions?:Transaction[],accounts?:Account[],refMonth?:string|null}) => {
   const [type,setType] = useState('Linha')
+  const [catFilter,setCatFilter] = useState('')
+  const hasCatFilter = categorias && categorias.length>0 && allTransactions && accounts && refMonth
+
+  // Quando uma categoria está seleccionada, recalcula a trend só com essa categoria (despesas)
+  const filteredData = useMemo(()=>{
+    if(!catFilter || !hasCatFilter) return data
+    const accIds = new Set(accounts!.map(a=>a.id))
+    return Array.from({length:5},(_,i)=>{
+      const offset=i-4
+      const [ry,rm] = refMonth!.split('-').map(Number)
+      const d = new Date(ry,rm-1,1); d.setMonth(d.getMonth()+offset)
+      const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
+      const mTxns = allTransactions!.filter(t=>accIds.has(t.account_id)&&t.data.startsWith(ym)&&t.categoria===catFilter&&t.valor<0)
+      const total = mTxns.reduce((s,t)=>s+Math.abs(t.valor),0)
+      return {m:getMonthLabel(offset,refMonth!),rec:0,desp:total}
+    })
+  },[catFilter,data,hasCatFilter,allTransactions,accounts,refMonth])
+
   return (
     <div style={{marginBottom:20}}>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'0 2px'}}>
-        <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase'}}>Evolução mensal</span>
-        <Toggle val={type} set={setType} accent={accent}/>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'0 2px',gap:8}}>
+        <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase',whiteSpace:'nowrap'}}>Evolução mensal</span>
+        <div style={{display:'flex',gap:6,alignItems:'center',minWidth:0}}>
+          {hasCatFilter&&(
+            <select value={catFilter} onChange={e=>setCatFilter(e.target.value)}
+              style={{fontSize:10,background:T.surface2,border:`1px solid ${T.border}`,borderRadius:6,padding:'4px 6px',color:T.textSec,outline:'none',cursor:'pointer',maxWidth:100}}>
+              <option value="">Geral</option>
+              {categorias!.map(c=><option key={c} value={c}>{c}</option>)}
+            </select>
+          )}
+          <Toggle val={type} set={setType} accent={accent}/>
+        </div>
       </div>
-      <Card style={{padding:'14px 14px 8px'}}><DynChart data={data} type={type}/></Card>
+      <Card style={{padding:'14px 14px 8px'}}><DynChart data={filteredData} type={type}/></Card>
     </div>
   )
 }
@@ -341,8 +368,8 @@ const AccountList = ({accounts,sel,onSel,pal}:{accounts:Account[],sel:string|nul
 // ─────────────────────────────────────────────────────────────────
 // CATEGORY + TXN ROWS
 // ─────────────────────────────────────────────────────────────────
-const CatRow = ({nome,v,pct,cor,icon,last}:{nome:string,v:number,pct:number,cor:string,icon:string,last:boolean}) => (
-  <div style={{padding:'10px 16px',borderBottom:last?'none':`1px solid ${T.border}`}}>
+const CatRow = ({nome,v,pct,cor,icon,last,onClick}:{nome:string,v:number,pct:number,cor:string,icon:string,last:boolean,onClick?:()=>void}) => (
+  <div onClick={onClick} style={{padding:'10px 16px',borderBottom:last?'none':`1px solid ${T.border}`,cursor:onClick?'pointer':'default'}}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
       <div style={{display:'flex',alignItems:'center',gap:9}}><span style={{fontSize:16}}>{icon}</span><span style={{fontSize:13,color:T.text}}>{nome}</span></div>
       <div style={{display:'flex',alignItems:'center',gap:10}}><span style={{fontSize:10,color:T.textTer,fontWeight:500}}>{pct}%</span><span style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:T.mono,minWidth:72,textAlign:'right'}}>{dec(v)}</span></div>
@@ -481,8 +508,8 @@ const RecategorizeSheet = ({count,onApply,onClose,pal}:{count:number,onApply:(ca
 // ─────────────────────────────────────────────────────────────────
 // ALL TRANSACTIONS SCREEN
 // ─────────────────────────────────────────────────────────────────
-const AllTransactionsScreen = ({allTxns,accounts,tag,pal,onClose,onRefresh,imoveis}:{allTxns:Transaction[],accounts:Account[],tag:string,pal:{grad:string,accent:string,soft:string},onClose:()=>void,onRefresh:()=>void,imoveis?:Imovel[]}) => {
-  const [filters,setFilters] = useState<Filters>(emptyFilters)
+const AllTransactionsScreen = ({allTxns,accounts,tag,pal,onClose,onRefresh,imoveis,initialCategoria}:{allTxns:Transaction[],accounts:Account[],tag:string,pal:{grad:string,accent:string,soft:string},onClose:()=>void,onRefresh:()=>void,imoveis?:Imovel[],initialCategoria?:string}) => {
+  const [filters,setFilters] = useState<Filters>(initialCategoria ? {...emptyFilters, categoria:initialCategoria} : emptyFilters)
   const [showFilters,setShowFilters] = useState(false)
   const [selectMode,setSelectMode] = useState(false)
   const [selected,setSelected] = useState<Set<string>>(new Set())
@@ -1184,24 +1211,26 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
 // ─────────────────────────────────────────────────────────────────
 // SCREENS
 // ─────────────────────────────────────────────────────────────────
-const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAll,onRefresh}:{accounts:Account[],transactions:Transaction[],tag:string,pal:{grad:string,accent:string,soft:string},title:string,onViewAll:()=>void,onRefresh:()=>void}) => {
+const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAll,onRefresh}:{accounts:Account[],transactions:Transaction[],tag:string,pal:{grad:string,accent:string,soft:string},title:string,onViewAll:(categoria?:string)=>void,onRefresh:()=>void}) => {
   const [sel,setSel] = useState<string|null>(null)
   const [editTxn,setEditTxn] = useState<Transaction|null>(null)
   const tagAccs = accounts.filter(a=>a.budget_tag===tag)
   const view = computeView(accounts,transactions,tag,sel)
   const period = monthYearLabel(view.refMonth)
   const selName = tagAccs.find(a=>a.id===sel)?.nome.split(' ').slice(-1)[0]
+  const topCats = view.cats.slice(0,8)
+  const hasMore = view.cats.length>8
   return (
     <div>
       <Hero pal={pal} title={title} period={period} mainValue={big(view.saldo)} mainColor={view.saldo<0?'#FCA5A5':'#FFF'} trend={view.trend} kpis={[{l:'Receitas',v:dec(view.rec),c:'#4ADE80'},{l:'Despesas',v:dec(view.desp),c:'#F87171'},{l:'Saldo mês',v:sgn(view.net),c:view.net>=0?'#4ADE80':'#F87171'}]}/>
       <AccountList accounts={tagAccs} sel={sel} onSel={setSel} pal={pal}/>
       <div style={{marginBottom:20}}>
-        <Lbl title={sel?`Despesas — ${selName}`:'Despesas'}/>
-        <Card>{view.cats.length?view.cats.map((c,i,a)=><CatRow key={i} {...c} last={i===a.length-1}/>):<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem despesas este mês. Importa um extracto.</div>}</Card>
+        <Lbl title={sel?`Despesas — ${selName}`:'Despesas'} action={hasMore?'Ver todas →':undefined} accent={pal.accent} onAction={hasMore?()=>onViewAll():undefined}/>
+        <Card>{topCats.length?topCats.map((c,i,a)=><CatRow key={i} {...c} last={i===a.length-1} onClick={()=>onViewAll(c.nome)}/>):<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem despesas este mês. Importa um extracto.</div>}</Card>
       </div>
-      <TrendTile data={view.trend} accent={pal.accent}/>
+      <TrendTile data={view.trend} accent={pal.accent} categorias={view.cats.map(c=>c.nome)} allTransactions={transactions} accounts={tagAccs} refMonth={view.refMonth}/>
       <div style={{marginBottom:20}}>
-        <Lbl title="Últimas transações" action="Ver todas →" accent={pal.accent} onAction={onViewAll}/>
+        <Lbl title="Últimas transações" action="Ver todas →" accent={pal.accent} onAction={()=>onViewAll()}/>
         <Card>{view.txns.length?view.txns.map((t,i)=><TxnRow key={t.id} t={t} last={i===view.txns.length-1} onClick={()=>setEditTxn(t)}/>):<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem transações. Importa o teu primeiro extracto.</div>}</Card>
       </div>
       {editTxn&&<TxnEditForm txn={editTxn} onClose={()=>setEditTxn(null)} onSaved={onRefresh} pal={pal}/>}
@@ -1594,8 +1623,10 @@ export default function Page() {
   const [showImport, setShowImport] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showAllTxns, setShowAllTxns] = useState(false)
+  const [viewAllCategoria, setViewAllCategoria] = useState<string|undefined>(undefined)
   const [toast, setToast] = useState<string|null>(null)
 
+  const openAllTxns = useCallback((categoria?:string)=>{ setViewAllCategoria(categoria); setShowAllTxns(true) },[])
   const showToast = useCallback((msg:string)=>{setToast(msg);setTimeout(()=>setToast(null),2500)},[])
   const load = useCallback(async()=>{
     const data = await loadAllData()
@@ -1621,9 +1652,9 @@ export default function Page() {
   if(!session) return <LoginScreen onLogin={()=>{setLoading(true);load();loadFull()}}/>
 
   const screens:Record<string,React.ReactNode> = {
-    familiar:   <BudgetScreen accounts={accounts} transactions={transactions} tag="familiar" pal={PAL.familiar} title="Conta Corrente Familiar" onViewAll={()=>setShowAllTxns(true)} onRefresh={async()=>{await refreshAll();showToast('✓ Transação actualizada')}}/>,
-    pessoal:    <BudgetScreen accounts={accounts} transactions={transactions} tag="pessoal"  pal={PAL.pessoal}  title="Conta Corrente Pessoal" onViewAll={()=>setShowAllTxns(true)} onRefresh={async()=>{await refreshAll();showToast('✓ Transação actualizada')}}/>,
-    imoveis:    <ImoveisScreen imoveis={imoveis} transactions={transactions} accounts={accounts} contaImovel={contaImovel} pal={PAL.imoveis} onRefresh={async()=>{await refreshAll();showToast('✓ Imóveis actualizados')}} onViewAll={()=>setShowAllTxns(true)}/>,
+    familiar:   <BudgetScreen accounts={accounts} transactions={transactions} tag="familiar" pal={PAL.familiar} title="Conta Corrente Familiar" onViewAll={openAllTxns} onRefresh={async()=>{await refreshAll();showToast('✓ Transação actualizada')}}/>,
+    pessoal:    <BudgetScreen accounts={accounts} transactions={transactions} tag="pessoal"  pal={PAL.pessoal}  title="Conta Corrente Pessoal" onViewAll={openAllTxns} onRefresh={async()=>{await refreshAll();showToast('✓ Transação actualizada')}}/>,
+    imoveis:    <ImoveisScreen imoveis={imoveis} transactions={transactions} accounts={accounts} contaImovel={contaImovel} pal={PAL.imoveis} onRefresh={async()=>{await refreshAll();showToast('✓ Imóveis actualizados')}} onViewAll={()=>openAllTxns()}/>,
     patrimonio: <PatrimonioScreen accounts={accounts} imoveis={imoveis} pal={PAL.patrimonio}/>,
   }
 
@@ -1642,7 +1673,7 @@ export default function Page() {
       </div>
       {showImport&&<ImportWizard onClose={()=>setShowImport(false)} accounts={accounts} pal={pal} onDone={async()=>{await refreshAll();showToast('✓ Importação concluída')}}/>}
       {showSettings&&<SettingsPanel onClose={()=>setShowSettings(false)} accounts={accounts} onRefresh={async()=>{await refreshAll();showToast('✓ Dados actualizados')}} pal={pal}/>}
-      {showAllTxns&&<AllTransactionsScreen allTxns={allTxns} accounts={accounts} tag={tab==='imoveis'?'investimento':tab} pal={pal} onClose={()=>setShowAllTxns(false)} onRefresh={async()=>{await refreshAll();showToast('✓ Transações actualizadas')}} imoveis={tab==='imoveis'?imoveis:undefined}/>}
+      {showAllTxns&&<AllTransactionsScreen allTxns={allTxns} accounts={accounts} tag={tab==='imoveis'?'investimento':tab} pal={pal} onClose={()=>{setShowAllTxns(false);setViewAllCategoria(undefined)}} onRefresh={async()=>{await refreshAll();showToast('✓ Transações actualizadas')}} imoveis={tab==='imoveis'?imoveis:undefined} initialCategoria={viewAllCategoria}/>}
       {toast&&<div style={{position:'fixed',bottom:90,left:'50%',transform:'translateX(-50%)',background:T.surface,border:`1px solid ${pal.accent}`,borderRadius:12,padding:'10px 16px',display:'flex',alignItems:'center',gap:8,zIndex:200,boxShadow:'0 8px 24px rgba(0,0,0,0.4)',whiteSpace:'nowrap'}}><Check size={15} color={pal.accent}/><span style={{fontSize:13,fontWeight:600,color:T.text}}>{toast}</span></div>}
     </div>
   )
