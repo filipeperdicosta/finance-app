@@ -155,7 +155,10 @@ function computeView(accounts:Account[], transactions:Transaction[], tag:string,
     return {m:getMonthLabel(offset,refMonth),rec:mRec,desp:mDesp,net:+(mRec-mDesp).toFixed(2)}
   }) : []
 
-  return {saldo,rec,desp,net:+(rec-desp).toFixed(2),cats,trend,txns:monthTxns.slice(0,8),refMonth}
+  // Últimas transações: as 8 mais recentes no geral, independente do mês de referência
+  const recentTxns = [...txns].sort((a,b)=>b.data.localeCompare(a.data)).slice(0,8)
+
+  return {saldo,rec,desp,net:+(rec-desp).toFixed(2),cats,trend,txns:recentTxns,refMonth}
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -270,6 +273,13 @@ const Spark = ({trend}:{trend:{m:string,rec:number,desp:number,net:number}[]}) =
               <YAxis hide domain={[0,maxVal*1.05]} ticks={[midVal,maxVal]}/>
               <ReferenceLine y={midVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
               <ReferenceLine y={maxVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
+              <Tooltip
+                contentStyle={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,fontSize:11,padding:'6px 10px'}}
+                itemStyle={{padding:0}}
+                formatter={(v:any,k:string)=>[dec(v),k==='rec'?'Receitas':k==='desp'?'Despesas':'Saldo']}
+                labelStyle={{color:T.text,fontWeight:600,fontSize:11,marginBottom:2}}
+                cursor={{fill:'rgba(255,255,255,0.04)'}}
+              />
               <Bar dataKey="net" fill="rgba(255,255,255,0.18)" radius={[2,2,0,0]} maxBarSize={16}/>
               <Line dataKey="rec" stroke={T.green} strokeWidth={1.75} dot={false}/>
               <Line dataKey="desp" stroke={T.red} strokeWidth={1.75} dot={false}/>
