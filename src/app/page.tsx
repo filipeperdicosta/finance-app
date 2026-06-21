@@ -1943,7 +1943,8 @@ export default function Page() {
       showToast('✓ Google Drive ligado')
       window.history.replaceState({}, '', window.location.pathname)
     } else if(params.get('drive_error')) {
-      showToast('✗ Erro ao ligar Google Drive')
+      const reason = params.get('drive_error') ?? 'desconhecido'
+      showToast(`✗ Erro Drive: ${reason}`)
       window.history.replaceState({}, '', window.location.pathname)
     }
   },[showToast])
