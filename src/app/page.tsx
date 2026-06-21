@@ -18,7 +18,7 @@ import {
   assignTransactionToImovel, assignTransactionsToImovel,
   loadCategoryRules, learnFromCategorization, matchRule, deleteCategoryRule, deleteCategoryRules, updateCategoryRule,
   getDriveConnectionStatus, disconnectDrive, getDriveAuthUrl, updateAccountDriveFolder, loadDriveFiles,
-  listDriveFolderFiles, importDriveFile,
+  listDriveFolderFiles, importDriveFile, resetDriveFileImport,
   type Account, type Transaction, type Imovel, type ImovelRenda, type ContaImovel, type CategoryRule,
   type DriveToken, type DriveFile,
 } from '@/lib/supabase'
@@ -1062,6 +1062,12 @@ const DriveFileSelectScreen = ({account,onClose,onRefresh,pal}:{account:Account,
     setSelected(n)
   }
 
+  const reimport = async (id:string) => {
+    if(!confirm('Marcar este ficheiro para reimportar? As transações já guardadas não são apagadas automaticamente — se importaste por engano, apaga-as primeiro em "Ver todas".')) return
+    await resetDriveFileImport(account.id, id)
+    await load()
+  }
+
   const importSelected = async () => {
     const { data:{user} } = await supabase.auth.getUser()
     if(!user) return
@@ -1129,11 +1135,20 @@ const DriveFileSelectScreen = ({account,onClose,onRefresh,pal}:{account:Account,
                       const isDone = importedIds.has(f.id)
                       const isSel = selected.has(f.id)
                       return (
-                        <div key={f.id} onClick={()=>toggle(f.id)} style={{display:'flex',alignItems:'center',gap:10,padding:'12px 14px',borderBottom:i<files.length-1?`1px solid ${T.border}`:'none',cursor:isDone?'default':'pointer',opacity:isDone?0.45:1,background:isSel?pal.soft:'transparent'}}>
-                          {isDone?<Check size={16} color={T.green}/>:(isSel?<CheckSquare size={16} color={pal.accent}/>:<Square size={16} color={T.textTer}/>)}
-                          <FileText size={14} color={T.textSec}/>
-                          <span style={{fontSize:12,color:T.text,flex:1,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{f.name}</span>
-                          <span style={{fontSize:10,color:isDone?T.green:T.textTer,fontWeight:600,flexShrink:0}}>{isDone?'já importado':'por importar'}</span>
+                        <div key={f.id} style={{display:'flex',alignItems:'center',gap:10,padding:'12px 14px',borderBottom:i<files.length-1?`1px solid ${T.border}`:'none',background:isSel?pal.soft:'transparent'}}>
+                          <div onClick={()=>toggle(f.id)} style={{display:'flex',alignItems:'center',gap:10,flex:1,minWidth:0,cursor:isDone?'default':'pointer',opacity:isDone?0.55:1}}>
+                            {isDone?<Check size={16} color={T.green}/>:(isSel?<CheckSquare size={16} color={pal.accent}/>:<Square size={16} color={T.textTer}/>)}
+                            <FileText size={14} color={T.textSec}/>
+                            <span style={{fontSize:12,color:T.text,flex:1,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{f.name}</span>
+                          </div>
+                          {isDone?(
+                            <button onClick={()=>reimport(f.id)} style={{display:'flex',alignItems:'center',gap:3,background:'none',border:'none',cursor:'pointer',padding:'2px 4px',flexShrink:0}}>
+                              <RefreshCw size={11} color={T.textTer}/>
+                              <span style={{fontSize:10,color:T.textTer,fontWeight:600}}>reimportar</span>
+                            </button>
+                          ):(
+                            <span style={{fontSize:10,color:T.textTer,fontWeight:600,flexShrink:0}}>por importar</span>
+                          )}
                         </div>
                       )
                     })}

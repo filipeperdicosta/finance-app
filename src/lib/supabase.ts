@@ -334,3 +334,10 @@ export async function importDriveFile(params: { userId: string; accountId: strin
   })
   return res.json()
 }
+
+// Remove o registo de "já importado" de um ficheiro, permitindo voltar a processá-lo
+// (útil depois de apagares transações por engano, ou para corrigir um import com erro).
+// Não apaga as transações já guardadas — isso faz-se à parte, no ecrã de transações.
+export async function resetDriveFileImport(accountId: string, googleFileId: string) {
+  return supabase.from('drive_files').delete().eq('account_id', accountId).eq('google_file_id', googleFileId)
+}
