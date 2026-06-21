@@ -18,6 +18,7 @@ import {
   assignTransactionToImovel, assignTransactionsToImovel,
   loadCategoryRules, learnFromCategorization, matchRule, deleteCategoryRule, deleteCategoryRules, updateCategoryRule,
   getDriveConnectionStatus, disconnectDrive, getDriveAuthUrl, updateAccountDriveFolder, loadDriveFiles,
+  listDriveFolderFiles, importDriveFile,
   type Account, type Transaction, type Imovel, type ImovelRenda, type ContaImovel, type CategoryRule,
   type DriveToken, type DriveFile,
 } from '@/lib/supabase'
@@ -1015,12 +1016,146 @@ const DriveFolderPicker = ({account,onClose,onSaved,pal}:{account:Account,onClos
 }
 
 // ─────────────────────────────────────────────────────────────────
+// DRIVE FILE SELECT — escolhe quais ficheiros da pasta importar agora
+// (1ª ligação + "puxar mais histórico" reutilizam este mesmo ecrã)
+// ─────────────────────────────────────────────────────────────────
+type DriveFolderFile = { id:string; name:string; mimeType:string; modifiedTime:string }
+
+const DriveFileSelectScreen = ({account,onClose,onRefresh,pal}:{account:Account,onClose:()=>void,onRefresh:()=>void,pal:{accent:string,soft:string}}) => {
+  const [loading,setLoading] = useState(true)
+  const [files,setFiles] = useState<DriveFolderFile[]>([])
+  const [importedIds,setImportedIds] = useState<Set<string>>(new Set())
+  const [selected,setSelected] = useState<Set<string>>(new Set())
+  const [importing,setImporting] = useState(false)
+  const [progress,setProgress] = useState({done:0,total:0})
+  const [results,setResults] = useState<{filename:string,ok:boolean,txns?:number,error?:string}[]>([])
+
+  const load = useCallback(async()=>{
+    setLoading(true)
+    const { data:{user} } = await supabase.auth.getUser()
+    if(!user || !account.drive_folder_id) { setLoading(false); return }
+    const [folderFiles, driveFiles] = await Promise.all([
+      listDriveFolderFiles(user.id, account.drive_folder_id),
+      loadDriveFiles(account.id),
+    ])
+    setFiles(folderFiles)
+    setImportedIds(new Set(driveFiles.filter(f=>f.status==='importado').map(f=>f.google_file_id)))
+    setLoading(false)
+  },[account])
+
+  useEffect(()=>{ load() },[load])
+
+  const toggle = (id:string) => {
+    if(importedIds.has(id)) return
+    const n = new Set(selected)
+    n.has(id) ? n.delete(id) : n.add(id)
+    setSelected(n)
+  }
+
+  const importSelected = async () => {
+    const { data:{user} } = await supabase.auth.getUser()
+    if(!user) return
+    setImporting(true)
+    setProgress({done:0,total:selected.size})
+    const toImport = files.filter(f=>selected.has(f.id))
+    const res:{filename:string,ok:boolean,txns?:number,error?:string}[] = []
+    for(const f of toImport){
+      const result = await importDriveFile({userId:user.id, accountId:account.id, googleFileId:f.id, filename:f.name, triggerType:'manual'})
+      if(result.ok) res.push({filename:f.name, ok:true, txns:result.transactions_count})
+      else res.push({filename:f.name, ok:false, error:result.error})
+      setProgress(p=>({...p,done:p.done+1}))
+    }
+    setResults(res)
+    setImporting(false)
+    await onRefresh()
+  }
+
+  const jaImportados = files.filter(f=>importedIds.has(f.id)).length
+  const porImportar = files.filter(f=>!importedIds.has(f.id))
+
+  return (
+    <div style={{position:'fixed',inset:0,background:T.bg,zIndex:95,overflowY:'auto',fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
+      <div style={{maxWidth:440,margin:'0 auto'}}>
+        <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',background:T.surface,borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,zIndex:10}}>
+          <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ArrowLeft size={18} color={T.textSec}/></button>
+          <div style={{flex:1}}>
+            <div style={{fontSize:16,fontWeight:700,color:T.text}}>{account.nome}</div>
+            <div style={{fontSize:11,color:T.textSec}}>📂 {account.drive_folder_name}</div>
+          </div>
+        </div>
+
+        <div style={{padding:'16px 14px'}}>
+          {results.length>0&&(
+            <Card style={{marginBottom:16,padding:'14px'}}>
+              <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:10}}>✓ Importação concluída</div>
+              {results.map((r,i)=>(
+                <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:i<results.length-1?`1px solid ${T.border}`:'none'}}>
+                  <span style={{fontSize:12,color:T.text,flex:1,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{r.filename}</span>
+                  {r.ok?<span style={{fontSize:11,color:T.green,fontWeight:600}}>{r.txns} transações</span>:<span style={{fontSize:11,color:T.red}}>{r.error}</span>}
+                </div>
+              ))}
+              <Btn onClick={onClose} variant="primary" accent={pal.accent} style={{width:'100%',marginTop:14}}>Concluído</Btn>
+            </Card>
+          )}
+
+          {importing&&(
+            <Card style={{marginBottom:16,padding:'20px',textAlign:'center'}}>
+              <RefreshCw size={24} color={pal.accent} style={{marginBottom:10}}/>
+              <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:4}}>A importar {progress.done+1} de {progress.total}…</div>
+              <div style={{height:4,background:T.border,borderRadius:2,marginTop:10,overflow:'hidden'}}>
+                <div style={{height:'100%',width:`${progress.total?progress.done/progress.total*100:0}%`,background:pal.accent,transition:'width 0.3s'}}/>
+              </div>
+            </Card>
+          )}
+
+          {!importing&&results.length===0&&(
+            <>
+              {loading&&<div style={{padding:32,textAlign:'center',color:T.textSec,fontSize:13}}>A carregar ficheiros…</div>}
+              {!loading&&(
+                <>
+                  <div style={{fontSize:12,color:T.textSec,marginBottom:14}}>{files.length} ficheiros nesta pasta · {jaImportados} já importados</div>
+                  <Card>
+                    {files.map((f,i)=>{
+                      const isDone = importedIds.has(f.id)
+                      const isSel = selected.has(f.id)
+                      return (
+                        <div key={f.id} onClick={()=>toggle(f.id)} style={{display:'flex',alignItems:'center',gap:10,padding:'12px 14px',borderBottom:i<files.length-1?`1px solid ${T.border}`:'none',cursor:isDone?'default':'pointer',opacity:isDone?0.45:1,background:isSel?pal.soft:'transparent'}}>
+                          {isDone?<Check size={16} color={T.green}/>:(isSel?<CheckSquare size={16} color={pal.accent}/>:<Square size={16} color={T.textTer}/>)}
+                          <FileText size={14} color={T.textSec}/>
+                          <span style={{fontSize:12,color:T.text,flex:1,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{f.name}</span>
+                          <span style={{fontSize:10,color:isDone?T.green:T.textTer,fontWeight:600,flexShrink:0}}>{isDone?'já importado':'por importar'}</span>
+                        </div>
+                      )
+                    })}
+                    {!files.length&&<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem ficheiros compatíveis nesta pasta.</div>}
+                  </Card>
+                  {porImportar.length>0&&<div style={{marginTop:14,fontSize:11,color:T.textTer,lineHeight:1.6}}>💡 Não precisas de importar tudo de uma vez. Selecciona alguns meses agora e volta mais tarde para puxar mais histórico.</div>}
+                </>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+      {!importing&&results.length===0&&(
+        <div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:440,background:T.surface,borderTop:`1px solid ${T.border}`,padding:'12px 16px 20px'}}>
+          <Btn onClick={importSelected} variant="primary" accent={pal.accent} style={{width:'100%',opacity:selected.size?1:0.4}}>{selected.size?`Importar seleccionados (${selected.size})`:'Selecciona ficheiros para importar'}</Btn>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────
 // DRIVE SETTINGS SCREEN
 // ─────────────────────────────────────────────────────────────────
 const DriveSettingsScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accounts:Account[],onRefresh:()=>void,pal:{accent:string,soft:string}}) => {
   const [status,setStatus] = useState<DriveToken|null|undefined>(undefined)
   const [pickerAccount,setPickerAccount] = useState<Account|null>(null)
+  const [fileSelectAccount,setFileSelectAccount] = useState<Account|null>(null)
   const [connecting,setConnecting] = useState(false)
+  const [checking,setChecking] = useState(false)
+  const [checkProgress,setCheckProgress] = useState({done:0,total:0,filename:''})
+  const [checkResult,setCheckResult] = useState<{novos:number,contas:number}|null>(null)
 
   const load = useCallback(async()=>{ const s = await getDriveConnectionStatus(); setStatus(s) },[])
   useEffect(()=>{ load() },[load])
@@ -1033,6 +1168,41 @@ const DriveSettingsScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
   const disconnect = async () => {
     if(!confirm('Desligar o Google Drive? As pastas associadas às contas mantêm-se guardadas.')) return
     await disconnectDrive(); await load()
+  }
+
+  // "Verificar agora": para cada conta com pasta associada, lista ficheiros da Drive,
+  // identifica os que ainda não foram vistos (não existem em drive_files), e importa-os
+  // automaticamente — sem selecção manual, ao contrário do fluxo de "puxar histórico".
+  const checkNow = async () => {
+    const { data:{user} } = await supabase.auth.getUser()
+    if(!user) return
+    const linkedAccounts = accounts.filter(a=>a.drive_folder_id)
+    if(!linkedAccounts.length) return
+
+    setChecking(true)
+    setCheckResult(null)
+    let novos = 0
+
+    for(const acc of linkedAccounts){
+      const [folderFiles, driveFiles] = await Promise.all([
+        listDriveFolderFiles(user.id, acc.drive_folder_id!),
+        loadDriveFiles(acc.id),
+      ])
+      const knownIds = new Set(driveFiles.map(f=>f.google_file_id))
+      const newFiles = folderFiles.filter(f=>!knownIds.has(f.id))
+
+      setCheckProgress(p=>({...p,total:p.total+newFiles.length}))
+      for(const f of newFiles){
+        setCheckProgress(p=>({...p,filename:f.name}))
+        const result = await importDriveFile({userId:user.id, accountId:acc.id, googleFileId:f.id, filename:f.name, triggerType:'on_demand'})
+        if(result.ok) novos++
+        setCheckProgress(p=>({...p,done:p.done+1}))
+      }
+    }
+
+    setCheckResult({novos, contas:linkedAccounts.length})
+    setChecking(false)
+    await onRefresh()
   }
 
   return (
@@ -1065,16 +1235,52 @@ const DriveSettingsScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
                 <span onClick={disconnect} style={{fontSize:11,color:T.red,cursor:'pointer'}}>Desligar</span>
               </Card>
 
+              <div style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase',marginBottom:8}}>Verificação</div>
+              <Card style={{padding:14,marginBottom:16}}>
+                {!checking&&!checkResult&&(
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                    <div>
+                      <div style={{fontSize:13,color:T.text,fontWeight:600}}>Manual</div>
+                      <div style={{fontSize:11,color:T.textSec,marginTop:2}}>Verifica pastas associadas por ficheiros novos</div>
+                    </div>
+                    <button onClick={checkNow} disabled={!accounts.some(a=>a.drive_folder_id)} style={{background:accounts.some(a=>a.drive_folder_id)?pal.accent:T.surface2,color:accounts.some(a=>a.drive_folder_id)?'#0B0B12':T.textTer,border:'none',borderRadius:8,padding:'8px 12px',fontSize:11,fontWeight:700,cursor:accounts.some(a=>a.drive_folder_id)?'pointer':'default',display:'flex',alignItems:'center',gap:5}}>
+                      <RefreshCw size={12}/> Verificar agora
+                    </button>
+                  </div>
+                )}
+                {checking&&(
+                  <div>
+                    <div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:4}}>A verificar pastas…</div>
+                    <div style={{fontSize:11,color:T.textSec,marginBottom:8}}>{checkProgress.total>0?`${checkProgress.done} de ${checkProgress.total} ficheiros novos`:'A procurar ficheiros novos…'}</div>
+                    {checkProgress.filename&&<div style={{fontSize:11,color:T.textTer,marginBottom:8}}>{checkProgress.filename}</div>}
+                    {checkProgress.total>0&&<div style={{height:4,background:T.border,borderRadius:2,overflow:'hidden'}}><div style={{height:'100%',width:`${checkProgress.done/checkProgress.total*100}%`,background:pal.accent,transition:'width 0.3s'}}/></div>}
+                  </div>
+                )}
+                {checkResult&&!checking&&(
+                  <div>
+                    <div style={{fontSize:13,fontWeight:600,color:T.green,marginBottom:4}}>✓ Verificação concluída</div>
+                    <div style={{fontSize:11,color:T.textSec}}>{checkResult.novos>0?`${checkResult.novos} ficheiros novos importados`:'Nenhum ficheiro novo encontrado'} · {checkResult.contas} contas verificadas</div>
+                    <button onClick={()=>setCheckResult(null)} style={{marginTop:10,background:'none',border:'none',color:pal.accent,fontSize:11,fontWeight:600,cursor:'pointer',padding:0}}>Fechar</button>
+                  </div>
+                )}
+              </Card>
+
               <div style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase',marginBottom:8}}>Pastas associadas</div>
               <Card>
                 {accounts.map((a,i)=>(
-                  <div key={a.id} onClick={()=>setPickerAccount(a)} style={{display:'flex',alignItems:'center',gap:10,padding:'12px 14px',borderBottom:i<accounts.length-1?`1px solid ${T.border}`:'none',cursor:'pointer'}}>
-                    <div style={{width:30,height:30,borderRadius:8,background:T.surface2,display:'flex',alignItems:'center',justifyContent:'center'}}><Folder size={14} color={a.drive_folder_id?pal.accent:T.textTer}/></div>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:12,color:T.text,fontWeight:600}}>{a.nome}</div>
-                      {a.drive_folder_id?<div style={{fontSize:10,color:T.green,marginTop:1}}>📂 {a.drive_folder_name}</div>:<div style={{fontSize:10,color:'#FBBF24',marginTop:1}}>⚠ Sem pasta associada</div>}
+                  <div key={a.id} style={{display:'flex',alignItems:'center',gap:10,padding:'12px 14px',borderBottom:i<accounts.length-1?`1px solid ${T.border}`:'none'}}>
+                    <div onClick={()=>a.drive_folder_id?setFileSelectAccount(a):setPickerAccount(a)} style={{display:'flex',alignItems:'center',gap:10,flex:1,cursor:'pointer',minWidth:0}}>
+                      <div style={{width:30,height:30,borderRadius:8,background:T.surface2,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><Folder size={14} color={a.drive_folder_id?pal.accent:T.textTer}/></div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:12,color:T.text,fontWeight:600}}>{a.nome}</div>
+                        {a.drive_folder_id?<div style={{fontSize:10,color:T.green,marginTop:1,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>📂 {a.drive_folder_name}</div>:<div style={{fontSize:10,color:'#FBBF24',marginTop:1}}>⚠ Sem pasta associada</div>}
+                      </div>
                     </div>
-                    <span style={{fontSize:11,color:a.drive_folder_id?T.textSec:pal.accent,fontWeight:a.drive_folder_id?400:600}}>{a.drive_folder_id?'Alterar':'Associar'}</span>
+                    {a.drive_folder_id?(
+                      <span onClick={()=>setPickerAccount(a)} style={{fontSize:11,color:T.textSec,cursor:'pointer',flexShrink:0}}>Alterar</span>
+                    ):(
+                      <span onClick={()=>setPickerAccount(a)} style={{fontSize:11,color:pal.accent,fontWeight:600,cursor:'pointer',flexShrink:0}}>Associar</span>
+                    )}
                   </div>
                 ))}
                 {!accounts.length&&<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem contas configuradas.</div>}
@@ -1088,6 +1294,7 @@ const DriveSettingsScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
         </div>
       </div>
       {pickerAccount&&<DriveFolderPicker account={pickerAccount} onClose={()=>setPickerAccount(null)} onSaved={onRefresh} pal={pal}/>}
+      {fileSelectAccount&&<DriveFileSelectScreen account={fileSelectAccount} onClose={()=>setFileSelectAccount(null)} onRefresh={onRefresh} pal={pal}/>}
     </div>
   )
 }

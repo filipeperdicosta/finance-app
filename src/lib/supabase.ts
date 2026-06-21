@@ -313,3 +313,24 @@ export async function loadDriveFiles(accountId: string) {
   const { data } = await supabase.from('drive_files').select('*').eq('account_id', accountId).order('modified_time', { ascending: false })
   return (data ?? []) as DriveFile[]
 }
+
+// Lista ficheiros reais da pasta da Drive da conta, cruzados com o que já foi importado
+export async function listDriveFolderFiles(userId: string, folderId: string) {
+  const res = await fetch(`/api/drive/files?user_id=${userId}&folder_id=${folderId}`)
+  const data = await res.json()
+  return (data.files ?? []) as { id: string; name: string; mimeType: string; modifiedTime: string }[]
+}
+
+// Despoleta o processamento de um ficheiro da Drive (Gemini + guardar transações)
+export async function importDriveFile(params: { userId: string; accountId: string; googleFileId: string; filename: string; triggerType?: 'manual' | 'cron' | 'on_demand' }) {
+  const res = await fetch('/api/drive/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      user_id: params.userId, account_id: params.accountId,
+      google_file_id: params.googleFileId, filename: params.filename,
+      trigger_type: params.triggerType ?? 'on_demand',
+    }),
+  })
+  return res.json()
+}
