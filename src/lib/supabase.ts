@@ -40,6 +40,7 @@ export type Transaction = {
   imovel_classificado: boolean
   notas: string | null
   excluir_analise: boolean
+  ordem_extrato: number
   created_at: string
 }
 
@@ -83,7 +84,7 @@ export async function loadAllData() {
       .eq('excluir_analise', false)
       .gte('data', new Date(new Date().getFullYear(), new Date().getMonth() - 5, 1).toISOString().split('T')[0])
       .order('data', { ascending: false })
-      .order('created_at', { ascending: true }),
+      .order('ordem_extrato', { ascending: true }),
     supabase.from('imoveis').select('*').order('ordem'),
     supabase.from('imovel_rendas').select('*')
       .eq('mes', new Date().getMonth() + 1)
@@ -139,11 +140,12 @@ export async function saveAccount(account: Omit<Account, 'id' | 'created_at'>) {
 
 // Carrega TODAS as transações (para o ecrã Ver Todas, com histórico completo)
 export async function loadAllTransactions() {
-  // created_at como critério de desempate dentro do mesmo dia, para manter a ordem
-  // de inserção (= ordem do extrato original) estável entre reloads.
+  // ordem_extrato como critério de desempate dentro do mesmo dia: reflecte explicitamente
+  // a posição da transação no extrato original — mais fiável que created_at, que não é
+  // garantidamente preservado em inserções em lote (upsert).
   const { data } = await supabase.from('transactions').select('*')
     .order('data', { ascending: false })
-    .order('created_at', { ascending: true })
+    .order('ordem_extrato', { ascending: true })
   return (data ?? []) as Transaction[]
 }
 

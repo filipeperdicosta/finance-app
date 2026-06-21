@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
     const txnsToInsert = result.transactions.map((t, i) => ({
       account_id, data: t.data, descritivo: t.descritivo, valor: t.valor,
       categoria: t.categoria, categoria_confirmada: false, ai_confianca: null,
-      excluir_analise: false, imovel_classificado: false,
+      excluir_analise: false, imovel_classificado: false, ordem_extrato: i,
       hash: `${account_id}-${t.data}-${t.descritivo.slice(0,20)}-${t.valor}-${Date.now()}-${i}`,
       import_batch_id: null, imovel_id: null, notas: null, subcategoria: null, descritivo_norm: null,
     }))
