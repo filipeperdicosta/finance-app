@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
     do {
       const pageParam = pageToken ? `&pageToken=${pageToken}` : ''
       const res: Response = await fetch(
-        `https://www.googleapis.com/drive/v3/files?q=${q}&fields=${fields}&orderBy=name&pageSize=1000${pageParam}`,
+        `https://www.googleapis.com/drive/v3/files?q=${q}&fields=${fields}&orderBy=name desc&pageSize=1000${pageParam}`,
         { headers: { Authorization: `Bearer ${accessToken}` } }
       )
       if (!res.ok) {
