@@ -82,7 +82,8 @@ export async function loadAllData() {
     supabase.from('transactions').select('*')
       .eq('excluir_analise', false)
       .gte('data', new Date(new Date().getFullYear(), new Date().getMonth() - 5, 1).toISOString().split('T')[0])
-      .order('data', { ascending: false }),
+      .order('data', { ascending: false })
+      .order('created_at', { ascending: true }),
     supabase.from('imoveis').select('*').order('ordem'),
     supabase.from('imovel_rendas').select('*')
       .eq('mes', new Date().getMonth() + 1)
@@ -138,7 +139,11 @@ export async function saveAccount(account: Omit<Account, 'id' | 'created_at'>) {
 
 // Carrega TODAS as transações (para o ecrã Ver Todas, com histórico completo)
 export async function loadAllTransactions() {
-  const { data } = await supabase.from('transactions').select('*').order('data', { ascending: false })
+  // created_at como critério de desempate dentro do mesmo dia, para manter a ordem
+  // de inserção (= ordem do extrato original) estável entre reloads.
+  const { data } = await supabase.from('transactions').select('*')
+    .order('data', { ascending: false })
+    .order('created_at', { ascending: true })
   return (data ?? []) as Transaction[]
 }
 

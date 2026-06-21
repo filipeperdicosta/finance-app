@@ -144,12 +144,16 @@ export async function parseStatementWithGemini(base64: string, mimeType: string,
 
   const cleanTransactions: ParsedTransaction[] = transactions
     .map(t => {
+      const valor = Number(t.valor) || 0
+      // Regra sem excepções: valor positivo é sempre categoria "Receita",
+      // independentemente do que o Gemini sugerir (ex: "Transferências").
       const matched = t.categoria ? catLookup.get(normalizeCat(t.categoria)) : undefined
+      const categoria = valor >= 0 ? 'Receita' : (matched ?? 'Despesas Gerais')
       return {
         data: String(t.data ?? '').trim(),
         descritivo: String(t.descritivo ?? '').trim(),
-        valor: Number(t.valor) || 0,
-        categoria: matched ?? (Number(t.valor) >= 0 ? 'Receita' : 'Despesas Gerais'),
+        valor,
+        categoria,
       }
     })
     .filter(t => t.data && t.descritivo && t.valor !== 0)

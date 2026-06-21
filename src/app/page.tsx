@@ -155,8 +155,9 @@ function computeView(accounts:Account[], transactions:Transaction[], tag:string,
     return {m:getMonthLabel(offset,refMonth),rec:mRec,desp:mDesp,net:+(mRec-mDesp).toFixed(2)}
   }) : []
 
-  // Últimas transações: as 8 mais recentes no geral, independente do mês de referência
-  const recentTxns = [...txns].sort((a,b)=>b.data.localeCompare(a.data)).slice(0,8)
+  // Últimas transações: as 8 mais recentes no geral, independente do mês de referência.
+  // 'txns' já vem ordenado de forma estável pela query (data desc, created_at asc) — não reordenar aqui.
+  const recentTxns = txns.slice(0,8)
 
   return {saldo,rec,desp,net:+(rec-desp).toFixed(2),cats,trend,txns:recentTxns,refMonth}
 }
@@ -437,25 +438,34 @@ const TxnRow = ({t,last,onClick}:{t:Transaction,last:boolean,onClick?:()=>void})
 const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis}:{txn:Transaction,onClose:()=>void,onSaved:()=>void,pal:{accent:string,soft:string},imoveis?:Imovel[]}) => {
   const [descritivo,setDescritivo] = useState(txn.descritivo)
   const [valor,setValor] = useState(String(txn.valor))
-  const [categoria,setCategoria] = useState(txn.categoria??'Despesas Gerais')
+  const [categoria,setCategoria] = useState(txn.valor>=0?'Receita':(txn.categoria??'Despesas Gerais'))
   const [data,setData] = useState(txn.data)
   const [tipo,setTipo] = useState(txn.valor>=0?'receita':'despesa')
   const [imovelId,setImovelId] = useState(txn.imovel_id ?? '')
   const [saving,setSaving] = useState(false)
   const hasImoveis = imoveis && imoveis.length>0
 
+  // Receita não tem categoria à escolha — é sempre "Receita", sem ambiguidade
+  const setTipoEColarCategoria = (novoTipo:string) => {
+    setTipo(novoTipo)
+    if(novoTipo==='receita') setCategoria('Receita')
+    else if(categoria==='Receita') setCategoria('Despesas Gerais') // ao voltar para despesa, sai do valor inválido "Receita"
+  }
+
   const submit = async () => {
     setSaving(true)
     const absVal = Math.abs(parseNum(valor))
     const finalVal = tipo==='receita' ? absVal : -absVal
-    const fields:any = { descritivo, valor:finalVal, categoria, data, categoria_confirmada:true }
+    const finalCategoria = tipo==='receita' ? 'Receita' : categoria
+    const fields:any = { descritivo, valor:finalVal, categoria:finalCategoria, data, categoria_confirmada:true }
     if(hasImoveis){
       fields.imovel_id = imovelId || null
       fields.imovel_classificado = true
     }
     await updateTransaction(txn.id, fields)
     // Aprendizagem: reforça/cria a regra com base na categoria escolhida manualmente
-    await learnFromCategorization(descritivo, categoria)
+    // (regras de "Receita" não trazem grande valor preditivo, mas não fazem mal)
+    await learnFromCategorization(descritivo, finalCategoria)
     await onSaved(); setSaving(false); onClose()
   }
   const del = async () => {
@@ -472,9 +482,16 @@ const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis}:{txn:Transaction,onClose:
         </div>
         <div style={{padding:'20px 18px'}}>
           <Inp label="Descritivo" value={descritivo} onChange={setDescritivo}/>
-          <Sel label="Tipo" value={tipo} onChange={setTipo} options={[{value:'despesa',label:'🔴 Despesa'},{value:'receita',label:'🟢 Receita'}]}/>
+          <Sel label="Tipo" value={tipo} onChange={setTipoEColarCategoria} options={[{value:'despesa',label:'🔴 Despesa'},{value:'receita',label:'🟢 Receita'}]}/>
           <MoneyInp label="Valor (€)" value={valor.replace('-','')} onChange={setValor}/>
-          <Sel label="Categoria" value={categoria} onChange={setCategoria} options={CAT_LIST.map(c=>({value:c,label:`${getCatStyle(c).icon} ${c}`}))}/>
+          {tipo==='receita'?(
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:11,color:T.textSec,fontWeight:600,marginBottom:5,textTransform:'uppercase',letterSpacing:'0.06em'}}>Categoria</div>
+              <div style={{background:T.surface3,border:`1px solid ${T.border}`,borderRadius:10,padding:'10px 12px',color:T.textSec,fontSize:13,display:'flex',alignItems:'center',gap:6}}>💰 Receita</div>
+            </div>
+          ):(
+            <Sel label="Categoria" value={categoria} onChange={setCategoria} options={CAT_LIST.filter(c=>c!=='Receita').map(c=>({value:c,label:`${getCatStyle(c).icon} ${c}`}))}/>
+          )}
           {hasImoveis&&<Sel label="Imóvel associado" value={imovelId} onChange={setImovelId} options={[{value:'',label:'Geral (nenhum imóvel)'},...imoveis!.map(im=>({value:im.id,label:`🏠 ${im.nome}`}))]}/>}
           <DateInp label="Data" value={data} onChange={setData}/>
           <div style={{display:'flex',gap:10,marginTop:4}}>
@@ -1440,11 +1457,20 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
         const data = await res.json()
         if(!res.ok || data.error) throw new Error(data.error || `Erro ${res.status}`)
         const txns = (data.transactions ?? []).map((t:any)=>{
-          // Prioridade: regra aprendida > sugestão do Gemini > fallback por sinal
+          const valor = Number(t.valor)
+          // Regra sem excepções: valor positivo é sempre "Receita", mesmo que exista
+          // uma regra aprendida diferente para este padrão (ex: vinda de uma despesa antiga).
+          if(valor>=0){
+            return {
+              id: idCounter++, data:t.data, descritivo:t.descritivo, valor,
+              categoria:'Receita', keep:true, src:file.name, catSrc:'ia' as 'regra'|'ia'|'manual',
+            }
+          }
+          // Prioridade para despesas: regra aprendida > sugestão do Gemini > fallback
           const ruleCat = matchRule(t.descritivo, rules)
-          const cat = ruleCat ?? t.categoria ?? (Number(t.valor)>=0 ? 'Receita' : 'Despesas Gerais')
+          const cat = ruleCat ?? t.categoria ?? 'Despesas Gerais'
           return {
-            id: idCounter++, data:t.data, descritivo:t.descritivo, valor:Number(t.valor),
+            id: idCounter++, data:t.data, descritivo:t.descritivo, valor,
             categoria: cat, keep:true, src:file.name,
             catSrc: (ruleCat ? 'regra' : 'ia') as 'regra'|'ia'|'manual',
           }
@@ -1662,7 +1688,7 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
                         {t.catSrc==='ia'&&<span style={{display:'flex',alignItems:'center',gap:2,background:'rgba(167,139,250,0.12)',borderRadius:4,padding:'1px 5px'}}><Sparkles size={9} color="#A78BFA"/><span style={{fontSize:9,color:'#A78BFA',fontWeight:600}}>IA</span></span>}
                         <select value={t.categoria} onChange={e=>setCat(t.id,e.target.value)} onClick={e=>e.stopPropagation()}
                           style={{fontSize:10,background:T.surface2,border:`1px solid ${T.border}`,borderRadius:6,padding:'1px 4px',color:T.textSec,outline:'none',cursor:'pointer'}}>
-                          {CAT_LIST.map(c=><option key={c} value={c}>{c}</option>)}
+                          {(t.valor>=0 ? ['Receita'] : CAT_LIST.filter(c=>c!=='Receita')).map(c=><option key={c} value={c}>{c}</option>)}
                         </select>
                       </div>
                     </div>
@@ -1727,9 +1753,10 @@ const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAllTxns,onRefre
     if(!catSel) return view.txns
     if(!view.refMonth) return []
     const accIds = new Set((sel?tagAccs.filter(a=>a.id===sel):tagAccs).map(a=>a.id))
+    // 'transactions' já vem ordenado de forma estável pela query (data desc, created_at asc);
+    // .filter() preserva essa ordem, não é preciso reordenar aqui.
     return transactions
       .filter(t=>accIds.has(t.account_id)&&t.data.startsWith(view.refMonth!)&&t.categoria===catSel)
-      .sort((a,b)=>b.data.localeCompare(a.data))
   },[catSel,view.txns,view.refMonth,transactions,sel,tagAccs])
 
   return (
