@@ -1423,7 +1423,7 @@ type ParsedTxn = { id:number; data:string; descritivo:string; valor:number; cate
 type FileMeta = { saldo_final:number|null; iban:string|null; numero_conta:string|null; periodo_fim:string|null }
 type ParsedFile = { name:string; meta:FileMeta; ok:boolean; error?:string }
 
-const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:Account[],pal:{grad:string,accent:string,soft:string},onDone:()=>void}) => {
+const ImportWizard = ({onClose,accounts,pal,onDone,onRefreshAccounts}:{onClose:()=>void,accounts:Account[],pal:{grad:string,accent:string,soft:string},onDone:()=>void,onRefreshAccounts:()=>void}) => {
   const [step,setStep] = useState<1|2|3>(1)
   const [selAccount,setSelAccount] = useState('')
   const [parsing,setParsing] = useState(false)
@@ -1433,10 +1433,14 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
   const [parsed,setParsed] = useState<ParsedTxn[]>([])
   const [saving,setSaving] = useState(false)
   const [rules,setRules] = useState<CategoryRule[]>([])
+  const [driveConnected,setDriveConnected] = useState<boolean|undefined>(undefined)
+  const [showDriveFiles,setShowDriveFiles] = useState(false)
+  const [showDrivePicker,setShowDrivePicker] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const selAccObj = accounts.find(a=>a.id===selAccount)
 
   useEffect(()=>{ loadCategoryRules().then(setRules) },[])
+  useEffect(()=>{ getDriveConnectionStatus().then(s=>setDriveConnected(!!s)) },[])
 
   const handleFiles = async (e:React.ChangeEvent<HTMLInputElement>) => {
     const fileList = Array.from(e.target.files ?? [])
@@ -1592,15 +1596,32 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
             <div>
               {!parsing&&!parseError&&(
                 <>
-                  <div style={{fontSize:13,color:T.textSec,marginBottom:16}}>Selecciona um ou vários extractos (podes seleccionar múltiplos meses de uma vez):</div>
+                  <div style={{fontSize:13,color:T.textSec,marginBottom:16}}>Selecciona a origem do extracto:</div>
                   <div onClick={(e)=>{e.stopPropagation();fileRef.current?.click()}} style={{display:'flex',alignItems:'center',gap:14,padding:'16px',background:T.surface2,borderRadius:12,marginBottom:10,cursor:'pointer',border:`1px solid ${T.border}`}}>
                     <div style={{width:44,height:44,borderRadius:12,background:pal.soft,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><FileText size={22} color={pal.accent}/></div>
                     <div><div style={{fontSize:14,fontWeight:600,color:T.text}}>Upload do dispositivo</div><div style={{fontSize:12,color:T.textSec,marginTop:2}}>PDF, Excel ou CSV · Vários ficheiros</div></div>
                   </div>
-                  <div style={{display:'flex',alignItems:'center',gap:14,padding:'16px',background:T.surface2,borderRadius:12,opacity:0.45,border:`1px solid ${T.border}`}}>
-                    <div style={{width:44,height:44,borderRadius:12,background:T.surface3,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><HardDrive size={22} color={T.textSec}/></div>
-                    <div><div style={{fontSize:14,fontWeight:600,color:T.text}}>Google Drive</div><div style={{fontSize:12,color:T.textSec,marginTop:2}}>Em breve</div></div>
-                  </div>
+                  {driveConnected===undefined&&(
+                    <div style={{display:'flex',alignItems:'center',gap:14,padding:'16px',background:T.surface2,borderRadius:12,opacity:0.5,border:`1px solid ${T.border}`}}>
+                      <div style={{width:44,height:44,borderRadius:12,background:T.surface3,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><HardDrive size={22} color={T.textSec}/></div>
+                      <div><div style={{fontSize:14,fontWeight:600,color:T.text}}>Google Drive</div><div style={{fontSize:12,color:T.textSec,marginTop:2}}>A verificar…</div></div>
+                    </div>
+                  )}
+                  {driveConnected===false&&(
+                    <div onClick={async()=>{const url=await getDriveAuthUrl(); if(url) window.location.href=url}} style={{display:'flex',alignItems:'center',gap:14,padding:'16px',background:T.surface2,borderRadius:12,cursor:'pointer',border:`1px solid ${T.border}`}}>
+                      <div style={{width:44,height:44,borderRadius:12,background:pal.soft,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><HardDrive size={22} color={pal.accent}/></div>
+                      <div><div style={{fontSize:14,fontWeight:600,color:T.text}}>Ligar Google Drive</div><div style={{fontSize:12,color:T.textSec,marginTop:2}}>Importa automaticamente de pastas que escolheres</div></div>
+                    </div>
+                  )}
+                  {driveConnected===true&&(
+                    <div onClick={()=>selAccObj?.drive_folder_id?setShowDriveFiles(true):setShowDrivePicker(true)} style={{display:'flex',alignItems:'center',gap:14,padding:'16px',background:T.surface2,borderRadius:12,cursor:'pointer',border:`1px solid ${T.border}`}}>
+                      <div style={{width:44,height:44,borderRadius:12,background:pal.soft,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><HardDrive size={22} color={pal.accent}/></div>
+                      <div>
+                        <div style={{fontSize:14,fontWeight:600,color:T.text}}>Google Drive</div>
+                        <div style={{fontSize:12,color:T.textSec,marginTop:2}}>{selAccObj?.drive_folder_id?`📂 ${selAccObj.drive_folder_name}`:'Toca para associar uma pasta a esta conta'}</div>
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
               {parsing&&(
@@ -1715,6 +1736,8 @@ const ImportWizard = ({onClose,accounts,pal,onDone}:{onClose:()=>void,accounts:A
           )}
         </div>
       </div>
+      {showDrivePicker&&selAccObj&&<DriveFolderPicker account={selAccObj} onClose={()=>setShowDrivePicker(false)} onSaved={async()=>{await onRefreshAccounts();setShowDrivePicker(false);setShowDriveFiles(true)}} pal={pal}/>}
+      {showDriveFiles&&selAccObj&&<DriveFileSelectScreen account={selAccObj} onClose={()=>setShowDriveFiles(false)} onRefresh={async()=>{await onRefreshAccounts();await onDone();setShowDriveFiles(false);onClose()}} pal={pal}/>}
     </div>
   )
 }
@@ -2237,7 +2260,7 @@ export default function Page() {
       <div style={{flexShrink:0,background:T.surface,borderTop:`1px solid ${T.border}`,display:'flex',padding:'8px 0 14px'}}>
         {TABS.map(({id,label,Icon})=>{const active=tab===id,c=active?PAL[id].accent:T.textTer;return (<button key={id} onClick={()=>setTab(id)} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:3,background:'none',border:'none',cursor:'pointer',padding:'4px 0'}}><Icon size={20} color={c} strokeWidth={active?2.5:1.5}/><span style={{fontSize:10,fontWeight:active?700:400,color:c}}>{label}</span>{active&&<div style={{width:4,height:4,borderRadius:'50%',background:c}}/>}</button>)})}
       </div>
-      {showImport&&<ImportWizard onClose={()=>setShowImport(false)} accounts={accounts} pal={pal} onDone={async()=>{await refreshAll();showToast('✓ Importação concluída')}}/>}
+      {showImport&&<ImportWizard onClose={()=>setShowImport(false)} accounts={accounts} pal={pal} onDone={async()=>{await refreshAll();showToast('✓ Importação concluída')}} onRefreshAccounts={refreshAll}/>}
       {showSettings&&<SettingsPanel onClose={()=>setShowSettings(false)} accounts={accounts} onRefresh={async()=>{await refreshAll();showToast('✓ Dados actualizados')}} pal={pal}/>}
       {showAllTxns&&<AllTransactionsScreen allTxns={allTxns} accounts={accounts} tag={tab==='imoveis'?'investimento':tab} pal={pal} onClose={()=>{setShowAllTxns(false);setViewAllCategoria(undefined)}} onRefresh={async()=>{await refreshAll();showToast('✓ Transações actualizadas')}} imoveis={tab==='imoveis'?imoveis:undefined} initialCategoria={viewAllCategoria}/>}
       {toast&&<div style={{position:'fixed',bottom:90,left:'50%',transform:'translateX(-50%)',background:T.surface,border:`1px solid ${pal.accent}`,borderRadius:12,padding:'10px 16px',display:'flex',alignItems:'center',gap:8,zIndex:200,boxShadow:'0 8px 24px rgba(0,0,0,0.4)',whiteSpace:'nowrap'}}><Check size={15} color={pal.accent}/><span style={{fontSize:13,fontWeight:600,color:T.text}}>{toast}</span></div>}
