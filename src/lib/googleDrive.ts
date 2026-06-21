@@ -1,12 +1,24 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+let _supabaseAdmin: SupabaseClient | null = null
+
+// Criação adiada (lazy) — evita que o build do Next.js falhe se a env var
+// ainda não estiver disponível no momento de "collecting page data".
+function getSupabaseAdmin(): SupabaseClient {
+  if (!_supabaseAdmin) {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+    if (!url || !key) {
+      throw new Error('Configuração Supabase em falta (NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY)')
+    }
+    _supabaseAdmin = createClient(url, key)
+  }
+  return _supabaseAdmin
+}
 
 // Devolve um access_token válido para o utilizador, renovando-o se estiver expirado.
 export async function getValidAccessToken(userId: string): Promise<string | null> {
+  const supabaseAdmin = getSupabaseAdmin()
   const { data: tokenRow, error } = await supabaseAdmin
     .from('google_drive_tokens')
     .select('*')
@@ -53,4 +65,4 @@ export async function getValidAccessToken(userId: string): Promise<string | null
   return fresh.access_token
 }
 
-export { supabaseAdmin }
+export { getSupabaseAdmin }
