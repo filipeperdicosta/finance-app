@@ -19,8 +19,9 @@ type ConfirmedTxn = { data: string; descritivo: string; valor: number; categoria
 // POST /api/drive/import
 //   body: { user_id, account_id, google_file_id, filename, trigger_type?, transactions?, meta? }
 export async function POST(req: NextRequest) {
+  let body: any = {}
   try {
-    const body = await req.json()
+    body = await req.json()
     const { user_id, account_id, google_file_id, filename, trigger_type } = body
     const confirmedTxns: ConfirmedTxn[] | undefined = body.transactions
     const confirmedMeta = body.meta

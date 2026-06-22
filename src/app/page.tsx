@@ -781,8 +781,12 @@ const AccountForm = ({initial,onClose,onSaved,pal,accountsLen}:{initial:Account|
     if(!form.nome||!form.banco) return
     setSaving(true)
     const payload = { nome:form.nome, banco:form.banco, tipo:form.tipo as any, budget_tag:form.budget_tag as any, titular:form.titular, ownership_pct:Number(form.ownership_pct), saldo_atual:parseNum(form.saldo_atual), iban:form.iban||null, numero_conta:form.numero_conta||null }
-    if(isEdit) await updateAccount(initial!.id, payload)
-    else await saveAccount({...payload, saldo_data:null, drive_folder_id:null, drive_folder_name:null, moeda:'EUR', ativa:true, ordem:accountsLen})
+    if(isEdit) {
+      const updatePayload: any = { ...payload }
+      // Para contas poupança, o saldo é editado manualmente — actualizar saldo_data para hoje
+      if(form.tipo === 'poupança') updatePayload.saldo_data = new Date().toISOString().split('T')[0]
+      await updateAccount(initial!.id, updatePayload)
+    } else await saveAccount({...payload, saldo_data:null, drive_folder_id:null, drive_folder_name:null, moeda:'EUR', ativa:true, ordem:accountsLen})
     await onSaved(); setSaving(false); onClose()
   }
   return (
@@ -800,11 +804,15 @@ const AccountForm = ({initial,onClose,onSaved,pal,accountsLen}:{initial:Account|
           <Inp label="Titular" value={form.titular} onChange={f('titular')} placeholder="ex: Eu, Cici, Conjunto"/>
           <Inp label="% propriedade" value={form.ownership_pct} onChange={f('ownership_pct')} type="number"/>
           {isEdit ? (
-            <div style={{marginBottom:14}}>
-              <div style={{fontSize:11,color:T.textSec,fontWeight:600,marginBottom:5,textTransform:'uppercase',letterSpacing:'0.06em'}}>Saldo actual</div>
-              <div style={{background:T.surface3,border:`1px solid ${T.border}`,borderRadius:10,padding:'10px 12px',color:T.textSec,fontSize:13,fontFamily:T.mono}}>{dec(Number(form.saldo_atual)||0)}</div>
-              <div style={{fontSize:11,color:T.textSec,marginTop:5,lineHeight:1.5}}>Actualizado automaticamente a cada extracto importado. Não é editável manualmente.</div>
-            </div>
+            form.tipo === 'poupança' ? (
+              <MoneyInp label="Saldo actual (€)" value={form.saldo_atual} onChange={f('saldo_atual')} hint="Actualiza manualmente quando constituíres, renovares ou resgates o depósito."/>
+            ) : (
+              <div style={{marginBottom:14}}>
+                <div style={{fontSize:11,color:T.textSec,fontWeight:600,marginBottom:5,textTransform:'uppercase',letterSpacing:'0.06em'}}>Saldo actual</div>
+                <div style={{background:T.surface3,border:`1px solid ${T.border}`,borderRadius:10,padding:'10px 12px',color:T.textSec,fontSize:13,fontFamily:T.mono}}>{dec(Number(form.saldo_atual)||0)}</div>
+                <div style={{fontSize:11,color:T.textSec,marginTop:5,lineHeight:1.5}}>Actualizado automaticamente a cada extracto importado. Não é editável manualmente.</div>
+              </div>
+            )
           ) : (
             <MoneyInp label={form.tipo==='cartão'?'Valor inicial em dívida (€)':'Saldo inicial (€)'} value={form.saldo_atual} onChange={f('saldo_atual')} hint="Ponto de partida antes do primeiro extracto importado. Depois passa a ser actualizado automaticamente."/>
           )}
