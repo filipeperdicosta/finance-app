@@ -18,7 +18,7 @@ import {
   assignTransactionToImovel, assignTransactionsToImovel,
   loadCategoryRules, learnFromCategorization, matchRule, deleteCategoryRule, deleteCategoryRules, updateCategoryRule,
   getDriveConnectionStatus, disconnectDrive, getDriveAuthUrl, updateAccountDriveFolder, loadDriveFiles,
-  listDriveFolderFiles, importDriveFile, resetDriveFileImport,
+  listDriveFolderFiles, importDriveFile, resetDriveFileImport, previewDriveFile,
   type Account, type Transaction, type Imovel, type ImovelRenda, type ContaImovel, type CategoryRule,
   type DriveToken, type DriveFile,
 } from '@/lib/supabase'
@@ -507,10 +507,10 @@ const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis}:{txn:Transaction,onClose:
 // ─────────────────────────────────────────────────────────────────
 // FILTER SHEET
 // ─────────────────────────────────────────────────────────────────
-type Filters = { dateFrom:string, dateTo:string, tipo:string, valMin:string, valMax:string, categoria:string }
-const emptyFilters:Filters = { dateFrom:'', dateTo:'', tipo:'todos', valMin:'', valMax:'', categoria:'todas' }
+type Filters = { dateFrom:string, dateTo:string, tipo:string, valMin:string, valMax:string, categoria:string, conta:string }
+const emptyFilters:Filters = { dateFrom:'', dateTo:'', tipo:'todos', valMin:'', valMax:'', categoria:'todas', conta:'todas' }
 
-const FilterSheet = ({filters,onApply,onClose,pal}:{filters:Filters,onApply:(f:Filters)=>void,onClose:()=>void,pal:{accent:string,soft:string}}) => {
+const FilterSheet = ({filters,onApply,onClose,pal,tagAccounts}:{filters:Filters,onApply:(f:Filters)=>void,onClose:()=>void,pal:{accent:string,soft:string},tagAccounts?:{id:string,nome:string}[]}) => {
   const [f,setF] = useState<Filters>(filters)
   const upd = (k:keyof Filters)=>(v:string)=>setF({...f,[k]:v})
   return (
@@ -521,6 +521,9 @@ const FilterSheet = ({filters,onApply,onClose,pal}:{filters:Filters,onApply:(f:F
           <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer'}}><X size={18} color={T.textSec}/></button>
         </div>
         <div style={{padding:'20px 18px'}}>
+          {tagAccounts&&tagAccounts.length>1&&(
+            <Sel label="Conta" value={f.conta} onChange={upd('conta')} options={[{value:'todas',label:'Todas as contas'},...tagAccounts.map(a=>({value:a.id,label:a.nome}))]}/>
+          )}
           <div style={{fontSize:11,color:T.textTer,fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:10}}>Intervalo de datas</div>
           <div style={{display:'flex',gap:10}}>
             <div style={{flex:1}}><DateInp label="De" value={f.dateFrom} onChange={upd('dateFrom')}/></div>
@@ -567,8 +570,12 @@ const RecategorizeSheet = ({count,onApply,onClose,pal}:{count:number,onApply:(ca
 // ─────────────────────────────────────────────────────────────────
 // ALL TRANSACTIONS SCREEN
 // ─────────────────────────────────────────────────────────────────
-const AllTransactionsScreen = ({allTxns,accounts,tag,pal,onClose,onRefresh,imoveis,initialCategoria}:{allTxns:Transaction[],accounts:Account[],tag:string,pal:{grad:string,accent:string,soft:string},onClose:()=>void,onRefresh:()=>void,imoveis?:Imovel[],initialCategoria?:string}) => {
-  const [filters,setFilters] = useState<Filters>(initialCategoria ? {...emptyFilters, categoria:initialCategoria} : emptyFilters)
+const AllTransactionsScreen = ({allTxns,accounts,tag,pal,onClose,onRefresh,imoveis,initialCategoria,initialContaId}:{allTxns:Transaction[],accounts:Account[],tag:string,pal:{grad:string,accent:string,soft:string},onClose:()=>void,onRefresh:()=>void,imoveis?:Imovel[],initialCategoria?:string,initialContaId?:string}) => {
+  const [filters,setFilters] = useState<Filters>({
+    ...emptyFilters,
+    ...(initialCategoria ? {categoria:initialCategoria} : {}),
+    ...(initialContaId ? {conta:initialContaId} : {}),
+  })
   const [showFilters,setShowFilters] = useState(false)
   const [selectMode,setSelectMode] = useState(false)
   const [selected,setSelected] = useState<Set<string>>(new Set())
@@ -577,11 +584,13 @@ const AllTransactionsScreen = ({allTxns,accounts,tag,pal,onClose,onRefresh,imove
 
   // Contas da tab activa
   const tagAccountIds = useMemo(()=>new Set(accounts.filter(a=>a.budget_tag===tag).map(a=>a.id)),[accounts,tag])
+  const tagAccounts = useMemo(()=>accounts.filter(a=>a.budget_tag===tag),[accounts,tag])
 
   // Aplicar filtros
   const filtered = useMemo(()=>{
     return allTxns.filter(t=>{
       if(!tagAccountIds.has(t.account_id)) return false
+      if(filters.conta!=='todas' && t.account_id!==filters.conta) return false
       if(filters.dateFrom && t.data < filters.dateFrom) return false
       if(filters.dateTo && t.data > filters.dateTo) return false
       if(filters.tipo==='receita' && t.valor<0) return false
@@ -700,7 +709,7 @@ const AllTransactionsScreen = ({allTxns,accounts,tag,pal,onClose,onRefresh,imove
         )}
       </div>
 
-      {showFilters&&<FilterSheet filters={filters} onApply={setFilters} onClose={()=>setShowFilters(false)} pal={pal}/>}
+      {showFilters&&<FilterSheet filters={filters} onApply={setFilters} onClose={()=>setShowFilters(false)} pal={pal} tagAccounts={tagAccounts}/>}
       {editTxn&&<TxnEditForm txn={editTxn} onClose={()=>setEditTxn(null)} onSaved={onRefresh} pal={pal} imoveis={imoveis}/>}
       {showRecat&&<RecategorizeSheet count={selected.size} onApply={doRecat} onClose={()=>setShowRecat(false)} pal={pal}/>}
     </div>
@@ -1047,14 +1056,24 @@ const DriveFolderPicker = ({account,onClose,onSaved,pal}:{account:Account,onClos
 // (1ª ligação + "puxar mais histórico" reutilizam este mesmo ecrã)
 // ─────────────────────────────────────────────────────────────────
 type DriveFolderFile = { id:string; name:string; mimeType:string; modifiedTime:string }
+type DrivePreviewTxn = { uid:string; fileId:string; fileName:string; data:string; descritivo:string; valor:number; categoria:string; keep:boolean }
+type DrivePreviewMeta = { saldo_final:number|null; iban:string|null; numero_conta:string|null; periodo_fim:string|null }
 
 const DriveFileSelectScreen = ({account,onClose,onRefresh,pal}:{account:Account,onClose:()=>void,onRefresh:()=>void,pal:{accent:string,soft:string}}) => {
   const [loading,setLoading] = useState(true)
   const [files,setFiles] = useState<DriveFolderFile[]>([])
   const [importedIds,setImportedIds] = useState<Set<string>>(new Set())
   const [selected,setSelected] = useState<Set<string>>(new Set())
-  const [importing,setImporting] = useState(false)
-  const [progress,setProgress] = useState({done:0,total:0})
+
+  // Estado do preview (passo intermédio antes de gravar)
+  const [previewing,setPreviewing] = useState(false)
+  const [previewProgress,setPreviewProgress] = useState({done:0,total:0,filename:''})
+  const [previewTxns,setPreviewTxns] = useState<DrivePreviewTxn[]>([])
+  const [previewMetaByFile,setPreviewMetaByFile] = useState<Record<string,DrivePreviewMeta>>({})
+  const [previewErrors,setPreviewErrors] = useState<{filename:string,error:string}[]>([])
+
+  // Estado da gravação final
+  const [saving,setSaving] = useState(false)
   const [results,setResults] = useState<{filename:string,ok:boolean,txns?:number,error?:string}[]>([])
 
   const load = useCallback(async()=>{
@@ -1085,39 +1104,92 @@ const DriveFileSelectScreen = ({account,onClose,onRefresh,pal}:{account:Account,
     await load()
   }
 
-  const importSelected = async () => {
+  // Passo 1→2: lê e processa os ficheiros seleccionados, mas NÃO grava nada ainda
+  const startPreview = async () => {
     const { data:{user} } = await supabase.auth.getUser()
     if(!user) return
-    setImporting(true)
-    setProgress({done:0,total:selected.size})
-    const toImport = files.filter(f=>selected.has(f.id))
-    const res:{filename:string,ok:boolean,txns?:number,error?:string}[] = []
-    for(const f of toImport){
-      const result = await importDriveFile({userId:user.id, accountId:account.id, googleFileId:f.id, filename:f.name, triggerType:'manual'})
-      if(result.ok) res.push({filename:f.name, ok:true, txns:result.transactions_count})
-      else res.push({filename:f.name, ok:false, error:result.error})
-      setProgress(p=>({...p,done:p.done+1}))
+    const toPreview = files.filter(f=>selected.has(f.id))
+    setPreviewing(true)
+    setPreviewProgress({done:0,total:toPreview.length,filename:''})
+
+    const allTxns:DrivePreviewTxn[] = []
+    const metaByFile:Record<string,DrivePreviewMeta> = {}
+    const errors:{filename:string,error:string}[] = []
+    let uidCounter = 0
+
+    for(const f of toPreview){
+      setPreviewProgress(p=>({...p,filename:f.name}))
+      const result = await previewDriveFile({userId:user.id, googleFileId:f.id, filename:f.name})
+      if(result.error){
+        errors.push({filename:f.name, error:result.error})
+      } else {
+        metaByFile[f.id] = result.meta
+        for(const t of result.transactions ?? []){
+          allTxns.push({uid:`${f.id}-${uidCounter++}`, fileId:f.id, fileName:f.name, data:t.data, descritivo:t.descritivo, valor:t.valor, categoria:t.categoria, keep:true})
+        }
+      }
+      setPreviewProgress(p=>({...p,done:p.done+1}))
     }
+
+    setPreviewTxns(allTxns)
+    setPreviewMetaByFile(metaByFile)
+    setPreviewErrors(errors)
+    setPreviewing(false)
+  }
+
+  const togglePreviewTxn = (uid:string) => setPreviewTxns(p=>p.map(t=>t.uid===uid?{...t,keep:!t.keep}:t))
+  const setPreviewCategoria = (uid:string,cat:string) => setPreviewTxns(p=>p.map(t=>t.uid===uid?{...t,categoria:cat}:t))
+
+  // Passo 2→3: grava o que foi confirmado, agrupado por ficheiro
+  const confirmAndSave = async () => {
+    const { data:{user} } = await supabase.auth.getUser()
+    if(!user) return
+    setSaving(true)
+    const res:{filename:string,ok:boolean,txns?:number,error?:string}[] = []
+
+    const fileIds = Array.from(new Set(previewTxns.map(t=>t.fileId)))
+    for(const fileId of fileIds){
+      const file = files.find(f=>f.id===fileId)
+      if(!file) continue
+      const txnsForFile = previewTxns.filter(t=>t.fileId===fileId && t.keep)
+        .map(t=>({data:t.data, descritivo:t.descritivo, valor:t.valor, categoria:t.categoria}))
+      const meta = previewMetaByFile[fileId] ?? {saldo_final:null,iban:null,numero_conta:null,periodo_fim:null}
+      const result = await importDriveFile({userId:user.id, accountId:account.id, googleFileId:fileId, filename:file.name, triggerType:'manual', transactions:txnsForFile, meta})
+      if(result.ok) res.push({filename:file.name, ok:true, txns:result.transactions_count})
+      else res.push({filename:file.name, ok:false, error:result.error})
+    }
+    // Ficheiros que falharam no preview também ficam reportados
+    for(const e of previewErrors) res.push({filename:e.filename, ok:false, error:e.error})
+
     setResults(res)
-    setImporting(false)
+    setSaving(false)
     await onRefresh()
   }
 
+  const cancelPreview = () => {
+    setPreviewTxns([]); setPreviewMetaByFile({}); setPreviewErrors([])
+  }
+
   const jaImportados = files.filter(f=>importedIds.has(f.id)).length
-  const porImportar = files.filter(f=>!importedIds.has(f.id))
+  const showingPreview = previewTxns.length>0 || previewErrors.length>0
+  const toSaveCount = previewTxns.filter(t=>t.keep).length
+  const totalRec = previewTxns.filter(t=>t.keep&&t.valor>0).reduce((s,t)=>s+t.valor,0)
+  const totalDesp = previewTxns.filter(t=>t.keep&&t.valor<0).reduce((s,t)=>s+Math.abs(t.valor),0)
 
   return (
     <div onClick={e=>e.stopPropagation()} style={{position:'fixed',inset:0,background:T.bg,zIndex:95,overflowY:'auto',fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
       <div style={{maxWidth:440,margin:'0 auto'}}>
         <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',background:T.surface,borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,zIndex:10}}>
-          <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ArrowLeft size={18} color={T.textSec}/></button>
+          <button onClick={()=>showingPreview&&!saving&&results.length===0?cancelPreview():onClose()} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ArrowLeft size={18} color={T.textSec}/></button>
           <div style={{flex:1}}>
             <div style={{fontSize:16,fontWeight:700,color:T.text}}>{account.nome}</div>
             <div style={{fontSize:11,color:T.textSec}}>📂 {account.drive_folder_name}</div>
           </div>
         </div>
 
-        <div style={{padding:'16px 14px'}}>
+        <div style={{padding:'16px 14px',paddingBottom:100}}>
+
+          {/* RESULTADO FINAL */}
           {results.length>0&&(
             <Card style={{marginBottom:16,padding:'14px'}}>
               <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:10}}>✓ Importação concluída</div>
@@ -1131,17 +1203,78 @@ const DriveFileSelectScreen = ({account,onClose,onRefresh,pal}:{account:Account,
             </Card>
           )}
 
-          {importing&&(
+          {/* A LER FICHEIROS (preview) */}
+          {previewing&&(
             <Card style={{marginBottom:16,padding:'20px',textAlign:'center'}}>
               <RefreshCw size={24} color={pal.accent} style={{marginBottom:10}}/>
-              <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:4}}>A importar {progress.done+1} de {progress.total}…</div>
-              <div style={{height:4,background:T.border,borderRadius:2,marginTop:10,overflow:'hidden'}}>
-                <div style={{height:'100%',width:`${progress.total?progress.done/progress.total*100:0}%`,background:pal.accent,transition:'width 0.3s'}}/>
+              <div style={{fontSize:13,fontWeight:700,color:T.text,marginBottom:4}}>A ler ficheiro {previewProgress.done+1} de {previewProgress.total}…</div>
+              <div style={{fontSize:11,color:T.textTer,marginBottom:8}}>{previewProgress.filename}</div>
+              <div style={{height:4,background:T.border,borderRadius:2,overflow:'hidden'}}>
+                <div style={{height:'100%',width:`${previewProgress.total?previewProgress.done/previewProgress.total*100:0}%`,background:pal.accent,transition:'width 0.3s'}}/>
               </div>
             </Card>
           )}
 
-          {!importing&&results.length===0&&(
+          {/* A GRAVAR (depois de confirmares) */}
+          {saving&&(
+            <Card style={{marginBottom:16,padding:'20px',textAlign:'center'}}>
+              <RefreshCw size={24} color={pal.accent} style={{marginBottom:10}}/>
+              <div style={{fontSize:13,fontWeight:700,color:T.text}}>A guardar transações…</div>
+            </Card>
+          )}
+
+          {/* PREVIEW — revê e confirma antes de gravar */}
+          {!previewing&&!saving&&results.length===0&&showingPreview&&(
+            <div>
+              <div style={{display:'flex',gap:8,marginBottom:14}}>
+                <div style={{flex:1,background:pal.soft,borderRadius:10,padding:'10px 12px',textAlign:'center'}}>
+                  <div style={{fontSize:11,color:T.textSec,marginBottom:2}}>A importar</div>
+                  <div style={{fontSize:16,fontWeight:700,color:T.text}}>{toSaveCount}/{previewTxns.length}</div>
+                </div>
+                <div style={{flex:1,background:'rgba(74,222,128,0.08)',borderRadius:10,padding:'10px 12px',textAlign:'center'}}>
+                  <div style={{fontSize:11,color:T.textSec,marginBottom:2}}>Receitas</div>
+                  <div style={{fontSize:14,fontWeight:700,color:T.green}}>{dec(totalRec)}</div>
+                </div>
+                <div style={{flex:1,background:'rgba(248,113,113,0.08)',borderRadius:10,padding:'10px 12px',textAlign:'center'}}>
+                  <div style={{fontSize:11,color:T.textSec,marginBottom:2}}>Despesas</div>
+                  <div style={{fontSize:14,fontWeight:700,color:T.red}}>{dec(totalDesp)}</div>
+                </div>
+              </div>
+
+              {previewErrors.length>0&&(
+                <Card style={{marginBottom:14,padding:'10px 14px'}}>
+                  <div style={{fontSize:11,fontWeight:600,color:T.red,marginBottom:4}}>⚠ {previewErrors.length} ficheiro(s) com erro</div>
+                  {previewErrors.map((e,i)=>(<div key={i} style={{fontSize:11,color:T.textSec}}>{e.filename}: {e.error}</div>))}
+                </Card>
+              )}
+
+              <div style={{fontSize:11,color:T.textTer,fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:8}}>Transações encontradas</div>
+              <Card>
+                {previewTxns.map((t,i)=>(
+                  <div key={t.uid} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',borderBottom:i<previewTxns.length-1?`1px solid ${T.border}`:'none',opacity:t.keep?1:0.4}}>
+                    <div onClick={()=>togglePreviewTxn(t.uid)} style={{flexShrink:0,cursor:'pointer'}}>
+                      {t.keep?<CheckSquare size={18} color={pal.accent}/>:<Square size={18} color={T.textTer}/>}
+                    </div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:12,fontWeight:500,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div>
+                      <div style={{display:'flex',alignItems:'center',gap:6,marginTop:3}}>
+                        <span style={{fontSize:10,color:T.textTer}}>{t.data}</span>
+                        <select value={t.categoria} onChange={e=>setPreviewCategoria(t.uid,e.target.value)}
+                          style={{fontSize:10,background:T.surface2,border:`1px solid ${T.border}`,borderRadius:6,padding:'1px 4px',color:T.textSec,outline:'none',cursor:'pointer'}}>
+                          {(t.valor>=0 ? ['Receita'] : CAT_LIST.filter(c=>c!=='Receita')).map(c=><option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <div style={{fontSize:13,fontWeight:700,color:t.valor>=0?T.green:T.red,fontFamily:T.mono,whiteSpace:'nowrap',flexShrink:0}}>{t.valor>=0?'+ ':'− '}{dec(t.valor)}</div>
+                  </div>
+                ))}
+                {!previewTxns.length&&<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Nenhuma transação encontrada nos ficheiros seleccionados.</div>}
+              </Card>
+            </div>
+          )}
+
+          {/* SELECÇÃO DE FICHEIROS (estado inicial) */}
+          {!previewing&&!saving&&results.length===0&&!showingPreview&&(
             <>
               {loading&&<div style={{padding:32,textAlign:'center',color:T.textSec,fontSize:13}}>A carregar ficheiros…</div>}
               {!loading&&(
@@ -1171,16 +1304,24 @@ const DriveFileSelectScreen = ({account,onClose,onRefresh,pal}:{account:Account,
                     })}
                     {!files.length&&<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem ficheiros compatíveis nesta pasta.</div>}
                   </Card>
-                  {porImportar.length>0&&<div style={{marginTop:14,fontSize:11,color:T.textTer,lineHeight:1.6}}>💡 Não precisas de importar tudo de uma vez. Selecciona alguns meses agora e volta mais tarde para puxar mais histórico.</div>}
+                  <div style={{marginTop:14,fontSize:11,color:T.textTer,lineHeight:1.6}}>💡 Não precisas de importar tudo de uma vez. Selecciona alguns meses agora e volta mais tarde para puxar mais histórico.</div>
                 </>
               )}
             </>
           )}
         </div>
       </div>
-      {!importing&&results.length===0&&(
+
+      {/* Botão fixo no fundo — muda consoante o passo */}
+      {!previewing&&!saving&&results.length===0&&!showingPreview&&(
         <div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:440,background:T.surface,borderTop:`1px solid ${T.border}`,padding:'12px 16px 20px'}}>
-          <Btn onClick={importSelected} variant="primary" accent={pal.accent} style={{width:'100%',opacity:selected.size?1:0.4}}>{selected.size?`Importar seleccionados (${selected.size})`:'Selecciona ficheiros para importar'}</Btn>
+          <Btn onClick={startPreview} variant="primary" accent={pal.accent} style={{width:'100%',opacity:selected.size?1:0.4}}>{selected.size?`Ler ${selected.size} ficheiro${selected.size>1?'s':''} →`:'Selecciona ficheiros para importar'}</Btn>
+        </div>
+      )}
+      {!previewing&&!saving&&results.length===0&&showingPreview&&(
+        <div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:440,background:T.surface,borderTop:`1px solid ${T.border}`,padding:'12px 16px 20px',display:'flex',gap:10}}>
+          <Btn onClick={cancelPreview} variant="ghost" accent={pal.accent} style={{flex:1}}>← Voltar</Btn>
+          <Btn onClick={confirmAndSave} variant="primary" accent={pal.accent} style={{flex:2,opacity:toSaveCount?1:0.4}}>{toSaveCount?`✓ Importar ${toSaveCount} transações`:'Sem transações seleccionadas'}</Btn>
         </div>
       )}
     </div>
@@ -1197,7 +1338,9 @@ const DriveSettingsScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
   const [connecting,setConnecting] = useState(false)
   const [checking,setChecking] = useState(false)
   const [checkProgress,setCheckProgress] = useState({done:0,total:0,filename:''})
-  const [checkResult,setCheckResult] = useState<{novos:number,contas:number}|null>(null)
+  const [checkResult,setCheckResult] = useState<{contasComNovidades:number,contas:number}|null>(null)
+  // Fila de contas com ficheiros novos por rever — uma de cada vez, sequencialmente
+  const [reviewQueue,setReviewQueue] = useState<Account[]>([])
 
   const load = useCallback(async()=>{ const s = await getDriveConnectionStatus(); setStatus(s) },[])
   useEffect(()=>{ load() },[load])
@@ -1215,6 +1358,9 @@ const DriveSettingsScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
   // "Verificar agora": para cada conta com pasta associada, lista ficheiros da Drive,
   // identifica os que ainda não foram vistos (não existem em drive_files), e importa-os
   // automaticamente — sem selecção manual, ao contrário do fluxo de "puxar histórico".
+  // "Verificar agora": detecta, por conta, se há ficheiros novos na pasta Drive.
+  // NÃO importa automaticamente — em vez disso, enfileira as contas com novidades
+  // para revisão sequencial (uma de cada vez), reaproveitando o ecrã de preview.
   const checkNow = async () => {
     const { data:{user} } = await supabase.auth.getUser()
     if(!user) return
@@ -1223,28 +1369,32 @@ const DriveSettingsScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
 
     setChecking(true)
     setCheckResult(null)
-    let novos = 0
+    setCheckProgress({done:0,total:linkedAccounts.length,filename:''})
+    const accountsWithNews:Account[] = []
 
     for(const acc of linkedAccounts){
+      setCheckProgress(p=>({...p,filename:acc.nome}))
       const [folderFiles, driveFiles] = await Promise.all([
         listDriveFolderFiles(user.id, acc.drive_folder_id!),
         loadDriveFiles(acc.id),
       ])
       const knownIds = new Set(driveFiles.map(f=>f.google_file_id))
-      const newFiles = folderFiles.filter(f=>!knownIds.has(f.id))
-
-      setCheckProgress(p=>({...p,total:p.total+newFiles.length}))
-      for(const f of newFiles){
-        setCheckProgress(p=>({...p,filename:f.name}))
-        const result = await importDriveFile({userId:user.id, accountId:acc.id, googleFileId:f.id, filename:f.name, triggerType:'on_demand'})
-        if(result.ok) novos++
-        setCheckProgress(p=>({...p,done:p.done+1}))
-      }
+      const hasNew = folderFiles.some(f=>!knownIds.has(f.id))
+      if(hasNew) accountsWithNews.push(acc)
+      setCheckProgress(p=>({...p,done:p.done+1}))
     }
 
-    setCheckResult({novos, contas:linkedAccounts.length})
+    setCheckResult({contasComNovidades:accountsWithNews.length, contas:linkedAccounts.length})
     setChecking(false)
+    if(accountsWithNews.length>0){
+      setReviewQueue(accountsWithNews)
+    }
+  }
+
+  // Quando uma conta da fila termina a revisão (ou é fechada), avança para a próxima
+  const advanceQueue = async () => {
     await onRefresh()
+    setReviewQueue(q=>q.slice(1))
   }
 
   return (
@@ -1298,14 +1448,19 @@ const DriveSettingsScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
                     {checkProgress.total>0&&<div style={{height:4,background:T.border,borderRadius:2,overflow:'hidden'}}><div style={{height:'100%',width:`${checkProgress.done/checkProgress.total*100}%`,background:pal.accent,transition:'width 0.3s'}}/></div>}
                   </div>
                 )}
-                {checkResult&&!checking&&(
+                {checkResult&&!checking&&reviewQueue.length===0&&(
                   <div>
                     <div style={{fontSize:13,fontWeight:600,color:T.green,marginBottom:4}}>✓ Verificação concluída</div>
-                    <div style={{fontSize:11,color:T.textSec}}>{checkResult.novos>0?`${checkResult.novos} ficheiros novos importados`:'Nenhum ficheiro novo encontrado'} · {checkResult.contas} contas verificadas</div>
+                    <div style={{fontSize:11,color:T.textSec}}>{checkResult.contasComNovidades>0?`${checkResult.contasComNovidades} conta(s) com ficheiros novos`:'Nenhum ficheiro novo encontrado'} · {checkResult.contas} contas verificadas</div>
                     <button onClick={()=>setCheckResult(null)} style={{marginTop:10,background:'none',border:'none',color:pal.accent,fontSize:11,fontWeight:600,cursor:'pointer',padding:0}}>Fechar</button>
                   </div>
                 )}
               </Card>
+              {reviewQueue.length>0&&(
+                <Card style={{background:pal.soft,padding:'10px 14px',marginBottom:16}}>
+                  <div style={{fontSize:12,color:pal.accent,fontWeight:600}}>📋 {reviewQueue.length} conta(s) por rever — a mostrar "{reviewQueue[0].nome}"</div>
+                </Card>
+              )}
 
               <div style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase',marginBottom:8}}>Pastas associadas</div>
               <Card>
@@ -1337,6 +1492,7 @@ const DriveSettingsScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
       </div>
       {pickerAccount&&<DriveFolderPicker account={pickerAccount} onClose={()=>setPickerAccount(null)} onSaved={onRefresh} pal={pal}/>}
       {fileSelectAccount&&<DriveFileSelectScreen account={fileSelectAccount} onClose={()=>setFileSelectAccount(null)} onRefresh={onRefresh} pal={pal}/>}
+      {reviewQueue.length>0&&<DriveFileSelectScreen account={reviewQueue[0]} onClose={advanceQueue} onRefresh={advanceQueue} pal={pal}/>}
     </div>
   )
 }
@@ -1746,7 +1902,7 @@ const ImportWizard = ({onClose,accounts,pal,onDone,onRefreshAccounts}:{onClose:(
 // ─────────────────────────────────────────────────────────────────
 // SCREENS
 // ─────────────────────────────────────────────────────────────────
-const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAllTxns,onRefresh}:{accounts:Account[],transactions:Transaction[],tag:string,pal:{grad:string,accent:string,soft:string},title:string,onViewAllTxns:(categoria?:string)=>void,onRefresh:()=>void}) => {
+const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAllTxns,onRefresh}:{accounts:Account[],transactions:Transaction[],tag:string,pal:{grad:string,accent:string,soft:string},title:string,onViewAllTxns:(categoria?:string,contaId?:string)=>void,onRefresh:()=>void}) => {
   const [sel,setSel] = useState<string|null>(null)
   const [catSel,setCatSel] = useState<string|null>(null)
   const [editTxn,setEditTxn] = useState<Transaction|null>(null)
@@ -1805,11 +1961,11 @@ const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAllTxns,onRefre
       </div>
       <TrendTile data={catTrend} accent={pal.accent} catFilter={catSel}/>
       <div style={{marginBottom:20}}>
-        <Lbl title={catSel?`Transações — ${catSel}`:'Últimas transações'} action="Ver todas →" accent={pal.accent} onAction={()=>onViewAllTxns(catSel??undefined)}/>
+        <Lbl title={catSel?`Transações — ${catSel}`:'Últimas transações'} action="Ver todas →" accent={pal.accent} onAction={()=>onViewAllTxns(catSel??undefined, sel??undefined)}/>
         <Card>{catTxns.length?catTxns.map((t,i)=><TxnRow key={t.id} t={t} last={i===catTxns.length-1} onClick={()=>setEditTxn(t)}/>):<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem transações. Importa o teu primeiro extracto.</div>}</Card>
       </div>
       {editTxn&&<TxnEditForm txn={editTxn} onClose={()=>setEditTxn(null)} onSaved={onRefresh} pal={pal}/>}
-      {showAllCats&&<AllCategoriesScreen cats={view.cats} period={period} subtitle={title.replace('Conta Corrente ','')} onClose={()=>setShowAllCats(false)} onSelectCategoria={(cat)=>{setShowAllCats(false);onViewAllTxns(cat)}} pal={pal}/>}
+      {showAllCats&&<AllCategoriesScreen cats={view.cats} period={period} subtitle={title.replace('Conta Corrente ','')} onClose={()=>setShowAllCats(false)} onSelectCategoria={(cat)=>{setShowAllCats(false);onViewAllTxns(cat, sel??undefined)}} pal={pal}/>}
     </div>
   )
 }
@@ -2200,9 +2356,10 @@ export default function Page() {
   const [showSettings, setShowSettings] = useState(false)
   const [showAllTxns, setShowAllTxns] = useState(false)
   const [viewAllCategoria, setViewAllCategoria] = useState<string|undefined>(undefined)
+  const [viewAllContaId, setViewAllContaId] = useState<string|undefined>(undefined)
   const [toast, setToast] = useState<string|null>(null)
 
-  const openAllTxns = useCallback((categoria?:string)=>{ setViewAllCategoria(categoria); setShowAllTxns(true) },[])
+  const openAllTxns = useCallback((categoria?:string, contaId?:string)=>{ setViewAllCategoria(categoria); setViewAllContaId(contaId); setShowAllTxns(true) },[])
   const showToast = useCallback((msg:string)=>{setToast(msg);setTimeout(()=>setToast(null),2500)},[])
   const load = useCallback(async()=>{
     const data = await loadAllData()
@@ -2262,7 +2419,7 @@ export default function Page() {
       </div>
       {showImport&&<ImportWizard onClose={()=>setShowImport(false)} accounts={accounts} pal={pal} onDone={async()=>{await refreshAll();showToast('✓ Importação concluída')}} onRefreshAccounts={refreshAll}/>}
       {showSettings&&<SettingsPanel onClose={()=>setShowSettings(false)} accounts={accounts} onRefresh={async()=>{await refreshAll();showToast('✓ Dados actualizados')}} pal={pal}/>}
-      {showAllTxns&&<AllTransactionsScreen allTxns={allTxns} accounts={accounts} tag={tab==='imoveis'?'investimento':tab} pal={pal} onClose={()=>{setShowAllTxns(false);setViewAllCategoria(undefined)}} onRefresh={async()=>{await refreshAll();showToast('✓ Transações actualizadas')}} imoveis={tab==='imoveis'?imoveis:undefined} initialCategoria={viewAllCategoria}/>}
+      {showAllTxns&&<AllTransactionsScreen allTxns={allTxns} accounts={accounts} tag={tab==='imoveis'?'investimento':tab} pal={pal} onClose={()=>{setShowAllTxns(false);setViewAllCategoria(undefined);setViewAllContaId(undefined)}} onRefresh={async()=>{await refreshAll();showToast('✓ Transações actualizadas')}} imoveis={tab==='imoveis'?imoveis:undefined} initialCategoria={viewAllCategoria} initialContaId={viewAllContaId}/>}
       {toast&&<div style={{position:'fixed',bottom:90,left:'50%',transform:'translateX(-50%)',background:T.surface,border:`1px solid ${pal.accent}`,borderRadius:12,padding:'10px 16px',display:'flex',alignItems:'center',gap:8,zIndex:200,boxShadow:'0 8px 24px rgba(0,0,0,0.4)',whiteSpace:'nowrap'}}><Check size={15} color={pal.accent}/><span style={{fontSize:13,fontWeight:600,color:T.text}}>{toast}</span></div>}
     </div>
   )

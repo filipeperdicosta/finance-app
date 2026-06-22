@@ -328,8 +328,25 @@ export async function listDriveFolderFiles(userId: string, folderId: string) {
   return (data.files ?? []) as { id: string; name: string; mimeType: string; modifiedTime: string }[]
 }
 
-// Despoleta o processamento de um ficheiro da Drive (Gemini + guardar transações)
-export async function importDriveFile(params: { userId: string; accountId: string; googleFileId: string; filename: string; triggerType?: 'manual' | 'cron' | 'on_demand' }) {
+// Lê e processa um ficheiro da Drive (Gemini) SEM gravar nada — para rever antes de confirmar.
+export async function previewDriveFile(params: { userId: string; googleFileId: string; filename: string }) {
+  const res = await fetch('/api/drive/preview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: params.userId, google_file_id: params.googleFileId, filename: params.filename }),
+  })
+  return res.json()
+}
+
+// Grava transações de um ficheiro da Drive. Se "transactions" for passado, usa-as
+// directamente (modo confirmado, após revisão humana) sem voltar a chamar o Gemini.
+// Se omitido, processa tudo de uma vez sem pausa (modo automático — só para o cron).
+export async function importDriveFile(params: {
+  userId: string; accountId: string; googleFileId: string; filename: string
+  triggerType?: 'manual' | 'cron' | 'on_demand'
+  transactions?: { data: string; descritivo: string; valor: number; categoria: string }[]
+  meta?: { saldo_final: number | null; iban: string | null; numero_conta: string | null; periodo_fim: string | null }
+}) {
   const res = await fetch('/api/drive/import', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -337,6 +354,7 @@ export async function importDriveFile(params: { userId: string; accountId: strin
       user_id: params.userId, account_id: params.accountId,
       google_file_id: params.googleFileId, filename: params.filename,
       trigger_type: params.triggerType ?? 'on_demand',
+      transactions: params.transactions, meta: params.meta,
     }),
   })
   return res.json()

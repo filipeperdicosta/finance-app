@@ -2,49 +2,73 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getValidAccessToken, getSupabaseAdmin } from '@/lib/googleDrive'
 import { parseStatementWithGemini, detectMimeType } from '@/lib/geminiParse'
 
-// Importa um ficheiro específico da Drive: descarrega, processa com Gemini,
-// guarda transações + actualiza o saldo da conta, regista em drive_files.
-// POST /api/drive/import  body: { user_id, account_id, google_file_id, filename, trigger_type? }
+type ConfirmedTxn = { data: string; descritivo: string; valor: number; categoria: string }
+
+// Grava transações de um ficheiro da Drive na base de dados.
+//
+// Dois modos de utilização:
+//
+// 1) MODO CONFIRMADO (fluxo manual — Importar → Drive → preview → confirmar):
+//    body inclui "transactions" já revistas pelo utilizador no ecrã de preview.
+//    Não volta a chamar o Gemini — grava exactamente o que foi confirmado.
+//
+// 2) MODO AUTOMÁTICO (cron diário, sem ninguém a rever):
+//    body NÃO inclui "transactions" — esta rota descarrega o ficheiro, processa
+//    com o Gemini, e grava tudo de uma vez, sem pausa para confirmação humana.
+//
+// POST /api/drive/import
+//   body: { user_id, account_id, google_file_id, filename, trigger_type?, transactions?, meta? }
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
     const { user_id, account_id, google_file_id, filename, trigger_type } = body
+    const confirmedTxns: ConfirmedTxn[] | undefined = body.transactions
+    const confirmedMeta = body.meta
 
     if (!user_id || !account_id || !google_file_id || !filename) {
       return NextResponse.json({ error: 'Parâmetros em falta' }, { status: 400 })
     }
 
-    const accessToken = await getValidAccessToken(user_id)
-    if (!accessToken) return NextResponse.json({ error: 'Drive não ligada ou token inválido' }, { status: 401 })
-
     const supabaseAdmin = getSupabaseAdmin()
 
-    // Descarrega o ficheiro da Drive
-    const fileRes = await fetch(`https://www.googleapis.com/drive/v3/files/${google_file_id}?alt=media`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    })
-    if (!fileRes.ok) {
-      const errText = await fileRes.text()
-      console.error('Falha ao descarregar ficheiro da Drive:', fileRes.status, errText)
-      return NextResponse.json({ error: `Erro ao descarregar ficheiro: ${fileRes.status}` }, { status: 500 })
-    }
-    const bytes = await fileRes.arrayBuffer()
-    const sizeMB = bytes.byteLength / (1024 * 1024)
-    const base64 = Buffer.from(bytes).toString('base64')
-    const mimeType = detectMimeType(filename)
+    let finalTransactions: ConfirmedTxn[]
+    let finalMeta: { saldo_final: number | null; iban: string | null; numero_conta: string | null; periodo_fim: string | null }
 
-    // Processa com Gemini (lógica partilhada com o upload manual)
-    const result = await parseStatementWithGemini(base64, mimeType, sizeMB)
-    if (!result.ok) {
-      // Regista a tentativa falhada no drive_files para não ficar "pendente" silenciosamente
-      await supabaseAdmin.from('drive_files').upsert({
-        account_id, google_file_id, filename, status: 'ignorado', discovered_at: new Date().toISOString(),
-      }, { onConflict: 'account_id,google_file_id' })
-      return NextResponse.json({ error: result.error }, { status: result.status })
+    if (confirmedTxns) {
+      // MODO CONFIRMADO: usa exactamente o que veio do preview, sem voltar a chamar o Gemini
+      finalTransactions = confirmedTxns
+      finalMeta = confirmedMeta ?? { saldo_final: null, iban: null, numero_conta: null, periodo_fim: null }
+    } else {
+      // MODO AUTOMÁTICO: descarrega + processa agora, sem pausa
+      const accessToken = await getValidAccessToken(user_id)
+      if (!accessToken) return NextResponse.json({ error: 'Drive não ligada ou token inválido' }, { status: 401 })
+
+      const fileRes = await fetch(`https://www.googleapis.com/drive/v3/files/${google_file_id}?alt=media`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      })
+      if (!fileRes.ok) {
+        const errText = await fileRes.text()
+        console.error('Falha ao descarregar ficheiro da Drive:', fileRes.status, errText)
+        return NextResponse.json({ error: `Erro ao descarregar ficheiro: ${fileRes.status}` }, { status: 500 })
+      }
+      const bytes = await fileRes.arrayBuffer()
+      const sizeMB = bytes.byteLength / (1024 * 1024)
+      const base64 = Buffer.from(bytes).toString('base64')
+      const mimeType = detectMimeType(filename)
+
+      const result = await parseStatementWithGemini(base64, mimeType, sizeMB)
+      if (!result.ok) {
+        await supabaseAdmin.from('drive_files').upsert({
+          account_id, google_file_id, filename, status: 'ignorado', discovered_at: new Date().toISOString(),
+        }, { onConflict: 'account_id,google_file_id' })
+        return NextResponse.json({ error: result.error }, { status: result.status })
+      }
+      finalTransactions = result.transactions
+      finalMeta = result.meta
     }
 
-    // Hash único por transação (mesmo padrão usado no import manual)
-    const txnsToInsert = result.transactions.map((t, i) => ({
+    // Hash único por transação
+    const txnsToInsert = finalTransactions.map((t, i) => ({
       account_id, data: t.data, descritivo: t.descritivo, valor: t.valor,
       categoria: t.categoria, categoria_confirmada: false, ai_confianca: null,
       excluir_analise: false, imovel_classificado: false, ordem_extrato: i,
@@ -60,23 +84,23 @@ export async function POST(req: NextRequest) {
     // Cria o import_batch para rastreio/notificações
     const { data: batch } = await supabaseAdmin.from('import_batches').insert({
       account_id, filename, source: 'google_drive', google_file_id,
-      periodo_fim: result.meta.periodo_fim, total_txn: txnsToInsert.length,
-      status: 'complete', trigger_type: trigger_type ?? 'on_demand',
+      periodo_fim: finalMeta.periodo_fim, total_txn: txnsToInsert.length,
+      status: 'complete', trigger_type: trigger_type ?? (confirmedTxns ? 'manual' : 'cron'),
     }).select().single()
 
     // Actualiza saldo/IBAN da conta, respeitando a regra de "só se mais recente"
     const { data: account } = await supabaseAdmin.from('accounts').select('*').eq('id', account_id).single()
     if (account) {
       const updates: any = {}
-      const novaData = result.meta.periodo_fim
+      const novaData = finalMeta.periodo_fim
       const dataActual = account.saldo_data
       const ehMaisRecente = !dataActual || (novaData && novaData > dataActual)
-      if (result.meta.saldo_final !== null && ehMaisRecente) {
-        updates.saldo_atual = result.meta.saldo_final
+      if (finalMeta.saldo_final !== null && ehMaisRecente) {
+        updates.saldo_atual = finalMeta.saldo_final
         updates.saldo_data = novaData
       }
-      if (result.meta.iban && !account.iban) updates.iban = result.meta.iban
-      if (result.meta.numero_conta && !account.numero_conta) updates.numero_conta = result.meta.numero_conta
+      if (finalMeta.iban && !account.iban) updates.iban = finalMeta.iban
+      if (finalMeta.numero_conta && !account.numero_conta) updates.numero_conta = finalMeta.numero_conta
       if (Object.keys(updates).length) await supabaseAdmin.from('accounts').update(updates).eq('id', account_id)
     }
 
@@ -86,8 +110,8 @@ export async function POST(req: NextRequest) {
       import_batch_id: batch?.id ?? null, discovered_at: new Date().toISOString(), imported_at: new Date().toISOString(),
     }, { onConflict: 'account_id,google_file_id' })
 
-    const totalRec = result.transactions.filter(t => t.valor > 0).reduce((s, t) => s + t.valor, 0)
-    const totalDesp = result.transactions.filter(t => t.valor < 0).reduce((s, t) => s + Math.abs(t.valor), 0)
+    const totalRec = finalTransactions.filter(t => t.valor > 0).reduce((s, t) => s + t.valor, 0)
+    const totalDesp = finalTransactions.filter(t => t.valor < 0).reduce((s, t) => s + Math.abs(t.valor), 0)
 
     return NextResponse.json({
       ok: true,
