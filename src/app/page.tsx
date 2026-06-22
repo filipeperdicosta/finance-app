@@ -279,9 +279,10 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
             <span style={{fontSize:11,color:'rgba(255,255,255,0.25)'}}>Sem dados neste período</span>
           </div>
         ):(
-          <div style={{position:'relative',height:50}}>
+          <div style={{position:'relative',height:62}}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={trend} margin={{top:4,right:28,bottom:0,left:0}}>
+                <XAxis dataKey="m" tick={{fontSize:9,fill:'rgba(255,255,255,0.2)'}} axisLine={false} tickLine={false} interval={0} height={16}/>
                 <YAxis hide domain={[domMin, domMax]}/>
                 <ReferenceLine y={midY} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
                 <ReferenceLine y={domMax} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
@@ -289,7 +290,6 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
                   contentStyle={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,fontSize:11,padding:'6px 10px'}}
                   itemStyle={{padding:0}}
                   formatter={(v:any)=>[dec(v),'Património']}
-                  labelFormatter={(label:any)=>label}
                   labelStyle={{color:T.text,fontWeight:600,fontSize:11,marginBottom:2}}
                   cursor={{stroke:'rgba(255,255,255,0.15)',strokeWidth:1}}
                 />
@@ -297,12 +297,9 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
               </LineChart>
             </ResponsiveContainer>
             <div style={{position:'absolute',top:4,right:0,fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(domMax)}</div>
-            <div style={{position:'absolute',top:'50%',right:0,transform:'translateY(-50%)',fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(midY)}</div>
+            <div style={{position:'absolute',top:'35%',right:0,transform:'translateY(-50%)',fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(midY)}</div>
           </div>
         )}
-        <div style={{display:'flex',justifyContent:'space-between',marginTop:2,paddingRight:28}}>
-          {trend.map((d,i)=><span key={i} style={{fontSize:9,color:'rgba(255,255,255,0.2)',flex:1,textAlign:'center'}}>{d.m}</span>)}
-        </div>
       </>
     )
   }
@@ -319,9 +316,10 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
           <span style={{fontSize:11,color:'rgba(255,255,255,0.25)'}}>Sem dados neste período</span>
         </div>
       ):(
-        <div style={{position:'relative',height:50}}>
+        <div style={{position:'relative',height:62}}>
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={trend} margin={{top:4,right:28,bottom:0,left:0}}>
+              <XAxis dataKey="m" tick={{fontSize:9,fill:'rgba(255,255,255,0.2)'}} axisLine={false} tickLine={false} interval={0} height={16}/>
               <YAxis hide domain={[0,maxVal*1.05]} ticks={[midVal,maxVal]}/>
               <ReferenceLine y={midVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
               <ReferenceLine y={maxVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
@@ -338,12 +336,9 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
             </ComposedChart>
           </ResponsiveContainer>
           <div style={{position:'absolute',top:4,right:0,fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(maxVal)}</div>
-          <div style={{position:'absolute',top:'50%',right:0,transform:'translateY(-50%)',fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(midVal)}</div>
+          <div style={{position:'absolute',top:'35%',right:0,transform:'translateY(-50%)',fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(midVal)}</div>
         </div>
       )}
-      <div style={{display:'flex',justifyContent:'space-between',marginTop:2,paddingRight:28}}>
-        {trend.map((d,i)=><span key={i} style={{fontSize:9,color:'rgba(255,255,255,0.2)',flex:1,textAlign:'center'}}>{d.m}</span>)}
-      </div>
     </>
   )
 }
