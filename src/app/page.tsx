@@ -282,7 +282,6 @@ const Spark = ({trend}:{trend:{m:string,rec:number,desp:number,net:number}[]}) =
                 labelStyle={{color:T.text,fontWeight:600,fontSize:11,marginBottom:2}}
                 cursor={{fill:'rgba(255,255,255,0.04)'}}
               />
-              <Bar dataKey="net" fill="rgba(255,255,255,0.18)" radius={[2,2,0,0]} maxBarSize={16}/>
               <Line dataKey="rec" stroke={T.green} strokeWidth={1.75} dot={false}/>
               <Line dataKey="desp" stroke={T.red} strokeWidth={1.75} dot={false}/>
             </ComposedChart>
