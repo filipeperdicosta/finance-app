@@ -254,39 +254,94 @@ const Sel = ({label,value,onChange,options}:{label:string,value:string,onChange:
 const Leg = ({c,l,line}:{c:string,l:string,line?:boolean}) => (
   <div style={{display:'flex',alignItems:'center',gap:4}}><div style={{width:line?10:7,height:line?2:7,borderRadius:line?1:2,background:c}}/><span style={{fontSize:9,color:'rgba(255,255,255,0.38)'}}>{l}</span></div>
 )
-const Spark = ({trend}:{trend:{m:string,rec:number,desp:number,net:number}[]}) => {
-  const vals = trend.map(d=>d.net)
-  const maxVal = Math.max(...vals, 0)
-  const minVal = Math.min(...vals, 0)
-  const hasData = trend.some(d=>d.net!==0)
+const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,net:number}[], mode?:'budget'|'patrimonio'}) => {
+  const maxVal = Math.max(...trend.map(d=>mode==='patrimonio'?Math.abs(d.net):Math.max(d.rec,d.desp)), 0)
+  const hasData = mode==='patrimonio' ? trend.some(d=>d.net!==0) : maxVal>0
+  const midVal = maxVal/2
+
+  if(mode==='patrimonio'){
+    // Y axis dinâmico: padding de 10% acima e abaixo para evitar linha horizontal
+    const netVals = trend.map(d=>d.net)
+    const netMin = Math.min(...netVals)
+    const netMax = Math.max(...netVals)
+    const padding = Math.max((netMax-netMin)*0.15, netMax*0.05, 1)
+    const domMin = netMin - padding
+    const domMax = netMax + padding
+    const midY = (domMin+domMax)/2
+    return (
+      <>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+          <span style={{fontSize:9,color:'rgba(255,255,255,0.28)',textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:600}}>Tendência — 5 meses</span>
+          <Leg c="rgba(255,255,255,0.7)" l="Património" line/>
+        </div>
+        {!hasData?(
+          <div style={{height:50,display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <span style={{fontSize:11,color:'rgba(255,255,255,0.25)'}}>Sem dados neste período</span>
+          </div>
+        ):(
+          <div style={{position:'relative',height:50}}>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={trend} margin={{top:4,right:28,bottom:0,left:0}}>
+                <YAxis hide domain={[domMin, domMax]}/>
+                <ReferenceLine y={midY} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
+                <ReferenceLine y={domMax} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
+                <Tooltip
+                  contentStyle={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,fontSize:11,padding:'6px 10px'}}
+                  itemStyle={{padding:0}}
+                  formatter={(v:any)=>[dec(v),'Património']}
+                  labelFormatter={(label:any)=>label}
+                  labelStyle={{color:T.text,fontWeight:600,fontSize:11,marginBottom:2}}
+                  cursor={{stroke:'rgba(255,255,255,0.15)',strokeWidth:1}}
+                />
+                <Line dataKey="net" stroke="rgba(255,255,255,0.75)" strokeWidth={1.75} dot={false}/>
+              </LineChart>
+            </ResponsiveContainer>
+            <div style={{position:'absolute',top:4,right:0,fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(domMax)}</div>
+            <div style={{position:'absolute',top:'50%',right:0,transform:'translateY(-50%)',fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(midY)}</div>
+          </div>
+        )}
+        <div style={{display:'flex',justifyContent:'space-between',marginTop:2,paddingRight:28}}>
+          {trend.map((d,i)=><span key={i} style={{fontSize:9,color:'rgba(255,255,255,0.2)',flex:1,textAlign:'center'}}>{d.m}</span>)}
+        </div>
+      </>
+    )
+  }
+
+  // modo 'budget' — comportamento original (rec + desp + net bar)
   return (
     <>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
         <span style={{fontSize:9,color:'rgba(255,255,255,0.28)',textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:600}}>Tendência — 5 meses</span>
-        <Leg c="rgba(255,255,255,0.7)" l="Património" line/>
+        <div style={{display:'flex',gap:10}}><Leg c={T.green} l="Rec" line/><Leg c={T.red} l="Desp" line/><Leg c="rgba(255,255,255,0.4)" l="Saldo"/></div>
       </div>
       {!hasData?(
         <div style={{height:50,display:'flex',alignItems:'center',justifyContent:'center'}}>
           <span style={{fontSize:11,color:'rgba(255,255,255,0.25)'}}>Sem dados neste período</span>
         </div>
       ):(
-        <div style={{height:50}}>
+        <div style={{position:'relative',height:50}}>
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={trend} margin={{top:4,right:4,bottom:0,left:0}}>
-              <YAxis hide domain={[minVal*1.05||0, maxVal*1.1||1]}/>
+            <ComposedChart data={trend} margin={{top:4,right:28,bottom:0,left:0}}>
+              <YAxis hide domain={[0,maxVal*1.05]} ticks={[midVal,maxVal]}/>
+              <ReferenceLine y={midVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
+              <ReferenceLine y={maxVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
               <Tooltip
                 contentStyle={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,fontSize:11,padding:'6px 10px'}}
                 itemStyle={{padding:0}}
-                formatter={(v:any)=>[dec(v),'Património']}
+                formatter={(v:any,k:string)=>[dec(v),k==='rec'?'Receitas':k==='desp'?'Despesas':'Saldo']}
                 labelStyle={{color:T.text,fontWeight:600,fontSize:11,marginBottom:2}}
-                cursor={{stroke:'rgba(255,255,255,0.15)'}}
+                cursor={{fill:'rgba(255,255,255,0.04)'}}
               />
-              <Line dataKey="net" stroke="rgba(255,255,255,0.75)" strokeWidth={1.75} dot={false}/>
-            </LineChart>
+              <Bar dataKey="net" fill="rgba(255,255,255,0.18)" radius={[2,2,0,0]} maxBarSize={16}/>
+              <Line dataKey="rec" stroke={T.green} strokeWidth={1.75} dot={false}/>
+              <Line dataKey="desp" stroke={T.red} strokeWidth={1.75} dot={false}/>
+            </ComposedChart>
           </ResponsiveContainer>
+          <div style={{position:'absolute',top:4,right:0,fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(maxVal)}</div>
+          <div style={{position:'absolute',top:'50%',right:0,transform:'translateY(-50%)',fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(midVal)}</div>
         </div>
       )}
-      <div style={{display:'flex',justifyContent:'space-between',marginTop:2}}>
+      <div style={{display:'flex',justifyContent:'space-between',marginTop:2,paddingRight:28}}>
         {trend.map((d,i)=><span key={i} style={{fontSize:9,color:'rgba(255,255,255,0.2)',flex:1,textAlign:'center'}}>{d.m}</span>)}
       </div>
     </>
@@ -356,7 +411,7 @@ const TrendTile = ({data,accent,catFilter}:{data:{m:string,rec:number,desp:numbe
 // ─────────────────────────────────────────────────────────────────
 // HERO
 // ─────────────────────────────────────────────────────────────────
-const Hero = ({pal,title,mainValue,mainColor,kpis,trend,period,mainSuffix}:{pal:{grad:string,accent:string,soft:string},title:string,mainValue:string,mainColor?:string,kpis:{l:string,v:string,c:string}[],trend:{m:string,rec:number,desp:number,net:number}[],period:string,mainSuffix?:string}) => (
+const Hero = ({pal,title,mainValue,mainColor,kpis,trend,period,mainSuffix,sparkMode}:{pal:{grad:string,accent:string,soft:string},title:string,mainValue:string,mainColor?:string,kpis:{l:string,v:string,c:string}[],trend:{m:string,rec:number,desp:number,net:number}[],period:string,mainSuffix?:string,sparkMode?:'budget'|'patrimonio'}) => (
   <div style={{background:pal.grad,borderRadius:18,padding:'20px 18px 16px',marginBottom:16,border:'1px solid rgba(255,255,255,0.05)'}}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14}}>
       <div>
@@ -371,7 +426,7 @@ const Hero = ({pal,title,mainValue,mainColor,kpis,trend,period,mainSuffix}:{pal:
     <div style={{display:'grid',gridTemplateColumns:`repeat(${kpis.length},1fr)`,gap:6,marginBottom:14}}>
       {kpis.map((k,i)=>(<div key={i} style={{background:'rgba(255,255,255,0.08)',borderRadius:10,padding:'9px 10px'}}><div style={{fontSize:9,color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:600,marginBottom:3}}>{k.l}</div><div style={{fontSize:kpis.length===4?11:12,fontWeight:700,color:k.c,fontFamily:T.mono}}>{k.v}</div></div>))}
     </div>
-    <div style={{borderTop:'1px solid rgba(255,255,255,0.07)',paddingTop:10}}><Spark trend={trend}/></div>
+    <div style={{borderTop:'1px solid rgba(255,255,255,0.07)',paddingTop:10}}><Spark trend={trend} mode={sparkMode??'budget'}/></div>
   </div>
 )
 
@@ -2415,7 +2470,7 @@ const PatrimonioScreen = ({accounts,imoveis,pal}:{accounts:Account[],imoveis:Imo
   const now=new Date()
   return (
     <div>
-      <Hero pal={pal} title="Património — Saldos" period={`${MONTHS_FULL[now.getMonth()]} ${now.getFullYear()}`} mainValue={big(minhaQuota)} mainColor={minhaQuota<0?'#FCA5A5':'#FFF'} trend={trend} kpis={[{l:'Total bruto',v:big(totalBruto),c:'rgba(255,255,255,0.45)'},{l:'A tua quota',v:big(minhaQuota),c:'#FFF'},{l:'Contas',v:String(accounts.length),c:'rgba(255,255,255,0.7)'}]}/>
+      <Hero pal={pal} title="Património — Saldos" period={`${MONTHS_FULL[now.getMonth()]} ${now.getFullYear()}`} mainValue={big(minhaQuota)} mainColor={minhaQuota<0?'#FCA5A5':'#FFF'} trend={trend} kpis={[{l:'Total bruto',v:big(totalBruto),c:'rgba(255,255,255,0.45)'},{l:'A tua quota',v:big(minhaQuota),c:'#FFF'},{l:'Contas',v:String(accounts.length),c:'rgba(255,255,255,0.7)'}]} sparkMode="patrimonio"/>
 
       {/* Toggle valorização */}
       {valorizBruto>0&&(
