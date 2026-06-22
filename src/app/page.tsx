@@ -255,42 +255,38 @@ const Leg = ({c,l,line}:{c:string,l:string,line?:boolean}) => (
   <div style={{display:'flex',alignItems:'center',gap:4}}><div style={{width:line?10:7,height:line?2:7,borderRadius:line?1:2,background:c}}/><span style={{fontSize:9,color:'rgba(255,255,255,0.38)'}}>{l}</span></div>
 )
 const Spark = ({trend}:{trend:{m:string,rec:number,desp:number,net:number}[]}) => {
-  const maxVal = Math.max(...trend.map(d=>Math.max(d.rec,d.desp)), 0)
-  const hasData = maxVal>0
-  const midVal = maxVal/2
+  const vals = trend.map(d=>d.net)
+  const maxVal = Math.max(...vals, 0)
+  const minVal = Math.min(...vals, 0)
+  const hasData = trend.some(d=>d.net!==0)
   return (
     <>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
         <span style={{fontSize:9,color:'rgba(255,255,255,0.28)',textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:600}}>Tendência — 5 meses</span>
-        <div style={{display:'flex',gap:10}}><Leg c={T.green} l="Rec" line/><Leg c={T.red} l="Desp" line/><Leg c="rgba(255,255,255,0.4)" l="Saldo"/></div>
+        <Leg c="rgba(255,255,255,0.7)" l="Património" line/>
       </div>
       {!hasData?(
         <div style={{height:50,display:'flex',alignItems:'center',justifyContent:'center'}}>
           <span style={{fontSize:11,color:'rgba(255,255,255,0.25)'}}>Sem dados neste período</span>
         </div>
       ):(
-        <div style={{position:'relative',height:50}}>
+        <div style={{height:50}}>
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={trend} margin={{top:4,right:28,bottom:0,left:0}}>
-              <YAxis hide domain={[0,maxVal*1.05]} ticks={[midVal,maxVal]}/>
-              <ReferenceLine y={midVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
-              <ReferenceLine y={maxVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
+            <LineChart data={trend} margin={{top:4,right:4,bottom:0,left:0}}>
+              <YAxis hide domain={[minVal*1.05||0, maxVal*1.1||1]}/>
               <Tooltip
                 contentStyle={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,fontSize:11,padding:'6px 10px'}}
                 itemStyle={{padding:0}}
-                formatter={(v:any,k:string)=>[dec(v),k==='rec'?'Receitas':k==='desp'?'Despesas':'Saldo']}
+                formatter={(v:any)=>[dec(v),'Património']}
                 labelStyle={{color:T.text,fontWeight:600,fontSize:11,marginBottom:2}}
-                cursor={{fill:'rgba(255,255,255,0.04)'}}
+                cursor={{stroke:'rgba(255,255,255,0.15)'}}
               />
-              <Line dataKey="rec" stroke={T.green} strokeWidth={1.75} dot={false}/>
-              <Line dataKey="desp" stroke={T.red} strokeWidth={1.75} dot={false}/>
-            </ComposedChart>
+              <Line dataKey="net" stroke="rgba(255,255,255,0.75)" strokeWidth={1.75} dot={false}/>
+            </LineChart>
           </ResponsiveContainer>
-          <div style={{position:'absolute',top:4,right:0,fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(maxVal)}</div>
-          <div style={{position:'absolute',top:'50%',right:0,transform:'translateY(-50%)',fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(midVal)}</div>
         </div>
       )}
-      <div style={{display:'flex',justifyContent:'space-between',marginTop:2,paddingRight:28}}>
+      <div style={{display:'flex',justifyContent:'space-between',marginTop:2}}>
         {trend.map((d,i)=><span key={i} style={{fontSize:9,color:'rgba(255,255,255,0.2)',flex:1,textAlign:'center'}}>{d.m}</span>)}
       </div>
     </>
