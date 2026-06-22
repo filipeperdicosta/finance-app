@@ -366,3 +366,42 @@ export async function importDriveFile(params: {
 export async function resetDriveFileImport(accountId: string, googleFileId: string) {
   return supabase.from('drive_files').delete().eq('account_id', accountId).eq('google_file_id', googleFileId)
 }
+
+// ── Notificações ─────────────────────────────────────────────────
+export type AppNotification = {
+  id: string
+  user_id: string
+  type: 'import_success' | 'import_error' | 'cron_summary' | 'manual_import'
+  title: string
+  body: string | null
+  meta: Record<string, any> | null
+  read: boolean
+  created_at: string
+}
+
+export async function loadNotifications(limit = 50) {
+  const { data } = await supabase
+    .from('notifications')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit)
+  return (data ?? []) as AppNotification[]
+}
+
+export async function countUnreadNotifications() {
+  const { count } = await supabase
+    .from('notifications')
+    .select('*', { count: 'exact', head: true })
+    .eq('read', false)
+  return count ?? 0
+}
+
+export async function markNotificationsRead(ids?: string[]) {
+  const q = supabase.from('notifications').update({ read: true })
+  if (ids?.length) return q.in('id', ids)
+  return q.eq('read', false) // marca todas
+}
+
+export async function deleteNotification(id: string) {
+  return supabase.from('notifications').delete().eq('id', id)
+}

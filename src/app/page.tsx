@@ -19,8 +19,9 @@ import {
   loadCategoryRules, learnFromCategorization, matchRule, deleteCategoryRule, deleteCategoryRules, updateCategoryRule,
   getDriveConnectionStatus, disconnectDrive, getDriveAuthUrl, updateAccountDriveFolder, loadDriveFiles,
   listDriveFolderFiles, importDriveFile, resetDriveFileImport, previewDriveFile,
+  loadNotifications, countUnreadNotifications, markNotificationsRead, deleteNotification,
   type Account, type Transaction, type Imovel, type ImovelRenda, type ContaImovel, type CategoryRule,
-  type DriveToken, type DriveFile,
+  type DriveToken, type DriveFile, type AppNotification,
 } from '@/lib/supabase'
 
 // ─────────────────────────────────────────────────────────────────
@@ -948,6 +949,111 @@ const RulesScreen = ({onClose,pal}:{onClose:()=>void,pal:{accent:string,soft:str
   )
 }
 
+
+// ─────────────────────────────────────────────────────────────────
+// NOTIFICATIONS SCREEN
+// ─────────────────────────────────────────────────────────────────
+const NotificationsScreen = ({onClose,pal}:{onClose:()=>void,pal:{accent:string,soft:string}}) => {
+  const [notifs,setNotifs] = useState<AppNotification[]>([])
+  const [loading,setLoading] = useState(true)
+  const [expanded,setExpanded] = useState<string|null>(null)
+
+  const load = useCallback(async()=>{
+    setLoading(true)
+    const data = await loadNotifications(50)
+    setNotifs(data)
+    setLoading(false)
+    // Marca todas como lidas ao abrir
+    await markNotificationsRead()
+  },[])
+
+  useEffect(()=>{ load() },[load])
+
+  const del = async(id:string)=>{
+    await deleteNotification(id)
+    setNotifs(n=>n.filter(x=>x.id!==id))
+  }
+
+  const typeIcon = (type:AppNotification['type']) => {
+    if(type==='import_error') return '⚠️'
+    if(type==='cron_summary') return '🌙'
+    if(type==='manual_import') return '📤'
+    return '✅'
+  }
+  const typeColor = (type:AppNotification['type'],pal:{accent:string}) => {
+    if(type==='import_error') return T.red
+    if(type==='cron_summary') return '#818CF8'
+    return pal.accent
+  }
+  const fmt = (iso:string) => {
+    const d = new Date(iso)
+    const now = new Date()
+    const diffMs = now.getTime()-d.getTime()
+    const diffH = Math.floor(diffMs/3600000)
+    const diffD = Math.floor(diffMs/86400000)
+    if(diffH<1) return 'Agora mesmo'
+    if(diffH<24) return `Há ${diffH}h`
+    if(diffD<7) return `Há ${diffD} dia${diffD>1?'s':''}`
+    return d.toLocaleDateString('pt-PT',{day:'numeric',month:'short'})
+  }
+
+  return (
+    <div onClick={e=>e.stopPropagation()} style={{position:'fixed',inset:0,background:T.bg,zIndex:90,overflowY:'auto',fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
+      <div style={{maxWidth:440,margin:'0 auto'}}>
+        <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',background:T.surface,borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,zIndex:10}}>
+          <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ArrowLeft size={18} color={T.textSec}/></button>
+          <div style={{fontSize:16,fontWeight:700,color:T.text,flex:1}}>Notificações</div>
+          {notifs.length>0&&<button onClick={async()=>{await Promise.all(notifs.map(n=>deleteNotification(n.id)));setNotifs([])}} style={{background:'none',border:'none',cursor:'pointer',fontSize:11,color:T.textTer}}>Limpar tudo</button>}
+        </div>
+        <div style={{padding:'12px 14px'}}>
+          {loading&&<div style={{padding:32,textAlign:'center',color:T.textSec,fontSize:13}}>A carregar…</div>}
+          {!loading&&notifs.length===0&&(
+            <div style={{padding:48,textAlign:'center'}}>
+              <Bell size={32} color={T.textTer} style={{marginBottom:12}}/>
+              <div style={{fontSize:13,color:T.textSec}}>Sem notificações por enquanto.</div>
+              <div style={{fontSize:11,color:T.textTer,marginTop:4}}>Os imports automáticos e manuais aparecem aqui.</div>
+            </div>
+          )}
+          {!loading&&notifs.map((n,i)=>{
+            const isExp = expanded===n.id
+            const meta = n.meta ?? {}
+            return (
+              <div key={n.id} style={{background:T.surface,borderRadius:12,marginBottom:10,overflow:'hidden',border:`1px solid ${T.border}`}}>
+                <div onClick={()=>setExpanded(isExp?null:n.id)} style={{display:'flex',alignItems:'flex-start',gap:12,padding:'12px 14px',cursor:'pointer'}}>
+                  <div style={{fontSize:20,lineHeight:1,flexShrink:0,marginTop:2}}>{typeIcon(n.type)}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:600,color:typeColor(n.type,pal),marginBottom:2}}>{n.title}</div>
+                    {n.body&&<div style={{fontSize:11,color:T.textSec}}>{n.body}</div>}
+                    <div style={{fontSize:10,color:T.textTer,marginTop:4}}>{fmt(n.created_at)}</div>
+                  </div>
+                  <button onClick={e=>{e.stopPropagation();del(n.id)}} style={{background:'none',border:'none',cursor:'pointer',padding:2,flexShrink:0}}>
+                    <X size={14} color={T.textTer}/>
+                  </button>
+                </div>
+                {isExp&&(
+                  <div style={{padding:'0 14px 12px 46px',borderTop:`1px solid ${T.border}`}}>
+                    {meta.account_id&&<div style={{fontSize:11,color:T.textSec,marginTop:8}}>🏦 Conta: {meta.account_id}</div>}
+                    {meta.filename&&<div style={{fontSize:11,color:T.textSec,marginTop:4}}>📄 {meta.filename}</div>}
+                    {meta.txn_count!=null&&<div style={{fontSize:11,color:T.textSec,marginTop:4}}>📊 {meta.txn_count} transações</div>}
+                    {meta.total_rec!=null&&meta.total_rec>0&&<div style={{fontSize:11,color:T.green,marginTop:4}}>↑ Receitas: {dec(meta.total_rec)}</div>}
+                    {meta.total_desp!=null&&meta.total_desp>0&&<div style={{fontSize:11,color:T.red,marginTop:4}}>↓ Despesas: {dec(meta.total_desp)}</div>}
+                    {meta.files_imported!=null&&<div style={{fontSize:11,color:T.textSec,marginTop:4}}>✅ {meta.files_imported} ficheiros importados · ⚠ {meta.files_failed??0} erros</div>}
+                    {meta.errors&&Array.isArray(meta.errors)&&meta.errors.length>0&&(
+                      <div style={{marginTop:8,background:'rgba(248,113,113,0.08)',borderRadius:8,padding:'8px 10px'}}>
+                        {meta.errors.map((e:string,i:number)=><div key={i} style={{fontSize:10,color:T.red,marginBottom:2}}>{e}</div>)}
+                      </div>
+                    )}
+                    {meta.duration_sec&&<div style={{fontSize:10,color:T.textTer,marginTop:6}}>⏱ {meta.duration_sec}s</div>}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 // ─────────────────────────────────────────────────────────────────
 // DRIVE FOLDER PICKER — navega pastas da Drive para associar a uma conta
@@ -2355,6 +2461,8 @@ export default function Page() {
   const [showImport, setShowImport] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showAllTxns, setShowAllTxns] = useState(false)
+  const [showNotifications, setShowNotifications] = useState(false)
+  const [unreadCount, setUnreadCount] = useState(0)
   const [viewAllCategoria, setViewAllCategoria] = useState<string|undefined>(undefined)
   const [viewAllContaId, setViewAllContaId] = useState<string|undefined>(undefined)
   const [toast, setToast] = useState<string|null>(null)
@@ -2371,7 +2479,11 @@ export default function Page() {
 
   useEffect(()=>{
     supabase.auth.getSession().then(({data:{session}})=>{ setSession(session); if(session){load();loadFull()} else setLoading(false) })
-    const {data:{subscription}} = supabase.auth.onAuthStateChange((_,session)=>{ setSession(session); if(session){load();loadFull()} else {setLoading(false);setSession(null)} })
+    const {data:{subscription}} = supabase.auth.onAuthStateChange((_,session)=>{
+      setSession(session)
+      if(session){ load(); loadFull(); countUnreadNotifications().then(setUnreadCount) }
+      else { setLoading(false); setSession(null) }
+    })
     return ()=>subscription.unsubscribe()
   },[load,loadFull])
 
@@ -2410,6 +2522,10 @@ export default function Page() {
         <div style={{fontSize:20,fontWeight:800,letterSpacing:'-0.03em'}}>Finance<span style={{color:pal.accent}}>.</span></div>
         <div style={{display:'flex',gap:8}}>
           <button onClick={()=>setShowImport(true)} style={{background:pal.soft,border:'none',borderRadius:10,padding:'7px 12px',display:'flex',alignItems:'center',gap:5,cursor:'pointer'}}><Upload size={13} color={pal.accent}/><span style={{fontSize:12,fontWeight:600,color:pal.accent}}>Importar</span></button>
+          <button onClick={()=>{setShowNotifications(true);setUnreadCount(0)}} style={{background:T.surface2,border:'none',borderRadius:10,padding:'7px 10px',cursor:'pointer',position:'relative'}}>
+            <Bell size={14} color={unreadCount>0?pal.accent:T.textSec}/>
+            {unreadCount>0&&<span style={{position:'absolute',top:4,right:4,width:8,height:8,borderRadius:'50%',background:pal.accent,border:`2px solid ${T.surface2}`}}/>}
+          </button>
           <button onClick={()=>setShowSettings(true)} style={{background:T.surface2,border:'none',borderRadius:10,padding:'7px 10px',cursor:'pointer'}}><Settings size={14} color={T.textSec}/></button>
         </div>
       </div>
@@ -2420,6 +2536,7 @@ export default function Page() {
       {showImport&&<ImportWizard onClose={()=>setShowImport(false)} accounts={accounts} pal={pal} onDone={async()=>{await refreshAll();showToast('✓ Importação concluída')}} onRefreshAccounts={refreshAll}/>}
       {showSettings&&<SettingsPanel onClose={()=>setShowSettings(false)} accounts={accounts} onRefresh={async()=>{await refreshAll();showToast('✓ Dados actualizados')}} pal={pal}/>}
       {showAllTxns&&<AllTransactionsScreen allTxns={allTxns} accounts={accounts} tag={tab==='imoveis'?'investimento':tab} pal={pal} onClose={()=>{setShowAllTxns(false);setViewAllCategoria(undefined);setViewAllContaId(undefined)}} onRefresh={async()=>{await refreshAll();showToast('✓ Transações actualizadas')}} imoveis={tab==='imoveis'?imoveis:undefined} initialCategoria={viewAllCategoria} initialContaId={viewAllContaId}/>}
+      {showNotifications&&<NotificationsScreen onClose={()=>setShowNotifications(false)} pal={pal}/>}
       {toast&&<div style={{position:'fixed',bottom:90,left:'50%',transform:'translateX(-50%)',background:T.surface,border:`1px solid ${pal.accent}`,borderRadius:12,padding:'10px 16px',display:'flex',alignItems:'center',gap:8,zIndex:200,boxShadow:'0 8px 24px rgba(0,0,0,0.4)',whiteSpace:'nowrap'}}><Check size={15} color={pal.accent}/><span style={{fontSize:13,fontWeight:600,color:T.text}}>{toast}</span></div>}
     </div>
   )

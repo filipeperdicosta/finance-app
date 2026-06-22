@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getValidAccessToken, getSupabaseAdmin } from '@/lib/googleDrive'
+import { getValidAccessToken, getSupabaseAdmin, createNotification } from '@/lib/googleDrive'
 import { parseStatementWithGemini, detectMimeType } from '@/lib/geminiParse'
 
 type ConfirmedTxn = { data: string; descritivo: string; valor: number; categoria: string }
@@ -112,6 +112,16 @@ export async function POST(req: NextRequest) {
 
     const totalRec = finalTransactions.filter(t => t.valor > 0).reduce((s, t) => s + t.valor, 0)
     const totalDesp = finalTransactions.filter(t => t.valor < 0).reduce((s, t) => s + Math.abs(t.valor), 0)
+    const isManual = !!confirmedTxns
+
+    // Regista notificação persistente
+    await createNotification({
+      userId: user_id,
+      type: isManual ? 'manual_import' : 'import_success',
+      title: isManual ? `Import manual — ${filename}` : `Import automático — ${filename}`,
+      body: `${txnsToInsert.length} transações importadas`,
+      meta: { account_id, filename, txn_count: txnsToInsert.length, total_rec: totalRec, total_desp: totalDesp, batch_id: batch?.id ?? null },
+    })
 
     return NextResponse.json({
       ok: true,
@@ -123,6 +133,10 @@ export async function POST(req: NextRequest) {
 
   } catch (err: any) {
     console.error('Drive import exception:', err)
+    // Notificação de erro (best-effort — não falha se não tiver user_id)
+    if (body?.user_id) {
+      await createNotification({ userId: body.user_id, type: 'import_error', title: `Erro ao importar — ${body?.filename ?? 'ficheiro'}`, body: err.message, meta: { filename: body?.filename } }).catch(()=>{})
+    }
     return NextResponse.json({ error: err.message || 'Erro interno' }, { status: 500 })
   }
 }

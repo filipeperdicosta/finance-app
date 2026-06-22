@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getValidAccessToken, getSupabaseAdmin } from '@/lib/googleDrive'
+import { getValidAccessToken, getSupabaseAdmin, createNotification } from '@/lib/googleDrive'
 import { parseStatementWithGemini, detectMimeType } from '@/lib/geminiParse'
 
 // Verificação automática diária: para CADA utilizador com Drive ligada,
@@ -181,6 +181,28 @@ export async function GET(req: NextRequest) {
 
     const durationSec = ((Date.now() - startedAt) / 1000).toFixed(1)
     console.log('Cron check-drive concluído:', JSON.stringify({ ...summary, duration_sec: durationSec }))
+
+    // Cria uma notificação de resumo por utilizador
+    for (const tokenRow of tokens ?? []) {
+      const hasErrors = summary.errors.length > 0
+      const type = hasErrors ? 'import_error' : 'cron_summary'
+      const title = summary.files_imported > 0
+        ? `Verificação automática — ${summary.files_imported} ficheiro${summary.files_imported !== 1 ? 's' : ''} importado${summary.files_imported !== 1 ? 's' : ''}`
+        : hasErrors ? 'Verificação automática — erros encontrados' : 'Verificação automática — sem novidades'
+      const body = [
+        `${summary.accounts_checked} conta${summary.accounts_checked !== 1 ? 's' : ''} verificada${summary.accounts_checked !== 1 ? 's' : ''}`,
+        summary.files_imported > 0 ? `${summary.files_imported} importado${summary.files_imported !== 1 ? 's' : ''}` : null,
+        summary.files_failed > 0 ? `${summary.files_failed} com erro` : null,
+      ].filter(Boolean).join(' · ')
+
+      await createNotification({
+        userId: tokenRow.user_id,
+        type,
+        title,
+        body,
+        meta: { ...summary, duration_sec: durationSec },
+      })
+    }
 
     return NextResponse.json({ ok: true, ...summary, duration_sec: durationSec })
 

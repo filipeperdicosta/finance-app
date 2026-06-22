@@ -66,3 +66,24 @@ export async function getValidAccessToken(userId: string): Promise<string | null
 }
 
 export { getSupabaseAdmin }
+
+// ── Notificações ─────────────────────────────────────────────────
+// Cria uma notificação persistente para o utilizador.
+// Chamada pelas rotas de servidor após imports (manual, Drive, cron).
+export async function createNotification(params: {
+  userId: string
+  type: 'import_success' | 'import_error' | 'cron_summary' | 'manual_import'
+  title: string
+  body?: string
+  meta?: Record<string, any>
+}) {
+  const supabaseAdmin = getSupabaseAdmin()
+  const { error } = await supabaseAdmin.from('notifications').insert({
+    user_id: params.userId,
+    type: params.type,
+    title: params.title,
+    body: params.body ?? null,
+    meta: params.meta ?? null,
+  })
+  if (error) console.error('Erro ao criar notificação:', error)
+}
