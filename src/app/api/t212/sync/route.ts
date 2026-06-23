@@ -2,87 +2,81 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getT212Configs, getT212Portfolio, getT212Transactions } from '@/lib/t212'
 import { getSupabaseAdmin, createNotification } from '@/lib/googleDrive'
 
-// Sincroniza dados do Trading 212 para a base de dados:
-// 1) Actualiza o saldo da conta T212 com o valor total (cash + posições de mercado)
-// 2) Importa transacções em dinheiro novas (depósitos, levantamentos, dividendos)
-//
-// POST /api/t212/sync  body: { user_id, account_id }
-// account_id = id da conta na app associada a esta conta T212
 export async function POST(req: NextRequest) {
   let body: any = {}
   try {
     body = await req.json()
-    const { user_id, account_id } = body
+    const { user_id, account_id, label } = body
     if (!user_id || !account_id) {
       return NextResponse.json({ error: 'user_id e account_id são obrigatórios' }, { status: 400 })
     }
 
-    const configs = getT212Configs()
-    if (!configs.length) {
+    const allConfigs = getT212Configs()
+    if (!allConfigs.length) {
       return NextResponse.json({ error: 'Credenciais T212 não configuradas no servidor' }, { status: 500 })
     }
 
+    // Se um label específico foi pedido, usa só esse; caso contrário, usa todos
+    const configs = label ? allConfigs.filter(c => c.label === label) : allConfigs
+    if (!configs.length) {
+      return NextResponse.json({ error: `Config T212 "${label}" não encontrada` }, { status: 400 })
+    }
+
     const supabaseAdmin = getSupabaseAdmin()
+
+    // Guarda/actualiza a configuração persistente (conta da app ↔ label T212)
+    await supabaseAdmin.from('t212_config').upsert(
+      { user_id, account_id, label: configs[0].label },
+      { onConflict: 'user_id,label' }
+    )
+
     const results: any[] = []
 
     for (const config of configs) {
       try {
-        // 1) Portfolio: cash + valor de mercado
+        // 1) Portfolio — usa /cash que já converte tudo para EUR
         const portfolio = await getT212Portfolio(config)
-
-        // Actualiza saldo da conta, só se for o valor mais recente
         const today = new Date().toISOString().split('T')[0]
         await supabaseAdmin.from('accounts').update({
           saldo_atual: portfolio.total,
           saldo_data: today,
         }).eq('id', account_id)
 
-        // 2) Transacções em dinheiro — importa só as que ainda não estão na BD
-        const txns = await getT212Transactions(config)
-        const { data: existing } = await supabaseAdmin
-          .from('transactions')
-          .select('hash')
-          .eq('account_id', account_id)
+        // 2) Transacções — pode falhar com 403 se a API key não tiver permissão "History"
+        let newTransactions = 0
+        let txnWarning: string | null = null
+        try {
+          const txns = await getT212Transactions(config)
+          const { data: existing } = await supabaseAdmin
+            .from('transactions').select('hash').eq('account_id', account_id)
+          const existingHashes = new Set((existing ?? []).map((t: any) => t.hash))
 
-        const existingHashes = new Set((existing ?? []).map((t: any) => t.hash))
-
-        const toInsert = txns
-          .filter(t => {
-            const hash = `t212-${config.label}-${t.reference ?? t.orderId ?? t.id}`
-            return !existingHashes.has(hash)
-          })
-          .map((t, i) => {
-            // Tipos T212: DEPOSIT, WITHDRAWAL, DIVIDEND, FEE, ...
-            const valor = Number(t.amount) || 0
-            const categoria = valor > 0
-              ? 'Receita'
-              : t.type === 'FEE' ? 'Comissões e Taxas'
-              : t.type === 'WITHDRAWAL' ? 'Transferências'
-              : 'Transferências'
-            const descritivo = [t.type, t.ticker, t.reference].filter(Boolean).join(' · ')
-            const hash = `t212-${config.label}-${t.reference ?? t.orderId ?? t.id ?? i}`
-            return {
+          const toInsert = txns
+            .filter((t: any) => !existingHashes.has(`t212-${config.label}-${t.reference ?? t.orderId ?? t.id}`))
+            .map((t: any, i: number) => ({
               account_id,
               data: t.dateCreated ? t.dateCreated.split('T')[0] : today,
-              descritivo,
-              valor,
-              categoria,
-              categoria_confirmada: false,
-              ai_confianca: null,
-              excluir_analise: false,
-              imovel_classificado: false,
-              ordem_extrato: i,
-              hash,
-              import_batch_id: null,
-              imovel_id: null,
-              notas: null,
-              subcategoria: null,
-              descritivo_norm: null,
-            }
-          })
+              descritivo: [t.type, t.ticker, t.reference].filter(Boolean).join(' · '),
+              valor: Number(t.amount) || 0,
+              categoria: Number(t.amount) > 0 ? 'Receita' : t.type === 'FEE' ? 'Comissões e Taxas' : 'Transferências',
+              categoria_confirmada: false, ai_confianca: null, excluir_analise: false,
+              imovel_classificado: false, ordem_extrato: i,
+              hash: `t212-${config.label}-${t.reference ?? t.orderId ?? t.id ?? i}`,
+              import_batch_id: null, imovel_id: null, notas: null, subcategoria: null, descritivo_norm: null,
+            }))
 
-        if (toInsert.length) {
-          await supabaseAdmin.from('transactions').upsert(toInsert, { onConflict: 'hash', ignoreDuplicates: true })
+          if (toInsert.length) {
+            await supabaseAdmin.from('transactions').upsert(toInsert, { onConflict: 'hash', ignoreDuplicates: true })
+          }
+          newTransactions = toInsert.length
+        } catch (txnErr: any) {
+          // 403 = API key sem permissão de "History" — não é erro fatal, saldo foi actualizado
+          if (txnErr.message?.includes('403')) {
+            txnWarning = 'Transacções não importadas: a tua API key não tem permissão "History". Regenera a key com essa permissão activa.'
+          } else {
+            txnWarning = txnErr.message
+          }
+          console.warn(`T212 transactions warning (${config.label}):`, txnErr.message)
         }
 
         results.push({
@@ -91,15 +85,16 @@ export async function POST(req: NextRequest) {
           cash: portfolio.cash,
           marketValue: portfolio.marketValue,
           ppl: portfolio.ppl,
-          newTransactions: toInsert.length,
+          newTransactions,
+          warning: txnWarning,
         })
 
         await createNotification({
           userId: user_id,
-          type: 'import_success',
+          type: txnWarning ? 'import_error' : 'import_success',
           title: `T212 ${config.label} sincronizado`,
-          body: `Saldo: €${portfolio.total.toFixed(2)} · ${toInsert.length} transaç${toInsert.length !== 1 ? 'ões' : 'ão'} nova${toInsert.length !== 1 ? 's' : ''}`,
-          meta: { account_id, ...portfolio, new_transactions: toInsert.length },
+          body: txnWarning ?? `Saldo: €${portfolio.total.toFixed(2)} · ${newTransactions} transaç${newTransactions !== 1 ? 'ões' : 'ão'} nova${newTransactions !== 1 ? 's' : ''}`,
+          meta: { account_id, ...portfolio, new_transactions: newTransactions, warning: txnWarning },
         })
 
       } catch (err: any) {

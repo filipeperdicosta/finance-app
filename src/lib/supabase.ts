@@ -407,13 +407,34 @@ export async function deleteNotification(id: string) {
 }
 
 // ── Trading 212 ───────────────────────────────────────────────────
-export async function syncT212(accountId: string) {
+export type T212Config = {
+  id: string
+  user_id: string
+  account_id: string
+  label: string
+}
+
+export async function loadT212Config() {
+  const { data } = await supabase.from('t212_config').select('*')
+  return (data ?? []) as T212Config[]
+}
+
+export async function saveT212Config(accountId: string, label: string) {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return
+  return supabase.from('t212_config').upsert(
+    { user_id: user.id, account_id: accountId, label },
+    { onConflict: 'user_id,label' }
+  )
+}
+
+export async function syncT212(accountId: string, label = 'Invest') {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Não autenticado' }
   const res = await fetch('/api/t212/sync', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ user_id: user.id, account_id: accountId }),
+    body: JSON.stringify({ user_id: user.id, account_id: accountId, label }),
   })
   return res.json()
 }

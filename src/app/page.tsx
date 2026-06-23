@@ -20,9 +20,9 @@ import {
   getDriveConnectionStatus, disconnectDrive, getDriveAuthUrl, updateAccountDriveFolder, loadDriveFiles,
   listDriveFolderFiles, importDriveFile, resetDriveFileImport, previewDriveFile,
   loadNotifications, countUnreadNotifications, markNotificationsRead, deleteNotification,
-  syncT212, getT212Status,
+  syncT212, getT212Status, loadT212Config, saveT212Config,
   type Account, type Transaction, type Imovel, type ImovelRenda, type ContaImovel, type CategoryRule,
-  type DriveToken, type DriveFile, type AppNotification,
+  type DriveToken, type DriveFile, type AppNotification, type T212Config,
 } from '@/lib/supabase'
 
 // ─────────────────────────────────────────────────────────────────
@@ -1021,8 +1021,10 @@ const T212Screen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accounts:
 
   const load = useCallback(async()=>{
     setLoading(true)
-    const s = await getT212Status()
+    const [s, cfg] = await Promise.all([getT212Status(), loadT212Config()])
     setStatus(s)
+    // Pre-preenche a conta guardada anteriormente
+    if(cfg.length > 0) setSelAccount(cfg[0].account_id)
     setLoading(false)
   },[])
 
@@ -1038,7 +1040,7 @@ const T212Screen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accounts:
   }
 
   const isConfigured = status?.connected
-  const investAccounts = accounts.filter(a=>a.tipo==='corretora')
+  const allAccounts = accounts
 
   return (
     <div style={{position:'fixed',inset:0,background:T.bg,zIndex:90,overflowY:'auto',fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
@@ -1054,19 +1056,13 @@ const T212Screen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accounts:
             <Card style={{padding:16,textAlign:'center'}}>
               <div style={{fontSize:28,marginBottom:10}}>📈</div>
               <div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:6}}>T212 não configurado</div>
-              <div style={{fontSize:11,color:T.textSec,lineHeight:1.6,marginBottom:14}}>
-                Adiciona as seguintes variáveis de ambiente no Vercel e faz redeploy:
-              </div>
+              <div style={{fontSize:11,color:T.textSec,lineHeight:1.6,marginBottom:14}}>Adiciona as variáveis de ambiente no Vercel e faz redeploy:</div>
               <div style={{background:T.surface2,borderRadius:8,padding:'10px 12px',textAlign:'left',marginBottom:8}}>
                 <div style={{fontSize:10,color:T.green,fontFamily:'monospace',lineHeight:1.8}}>
-                  T212_API_KEY=…<br/>
-                  T212_API_SECRET=…<br/>
-                  <span style={{color:T.textTer}}>(opcional, se tiveres ISA)</span><br/>
-                  T212_API_KEY_ISA=…<br/>
-                  T212_API_SECRET_ISA=…
+                  T212_API_KEY=…<br/>T212_API_SECRET=…
                 </div>
               </div>
-              <div style={{fontSize:11,color:T.textTer}}>Gera as credenciais em T212 → Settings → API (Beta)</div>
+              <div style={{fontSize:11,color:T.textTer}}>T212 → Settings → API (Beta) → Generate API key<br/>Activa as permissões: Account, Portfolio, History</div>
             </Card>
           )}
 
@@ -1079,14 +1075,14 @@ const T212Screen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accounts:
                     <div style={{flex:1}}>
                       <div style={{fontSize:13,fontWeight:600,color:T.text}}>T212 {acc.label}</div>
                       {acc.error?<div style={{fontSize:11,color:T.red,marginTop:2}}>{acc.error}</div>:(
-                        <div style={{fontSize:11,color:T.green}}>Ligado · €{acc.total?.toFixed(2)}</div>
+                        <div style={{fontSize:11,color:T.green}}>Ligado · Total €{acc.total?.toFixed(2)}</div>
                       )}
                     </div>
                   </div>
                   {!acc.error&&(
                     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6}}>
                       <div style={{background:T.surface2,borderRadius:8,padding:'7px 9px'}}>
-                        <div style={{fontSize:9,color:T.textTer,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:2}}>Cash</div>
+                        <div style={{fontSize:9,color:T.textTer,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:2}}>Cash livre</div>
                         <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:T.mono}}>€{acc.cash?.toFixed(0)}</div>
                       </div>
                       <div style={{background:T.surface2,borderRadius:8,padding:'7px 9px'}}>
@@ -1095,24 +1091,29 @@ const T212Screen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accounts:
                       </div>
                       <div style={{background:T.surface2,borderRadius:8,padding:'7px 9px'}}>
                         <div style={{fontSize:9,color:T.textTer,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:2}}>P&L</div>
-                        <div style={{fontSize:12,fontWeight:700,color:acc.ppl>=0?T.green:T.red,fontFamily:T.mono}}>{acc.ppl>=0?'+':''}€{acc.ppl?.toFixed(0)}</div>
+                        <div style={{fontSize:12,fontWeight:700,color:(acc.ppl??0)>=0?T.green:T.red,fontFamily:T.mono}}>{(acc.ppl??0)>=0?'+':''}€{Math.abs(acc.ppl??0).toFixed(0)}</div>
                       </div>
                     </div>
                   )}
                 </Card>
               ))}
 
-              <div style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase',marginBottom:8,marginTop:4}}>Sincronizar com conta da app</div>
+              <div style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase',marginBottom:8,marginTop:4}}>Conta da app associada</div>
               <Card style={{padding:14,marginBottom:12}}>
-                <div style={{fontSize:11,color:T.textSec,marginBottom:10,lineHeight:1.5}}>Selecciona a conta da app que corresponde ao teu portfolio T212. O saldo e as transacções serão actualizados automaticamente.</div>
-                <Sel label="Conta da app" value={selAccount} onChange={setSelAccount} options={[{value:'',label:'Selecciona uma conta…'},...investAccounts.map(a=>({value:a.id,label:a.nome})),...accounts.filter(a=>a.tipo!=='corretora').map(a=>({value:a.id,label:`${a.nome} (${a.tipo})`}))]}/>
+                <div style={{fontSize:11,color:T.textSec,marginBottom:10,lineHeight:1.5}}>O saldo e as transacções do T212 serão escritos nesta conta. Fica guardado para sincronizações futuras.</div>
+                <Sel label="Conta" value={selAccount} onChange={setSelAccount} options={[{value:'',label:'Selecciona uma conta…'},...allAccounts.map(a=>({value:a.id,label:`${a.nome} (${a.tipo})`}))]}/>
                 {syncResult&&!syncing&&(
-                  <div style={{marginTop:10,padding:'8px 10px',background:syncResult.ok?'rgba(74,222,128,0.08)':'rgba(248,113,113,0.08)',borderRadius:8}}>
-                    {syncResult.ok?(
-                      <div style={{fontSize:11,color:T.green}}>✓ Sincronizado — {syncResult.results?.map((r:any)=>`${r.account}: €${r.total?.toFixed(2)} · ${r.newTransactions} novas`).join(' · ')}</div>
-                    ):(
-                      <div style={{fontSize:11,color:T.red}}>✗ {syncResult.error}</div>
-                    )}
+                  <div style={{marginTop:10}}>
+                    {(syncResult.results??[]).map((r:any,i:number)=>(
+                      <div key={i} style={{padding:'8px 10px',background:r.error?'rgba(248,113,113,0.08)':r.warning?'rgba(251,191,36,0.08)':'rgba(74,222,128,0.08)',borderRadius:8,marginBottom:6}}>
+                        {r.error?<div style={{fontSize:11,color:T.red}}>✗ {r.error}</div>:(
+                          <>
+                            <div style={{fontSize:11,color:T.green}}>✓ {r.account}: €{r.total?.toFixed(2)} · {r.newTransactions} transacções novas</div>
+                            {r.warning&&<div style={{fontSize:10,color:'#FBBF24',marginTop:4}}>⚠ {r.warning}</div>}
+                          </>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 )}
               </Card>
@@ -1120,7 +1121,8 @@ const T212Screen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accounts:
                 {syncing?'A sincronizar…':'↻ Sincronizar agora'}
               </Btn>
               <div style={{marginTop:12,fontSize:11,color:T.textTer,lineHeight:1.6,padding:'0 4px'}}>
-                ℹ️ A sincronização automática corre todos os dias de madrugada junto com a verificação da Drive.
+                ℹ️ A sincronização automática corre todos os dias de madrugada.<br/>
+                ⚠ Para importar transacções, a API key precisa da permissão <strong style={{color:T.textSec}}>History</strong> activa.
               </div>
             </>
           )}
