@@ -2829,7 +2829,7 @@ export default function Page() {
   const [toast, setToast] = useState<string|null>(null)
 
   const openAllTxns = useCallback((categoria?:string, contaId?:string)=>{ setViewAllCategoria(categoria); setViewAllContaId(contaId); setShowAllTxns(true) },[])
-  const showToast = useCallback((msg:string)=>{setToast(msg);setTimeout(()=>setToast(null),2500)},[])
+  const showToast = useCallback((msg:string)=>{setToast(msg);setTimeout(()=>setToast(null),msg.length>60?5000:2500)},[])
   const load = useCallback(async()=>{
     const data = await loadAllData()
     setAccounts(data.accounts); setTransactions(data.transactions)
@@ -2905,7 +2905,7 @@ export default function Page() {
       {showSettings&&<SettingsPanel onClose={()=>setShowSettings(false)} accounts={accounts} onRefresh={async()=>{await refreshAll();showToast('✓ Dados actualizados')}} pal={pal}/>}
       {showAllTxns&&<AllTransactionsScreen allTxns={allTxns} accounts={accounts} tag={tab==='imoveis'?'investimento':tab} pal={pal} onClose={()=>{setShowAllTxns(false);setViewAllCategoria(undefined);setViewAllContaId(undefined)}} onRefresh={async()=>{await refreshAll();showToast('✓ Transações actualizadas')}} imoveis={tab==='imoveis'?imoveis:undefined} initialCategoria={viewAllCategoria} initialContaId={viewAllContaId}/>}
       {showNotifications&&<NotificationsScreen onClose={()=>setShowNotifications(false)} pal={pal}/>}
-      {toast&&<div style={{position:'fixed',bottom:90,left:'50%',transform:'translateX(-50%)',background:T.surface,border:`1px solid ${pal.accent}`,borderRadius:12,padding:'10px 16px',display:'flex',alignItems:'center',gap:8,zIndex:200,boxShadow:'0 8px 24px rgba(0,0,0,0.4)',whiteSpace:'nowrap'}}><Check size={15} color={pal.accent}/><span style={{fontSize:13,fontWeight:600,color:T.text}}>{toast}</span></div>}
+      {toast&&<div style={{position:'fixed',bottom:90,left:'50%',transform:'translateX(-50%)',background:T.surface,border:`1px solid ${pal.accent}`,borderRadius:12,padding:'10px 16px',display:'flex',alignItems:'flex-start',gap:8,zIndex:200,boxShadow:'0 8px 24px rgba(0,0,0,0.4)',width:'calc(100% - 32px)',maxWidth:400,boxSizing:'border-box'}}><Check size={15} color={pal.accent} style={{flexShrink:0,marginTop:1}}/><span style={{fontSize:13,fontWeight:600,color:T.text,wordBreak:'break-word'}}>{toast}</span></div>}
     </div>
   )
 }
