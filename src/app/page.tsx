@@ -281,8 +281,8 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
         ):(
           <div style={{position:'relative',height:62}}>
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={trend} margin={{top:4,right:28,bottom:0,left:0}}>
-                <XAxis dataKey="m" tick={{fontSize:9,fill:'rgba(255,255,255,0.2)'}} axisLine={false} tickLine={false} interval={0} height={16}/>
+              <LineChart data={trend} margin={{top:4,right:28,bottom:0,left:4}}>
+                <XAxis dataKey="m" tick={{fontSize:9,fill:'rgba(255,255,255,0.2)'}} axisLine={false} tickLine={false} interval={0} height={16} padding={{left:6,right:6}}/>
                 <YAxis hide domain={[domMin, domMax]}/>
                 <ReferenceLine y={midY} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
                 <ReferenceLine y={domMax} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
@@ -318,15 +318,18 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
       ):(
         <div style={{position:'relative',height:62}}>
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={trend} margin={{top:4,right:28,bottom:0,left:0}}>
-              <XAxis dataKey="m" tick={{fontSize:9,fill:'rgba(255,255,255,0.2)'}} axisLine={false} tickLine={false} interval={0} height={16}/>
+            <ComposedChart data={trend} margin={{top:4,right:28,bottom:0,left:4}}>
+              <XAxis dataKey="m" tick={{fontSize:9,fill:'rgba(255,255,255,0.2)'}} axisLine={false} tickLine={false} interval={0} height={16} padding={{left:6,right:6}}/>
               <YAxis hide domain={[0,maxVal*1.05]} ticks={[midVal,maxVal]}/>
               <ReferenceLine y={midVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
               <ReferenceLine y={maxVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
               <Tooltip
                 contentStyle={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,fontSize:11,padding:'6px 10px'}}
                 itemStyle={{padding:0}}
-                formatter={(v:any,k:string)=>[dec(v),k==='rec'?'Receitas':k==='desp'?'Despesas':'Saldo']}
+                formatter={(v:any,k:string)=>{
+                  if(k==='net') return [<span style={{color:Number(v)>=0?T.green:T.red,fontWeight:600}}>{dec(v)}</span>,'Saldo']
+                  return [dec(v),k==='rec'?'Receitas':'Despesas']
+                }}
                 labelStyle={{color:T.text,fontWeight:600,fontSize:11,marginBottom:2}}
                 cursor={{fill:'rgba(255,255,255,0.04)'}}
               />
@@ -349,7 +352,7 @@ const Toggle = ({val,set,accent}:{val:string,set:(v:string)=>void,accent:string}
 )
 const DynChart = ({data,type}:{data:{m:string,rec:number,desp:number}[],type:string}) => {
   const tip = <Tooltip contentStyle={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,fontSize:12}} formatter={(v:any,k:string)=>[dec(v),k==='rec'?'Receitas':'Despesas']} labelStyle={{color:T.text,fontWeight:600}} cursor={{fill:'rgba(255,255,255,0.03)'}}/>
-  const ax = <XAxis dataKey="m" tick={{fontSize:11,fill:T.textSec}} axisLine={false} tickLine={false} interval={0}/>
+  const ax = <XAxis dataKey="m" tick={{fontSize:11,fill:T.textSec}} axisLine={false} tickLine={false} interval={0} padding={{left:8,right:8}}/>
   const margin = {top:8,right:6,bottom:0,left:10}
   const maxVal = Math.max(...data.map(d=>Math.max(d.rec,d.desp)), 0)
   const hasData = maxVal>0
@@ -2461,8 +2464,9 @@ const PatrimonioScreen = ({accounts,imoveis,pal}:{accounts:Account[],imoveis:Imo
 
   const totalBruto=pesSaldo+famSaldo+invSaldo+(showValoriz?valorizBruto:0)
   const minhaQuota=pesQuota+famQuota+invQuota+(showValoriz?valorizQuota:0)
-  const trend=Array.from({length:5},(_,i)=>({m:getMonthLabel(i-4),rec:totalBruto*(0.9+i*.025),desp:0,net:totalBruto*(0.9+i*.025)}))
   const now=new Date()
+  const nowYM=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`
+  const trend=Array.from({length:5},(_,i)=>({m:getMonthLabel(i-4,nowYM),rec:totalBruto*(0.9+i*.025),desp:0,net:totalBruto*(0.9+i*.025)}))
   return (
     <div>
       <Hero pal={pal} title="Património — Saldos" period={`${MONTHS_FULL[now.getMonth()]} ${now.getFullYear()}`} mainValue={big(minhaQuota)} mainColor={minhaQuota<0?'#FCA5A5':'#FFF'} trend={trend} kpis={[{l:'Total bruto',v:big(totalBruto),c:'rgba(255,255,255,0.45)'},{l:'A tua quota',v:big(minhaQuota),c:'#FFF'},{l:'Contas',v:String(accounts.length),c:'rgba(255,255,255,0.7)'}]} sparkMode="patrimonio"/>
