@@ -21,6 +21,7 @@ import {
   listDriveFolderFiles, importDriveFile, resetDriveFileImport, previewDriveFile,
   loadNotifications, countUnreadNotifications, markNotificationsRead, deleteNotification,
   syncT212, getT212Status, loadT212Config, saveT212Config,
+  getEnableBankingStatus, startEnableBankingConnect, syncEnableBanking, linkEnableBankingAccount,
   type Account, type Transaction, type Imovel, type ImovelRenda, type ContaImovel, type CategoryRule,
   type DriveToken, type DriveFile, type AppNotification, type T212Config,
 } from '@/lib/supabase'
@@ -1012,6 +1013,169 @@ const RulesScreen = ({onClose,pal}:{onClose:()=>void,pal:{accent:string,soft:str
 // ─────────────────────────────────────────────────────────────────
 // T212 SETTINGS SCREEN
 // ─────────────────────────────────────────────────────────────────
+// ENABLE BANKING SCREEN
+// ─────────────────────────────────────────────────────────────────
+const EnableBankingScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accounts:Account[],onRefresh:()=>void,pal:{accent:string,soft:string}}) => {
+  const [status,setStatus] = useState<any>(null)
+  const [loading,setLoading] = useState(true)
+  const [syncing,setSyncing] = useState(false)
+  const [syncResult,setSyncResult] = useState<any>(null)
+  const [linkingUid,setLinkingUid] = useState<string|null>(null)
+
+  const load = useCallback(async()=>{
+    setLoading(true)
+    const s = await getEnableBankingStatus()
+    setStatus(s)
+    setLoading(false)
+  },[])
+
+  useEffect(()=>{ load() },[load])
+
+  // Trata o regresso do fluxo OAuth (?eb_connected=1 ou ?eb_error=...)
+  useEffect(()=>{
+    const params = new URLSearchParams(window.location.search)
+    if(params.get('eb_connected')){ load(); window.history.replaceState({},'',' ') }
+  },[load])
+
+  const connect = async (bank:string, country:string) => {
+    const url = await startEnableBankingConnect(bank, country)
+    if(url) window.location.href = url
+  }
+
+  const sync = async () => {
+    setSyncing(true); setSyncResult(null)
+    const result = await syncEnableBanking()
+    setSyncResult(result)
+    setSyncing(false)
+    await onRefresh()
+  }
+
+  const linkAccount = async (accountUid:string, appAccountId:string) => {
+    await linkEnableBankingAccount(accountUid, appAccountId)
+    await load()
+    setLinkingUid(null)
+  }
+
+  const daysLeft = (validUntil:string) => {
+    const days = Math.floor((new Date(validUntil).getTime()-Date.now())/(1000*60*60*24))
+    return days > 0 ? `${days} dias restantes` : 'Expirado'
+  }
+
+  return (
+    <div style={{position:'fixed',inset:0,background:T.bg,zIndex:90,overflowY:'auto',fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
+      <div style={{maxWidth:440,margin:'0 auto'}}>
+        <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',background:T.surface,borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,zIndex:10}}>
+          <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ArrowLeft size={18} color={T.textSec}/></button>
+          <div style={{fontSize:16,fontWeight:700,color:T.text,flex:1}}>Enable Banking</div>
+        </div>
+        <div style={{padding:'16px 14px'}}>
+          {loading&&<div style={{padding:32,textAlign:'center',color:T.textSec,fontSize:13}}>A verificar ligações…</div>}
+
+          {!loading&&(
+            <>
+              {/* Ligar novo banco */}
+              <div style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase',marginBottom:8}}>Ligar banco</div>
+              <Card style={{marginBottom:16}}>
+                {[
+                  {name:'Revolut', country:'PT', flag:'🔵'},
+                  {name:'Abanca', country:'PT', flag:'🏦'},
+                  {name:'Santander', country:'PT', flag:'🔴'},
+                  {name:'Millennium BCP', country:'PT', flag:'🏦'},
+                ].map((bank,i,arr)=>{
+                  const linked = (status?.sessions??[]).some((s:any)=>s.bank_name===bank.name&&!s.expired)
+                  return (
+                    <div key={bank.name} style={{display:'flex',alignItems:'center',gap:12,padding:'12px 14px',borderBottom:i<arr.length-1?`1px solid ${T.border}`:'none'}}>
+                      <span style={{fontSize:20}}>{bank.flag}</span>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:13,fontWeight:600,color:T.text}}>{bank.name}</div>
+                        {linked&&<div style={{fontSize:10,color:T.green,marginTop:1}}>Ligado</div>}
+                      </div>
+                      <button onClick={()=>connect(bank.name,bank.country)} style={{background:linked?T.surface2:pal.accent,color:linked?T.textSec:'#0B0B12',border:'none',borderRadius:8,padding:'6px 12px',fontSize:11,fontWeight:600,cursor:'pointer'}}>
+                        {linked?'Re-ligar':'Ligar'}
+                      </button>
+                    </div>
+                  )
+                })}
+              </Card>
+
+              {/* Sessões activas */}
+              {(status?.sessions??[]).length>0&&(
+                <>
+                  <div style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase',marginBottom:8}}>Ligações activas</div>
+                  {(status.sessions).map((s:any,i:number)=>(
+                    <Card key={i} style={{padding:14,marginBottom:12}}>
+                      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}>
+                        <div style={{width:36,height:36,borderRadius:10,background:s.expired?'rgba(248,113,113,0.1)':'rgba(74,222,128,0.1)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18}}>🏦</div>
+                        <div style={{flex:1}}>
+                          <div style={{fontSize:13,fontWeight:600,color:T.text}}>{s.bank_name} ({s.bank_country})</div>
+                          <div style={{fontSize:11,color:s.expired?T.red:T.green,marginTop:1}}>{daysLeft(s.valid_until)}</div>
+                        </div>
+                      </div>
+                      {(s.accounts??[]).map((acc:any)=>(
+                        <div key={acc.account_uid} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 10px',background:T.surface2,borderRadius:8,marginBottom:6}}>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:11,color:T.text,fontWeight:500}}>{acc.name??acc.iban??acc.account_uid.slice(0,16)+'…'}</div>
+                            {acc.iban&&<div style={{fontSize:10,color:T.textTer}}>{acc.iban}</div>}
+                          </div>
+                          {acc.account_id?(
+                            <div style={{fontSize:10,color:T.green}}>✓ Associada</div>
+                          ):(
+                            <button onClick={()=>setLinkingUid(acc.account_uid)} style={{background:pal.accent,color:'#0B0B12',border:'none',borderRadius:6,padding:'4px 8px',fontSize:10,fontWeight:600,cursor:'pointer'}}>Associar</button>
+                          )}
+                        </div>
+                      ))}
+                    </Card>
+                  ))}
+
+                  {/* Sincronização */}
+                  <Btn onClick={sync} variant="primary" accent={pal.accent} style={{width:'100%',marginBottom:8,opacity:syncing?0.5:1}}>
+                    {syncing?'A sincronizar…':'↻ Sincronizar agora'}
+                  </Btn>
+                  {syncResult&&!syncing&&(
+                    <Card style={{padding:'10px 14px',marginBottom:12,background:syncResult.ok?'rgba(74,222,128,0.05)':'rgba(248,113,113,0.05)'}}>
+                      {(syncResult.results??[]).map((r:any,i:number)=>(
+                        <div key={i} style={{fontSize:11,color:r.error?T.red:T.green,marginBottom:2}}>
+                          {r.error?`✗ ${r.error}`:`✓ Saldo: €${r.balance?.toFixed(2)} · ${r.new_transactions} novas`}
+                        </div>
+                      ))}
+                    </Card>
+                  )}
+                </>
+              )}
+
+              <div style={{fontSize:11,color:T.textTer,lineHeight:1.6,marginTop:4,padding:'0 4px'}}>
+                ℹ️ A autorização é válida por 180 dias. A sincronização automática corre de madrugada.
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Modal para associar conta EB a conta da app */}
+      {linkingUid&&(
+        <div onClick={()=>setLinkingUid(null)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:120,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:T.surface,borderRadius:'20px 20px 0 0',width:'100%',maxWidth:440,padding:'20px 18px 32px'}}>
+            <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:6}}>Associar a conta da app</div>
+            <div style={{fontSize:11,color:T.textSec,marginBottom:14}}>Selecciona a conta onde queres escrever o saldo e transacções deste banco:</div>
+            <Card>
+              {accounts.map((a,i)=>(
+                <div key={a.id} onClick={()=>linkAccount(linkingUid,a.id)} style={{display:'flex',alignItems:'center',gap:10,padding:'12px 14px',borderBottom:i<accounts.length-1?`1px solid ${T.border}`:'none',cursor:'pointer'}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:13,fontWeight:600,color:T.text}}>{a.nome}</div>
+                    <div style={{fontSize:11,color:T.textSec}}>{a.banco} · {a.tipo}</div>
+                  </div>
+                  <ChevronRight size={14} color={T.textTer}/>
+                </div>
+              ))}
+            </Card>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────
 const T212Screen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accounts:Account[],onRefresh:()=>void,pal:{accent:string,soft:string}}) => {
   const [status,setStatus] = useState<any>(null)
   const [loading,setLoading] = useState(true)
@@ -1792,6 +1956,7 @@ const SettingsPanel = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accoun
   const [showRules,setShowRules] = useState(false)
   const [showDrive,setShowDrive] = useState(false)
   const [showT212,setShowT212] = useState(false)
+  const [showEnableBanking,setShowEnableBanking] = useState(false)
   const openNew = () => { setEditing(null); setFormOpen(true) }
   const openEdit = (a:Account) => { setEditing(a); setFormOpen(true) }
   const del = async (id:string) => { if(!confirm('Apagar esta conta? As transações associadas também serão removidas.')) return; await deleteAccount(id); await onRefresh() }
@@ -1846,6 +2011,11 @@ const SettingsPanel = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accoun
             <span style={{flex:1,textAlign:'left',fontSize:13,fontWeight:600,color:T.text}}>Trading 212</span>
             <span style={{fontSize:11,color:T.textTer}}>›</span>
           </button>
+          <button onClick={()=>setShowEnableBanking(true)} style={{width:'100%',display:'flex',alignItems:'center',gap:10,background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,padding:'12px 14px',cursor:'pointer',marginBottom:10}}>
+            <span style={{fontSize:16}}>🏦</span>
+            <span style={{flex:1,textAlign:'left',fontSize:13,fontWeight:600,color:T.text}}>Enable Banking</span>
+            <span style={{fontSize:11,color:T.textTer}}>›</span>
+          </button>
           <button onClick={()=>setShowRules(true)} style={{width:'100%',display:'flex',alignItems:'center',gap:10,background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,padding:'12px 14px',cursor:'pointer',marginBottom:14}}>
             <BrainCircuit size={16} color={pal.accent}/>
             <span style={{flex:1,textAlign:'left',fontSize:13,fontWeight:600,color:T.text}}>Regras Aprendidas</span>
@@ -1858,6 +2028,7 @@ const SettingsPanel = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accoun
       {showRules&&<RulesScreen onClose={()=>setShowRules(false)} pal={pal}/>}
       {showDrive&&<DriveSettingsScreen onClose={()=>setShowDrive(false)} accounts={accounts} onRefresh={onRefresh} pal={pal}/>}
       {showT212&&<T212Screen onClose={()=>setShowT212(false)} accounts={accounts} onRefresh={onRefresh} pal={pal}/>}
+      {showEnableBanking&&<EnableBankingScreen onClose={()=>setShowEnableBanking(false)} accounts={accounts} onRefresh={onRefresh} pal={pal}/>}
     </div>
   )
 }
@@ -2686,6 +2857,13 @@ export default function Page() {
     } else if(params.get('drive_error')) {
       const reason = params.get('drive_error') ?? 'desconhecido'
       showToast(`✗ Erro Drive: ${reason}`)
+      window.history.replaceState({}, '', window.location.pathname)
+    } else if(params.get('eb_connected')) {
+      const bank = params.get('bank') ?? 'Banco'
+      showToast(`✓ ${bank} ligado via Enable Banking`)
+      window.history.replaceState({}, '', window.location.pathname)
+    } else if(params.get('eb_error')) {
+      showToast(`✗ Erro Enable Banking: ${params.get('eb_error')}`)
       window.history.replaceState({}, '', window.location.pathname)
     }
   },[showToast])

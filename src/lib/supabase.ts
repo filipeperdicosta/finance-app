@@ -406,7 +406,36 @@ export async function deleteNotification(id: string) {
   return supabase.from('notifications').delete().eq('id', id)
 }
 
-// ── Trading 212 ───────────────────────────────────────────────────
+// ── Enable Banking ────────────────────────────────────────────────
+export async function getEnableBankingStatus() {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { connected: false, sessions: [] }
+  const res = await fetch(`/api/enablebanking/status?user_id=${user.id}`)
+  return res.json()
+}
+
+export async function startEnableBankingConnect(bank: string, country: string) {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
+  return `/api/auth/enablebanking?user_id=${user.id}&bank=${encodeURIComponent(bank)}&country=${country}`
+}
+
+export async function syncEnableBanking() {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Não autenticado' }
+  const res = await fetch('/api/enablebanking/sync', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: user.id }),
+  })
+  return res.json()
+}
+
+export async function linkEnableBankingAccount(accountUid: string, appAccountId: string) {
+  return supabase.from('enablebanking_accounts')
+    .update({ account_id: appAccountId })
+    .eq('account_uid', accountUid)
+}
 export type T212Config = {
   id: string
   user_id: string
