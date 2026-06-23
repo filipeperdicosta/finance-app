@@ -281,8 +281,8 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
         ):(
           <div style={{position:'relative',height:62}}>
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={trend} margin={{top:4,right:28,bottom:0,left:4}}>
-                <XAxis dataKey="m" tick={{fontSize:9,fill:'rgba(255,255,255,0.2)'}} axisLine={false} tickLine={false} interval={0} height={16} padding={{left:6,right:6}}/>
+              <LineChart data={trend} margin={{top:4,right:32,bottom:0,left:10}}>
+                <XAxis dataKey="m" tick={{fontSize:9,fill:'rgba(255,255,255,0.2)'}} axisLine={false} tickLine={false} interval={0} height={16} padding={{left:0,right:0}}/>
                 <YAxis hide domain={[domMin, domMax]}/>
                 <ReferenceLine y={midY} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
                 <ReferenceLine y={domMax} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
@@ -296,8 +296,8 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
                 <Line dataKey="net" stroke="rgba(255,255,255,0.75)" strokeWidth={1.75} dot={false}/>
               </LineChart>
             </ResponsiveContainer>
-            <div style={{position:'absolute',top:4,right:0,fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(domMax)}</div>
-            <div style={{position:'absolute',top:'35%',right:0,transform:'translateY(-50%)',fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(midY)}</div>
+            <div style={{position:'absolute',top:4,right:2,fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(domMax)}</div>
+            <div style={{position:'absolute',top:'35%',right:2,transform:'translateY(-50%)',fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(midY)}</div>
           </div>
         )}
       </>
@@ -318,8 +318,8 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
       ):(
         <div style={{position:'relative',height:62}}>
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={trend} margin={{top:4,right:28,bottom:0,left:4}}>
-              <XAxis dataKey="m" tick={{fontSize:9,fill:'rgba(255,255,255,0.2)'}} axisLine={false} tickLine={false} interval={0} height={16} padding={{left:6,right:6}}/>
+            <ComposedChart data={trend} margin={{top:4,right:32,bottom:0,left:10}}>
+              <XAxis dataKey="m" tick={{fontSize:9,fill:'rgba(255,255,255,0.2)'}} axisLine={false} tickLine={false} interval={0} height={16} padding={{left:0,right:0}}/>
               <YAxis hide domain={[0,maxVal*1.05]} ticks={[midVal,maxVal]}/>
               <ReferenceLine y={midVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
               <ReferenceLine y={maxVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
@@ -338,8 +338,8 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
               <Line dataKey="desp" stroke={T.red} strokeWidth={1.75} dot={false}/>
             </ComposedChart>
           </ResponsiveContainer>
-          <div style={{position:'absolute',top:4,right:0,fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(maxVal)}</div>
-          <div style={{position:'absolute',top:'35%',right:0,transform:'translateY(-50%)',fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(midVal)}</div>
+          <div style={{position:'absolute',top:4,right:2,fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(maxVal)}</div>
+          <div style={{position:'absolute',top:'35%',right:2,transform:'translateY(-50%)',fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(midVal)}</div>
         </div>
       )}
     </>
@@ -2440,7 +2440,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
   )
 }
 
-const PatrimonioScreen = ({accounts,imoveis,pal}:{accounts:Account[],imoveis:Imovel[],pal:{grad:string,accent:string,soft:string}}) => {
+const PatrimonioScreen = ({accounts,imoveis,transactions,pal}:{accounts:Account[],imoveis:Imovel[],transactions:Transaction[],pal:{grad:string,accent:string,soft:string}}) => {
   const [showValoriz,setShowValoriz] = useState(false)
   // Soma saldos por tag (respeita sinal do cartão de crédito)
   const sumTag = (tag:string) => accounts.filter(a=>a.budget_tag===tag).reduce((s,a)=>s+accountSaldo(a),0)
@@ -2465,8 +2465,10 @@ const PatrimonioScreen = ({accounts,imoveis,pal}:{accounts:Account[],imoveis:Imo
   const totalBruto=pesSaldo+famSaldo+invSaldo+(showValoriz?valorizBruto:0)
   const minhaQuota=pesQuota+famQuota+invQuota+(showValoriz?valorizQuota:0)
   const now=new Date()
-  const nowYM=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`
-  const trend=Array.from({length:5},(_,i)=>({m:getMonthLabel(i-4,nowYM),rec:totalBruto*(0.9+i*.025),desp:0,net:totalBruto*(0.9+i*.025)}))
+  // Usa o mesmo mês de referência que as outras tabs (mês com dados mais recente)
+  // para que todos os gráficos mostrem o mesmo intervalo de meses
+  const refMonth = latestMonthWithData(transactions) ?? `${now.getFullYear()}-${String(now.getMonth()).padStart(2,'0')}`
+  const trend=Array.from({length:5},(_,i)=>({m:getMonthLabel(i-4,refMonth),rec:totalBruto*(0.9+i*.025),desp:0,net:totalBruto*(0.9+i*.025)}))
   return (
     <div>
       <Hero pal={pal} title="Património — Saldos" period={`${MONTHS_FULL[now.getMonth()]} ${now.getFullYear()}`} mainValue={big(minhaQuota)} mainColor={minhaQuota<0?'#FCA5A5':'#FFF'} trend={trend} kpis={[{l:'Total bruto',v:big(totalBruto),c:'rgba(255,255,255,0.45)'},{l:'A tua quota',v:big(minhaQuota),c:'#FFF'},{l:'Contas',v:String(accounts.length),c:'rgba(255,255,255,0.7)'}]} sparkMode="patrimonio"/>
@@ -2570,7 +2572,7 @@ export default function Page() {
     familiar:   <BudgetScreen accounts={accounts} transactions={transactions} tag="familiar" pal={PAL.familiar} title="Conta Corrente Familiar" onViewAllTxns={openAllTxns} onRefresh={async()=>{await refreshAll();showToast('✓ Transação actualizada')}}/>,
     pessoal:    <BudgetScreen accounts={accounts} transactions={transactions} tag="pessoal"  pal={PAL.pessoal}  title="Conta Corrente Pessoal" onViewAllTxns={openAllTxns} onRefresh={async()=>{await refreshAll();showToast('✓ Transação actualizada')}}/>,
     imoveis:    <ImoveisScreen imoveis={imoveis} transactions={transactions} accounts={accounts} contaImovel={contaImovel} pal={PAL.imoveis} onRefresh={async()=>{await refreshAll();showToast('✓ Imóveis actualizados')}} onViewAll={()=>openAllTxns()}/>,
-    patrimonio: <PatrimonioScreen accounts={accounts} imoveis={imoveis} pal={PAL.patrimonio}/>,
+    patrimonio: <PatrimonioScreen accounts={accounts} imoveis={imoveis} transactions={transactions} pal={PAL.patrimonio}/>,
   }
 
   return (
