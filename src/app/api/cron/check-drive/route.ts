@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getValidAccessToken, getSupabaseAdmin, createNotification } from '@/lib/googleDrive'
 import { parseStatementWithGemini, detectMimeType } from '@/lib/geminiParse'
+import { getT212Configs, getT212Portfolio, getT212Transactions } from '@/lib/t212'
 
 // Verificação automática diária: para CADA utilizador com Drive ligada,
 // percorre as suas contas com pasta associada, identifica ficheiros novos
@@ -202,6 +203,48 @@ export async function GET(req: NextRequest) {
         body,
         meta: { ...summary, duration_sec: durationSec },
       })
+    }
+
+    // ── T212: sincroniza portfolios de todos os utilizadores com contas T212 ──
+    const t212Configs = getT212Configs()
+    if (t212Configs.length > 0) {
+      const supabase = getSupabaseAdmin()
+      // Busca todas as contas da app do tipo corretora (potencialmente T212)
+      const { data: t212Accounts } = await supabase
+        .from('accounts')
+        .select('id, user_id, nome, tipo')
+        .eq('tipo', 'corretora')
+
+      for (const acc of t212Accounts ?? []) {
+        for (const config of t212Configs) {
+          try {
+            const portfolio = await getT212Portfolio(config)
+            const today = new Date().toISOString().split('T')[0]
+            await supabase.from('accounts').update({ saldo_atual: portfolio.total, saldo_data: today }).eq('id', acc.id)
+
+            const txns = await getT212Transactions(config)
+            const { data: existing } = await supabase.from('transactions').select('hash').eq('account_id', acc.id)
+            const existingHashes = new Set((existing ?? []).map((t: any) => t.hash))
+
+            const toInsert = txns.filter(t => !existingHashes.has(`t212-${config.label}-${t.reference ?? t.orderId ?? t.id}`))
+              .map((t: any, i: number) => ({
+                account_id: acc.id, data: t.dateCreated?.split('T')[0] ?? today,
+                descritivo: [t.type, t.ticker, t.reference].filter(Boolean).join(' · '),
+                valor: Number(t.amount) || 0,
+                categoria: Number(t.amount) > 0 ? 'Receita' : t.type === 'FEE' ? 'Comissões e Taxas' : 'Transferências',
+                categoria_confirmada: false, ai_confianca: null, excluir_analise: false,
+                imovel_classificado: false, ordem_extrato: i,
+                hash: `t212-${config.label}-${t.reference ?? t.orderId ?? t.id ?? i}`,
+                import_batch_id: null, imovel_id: null, notas: null, subcategoria: null, descritivo_norm: null,
+              }))
+
+            if (toInsert.length) await supabase.from('transactions').upsert(toInsert, { onConflict: 'hash', ignoreDuplicates: true })
+            console.log(`T212 cron: ${acc.nome} (${config.label}) → total €${portfolio.total.toFixed(2)}, ${toInsert.length} txns novas`)
+          } catch (t212Err: any) {
+            console.error(`T212 cron error (${acc.nome}/${config.label}):`, t212Err.message)
+          }
+        }
+      }
     }
 
     return NextResponse.json({ ok: true, ...summary, duration_sec: durationSec })

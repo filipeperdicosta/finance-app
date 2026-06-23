@@ -20,6 +20,7 @@ import {
   getDriveConnectionStatus, disconnectDrive, getDriveAuthUrl, updateAccountDriveFolder, loadDriveFiles,
   listDriveFolderFiles, importDriveFile, resetDriveFileImport, previewDriveFile,
   loadNotifications, countUnreadNotifications, markNotificationsRead, deleteNotification,
+  syncT212, getT212Status,
   type Account, type Transaction, type Imovel, type ImovelRenda, type ContaImovel, type CategoryRule,
   type DriveToken, type DriveFile, type AppNotification,
 } from '@/lib/supabase'
@@ -1009,6 +1010,127 @@ const RulesScreen = ({onClose,pal}:{onClose:()=>void,pal:{accent:string,soft:str
 // ─────────────────────────────────────────────────────────────────
 // NOTIFICATIONS SCREEN
 // ─────────────────────────────────────────────────────────────────
+// T212 SETTINGS SCREEN
+// ─────────────────────────────────────────────────────────────────
+const T212Screen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accounts:Account[],onRefresh:()=>void,pal:{accent:string,soft:string}}) => {
+  const [status,setStatus] = useState<any>(null)
+  const [loading,setLoading] = useState(true)
+  const [syncing,setSyncing] = useState(false)
+  const [selAccount,setSelAccount] = useState('')
+  const [syncResult,setSyncResult] = useState<any>(null)
+
+  const load = useCallback(async()=>{
+    setLoading(true)
+    const s = await getT212Status()
+    setStatus(s)
+    setLoading(false)
+  },[])
+
+  useEffect(()=>{ load() },[load])
+
+  const sync = async () => {
+    if(!selAccount){ alert('Selecciona a conta da app que corresponde ao T212'); return }
+    setSyncing(true); setSyncResult(null)
+    const result = await syncT212(selAccount)
+    setSyncResult(result)
+    setSyncing(false)
+    await onRefresh()
+  }
+
+  const isConfigured = status?.connected
+  const investAccounts = accounts.filter(a=>a.tipo==='corretora')
+
+  return (
+    <div style={{position:'fixed',inset:0,background:T.bg,zIndex:90,overflowY:'auto',fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
+      <div style={{maxWidth:440,margin:'0 auto'}}>
+        <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',background:T.surface,borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,zIndex:10}}>
+          <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ArrowLeft size={18} color={T.textSec}/></button>
+          <div style={{fontSize:16,fontWeight:700,color:T.text,flex:1}}>Trading 212</div>
+        </div>
+        <div style={{padding:'16px 14px'}}>
+          {loading&&<div style={{padding:32,textAlign:'center',color:T.textSec,fontSize:13}}>A verificar ligação…</div>}
+
+          {!loading&&!isConfigured&&(
+            <Card style={{padding:16,textAlign:'center'}}>
+              <div style={{fontSize:28,marginBottom:10}}>📈</div>
+              <div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:6}}>T212 não configurado</div>
+              <div style={{fontSize:11,color:T.textSec,lineHeight:1.6,marginBottom:14}}>
+                Adiciona as seguintes variáveis de ambiente no Vercel e faz redeploy:
+              </div>
+              <div style={{background:T.surface2,borderRadius:8,padding:'10px 12px',textAlign:'left',marginBottom:8}}>
+                <div style={{fontSize:10,color:T.green,fontFamily:'monospace',lineHeight:1.8}}>
+                  T212_API_KEY=…<br/>
+                  T212_API_SECRET=…<br/>
+                  <span style={{color:T.textTer}}>(opcional, se tiveres ISA)</span><br/>
+                  T212_API_KEY_ISA=…<br/>
+                  T212_API_SECRET_ISA=…
+                </div>
+              </div>
+              <div style={{fontSize:11,color:T.textTer}}>Gera as credenciais em T212 → Settings → API (Beta)</div>
+            </Card>
+          )}
+
+          {!loading&&isConfigured&&(
+            <>
+              {(status.accounts??[]).map((acc:any,i:number)=>(
+                <Card key={i} style={{padding:14,marginBottom:12}}>
+                  <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:acc.error?0:10}}>
+                    <div style={{width:36,height:36,borderRadius:10,background:acc.error?'rgba(248,113,113,0.1)':'rgba(74,222,128,0.1)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18}}>📈</div>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:13,fontWeight:600,color:T.text}}>T212 {acc.label}</div>
+                      {acc.error?<div style={{fontSize:11,color:T.red,marginTop:2}}>{acc.error}</div>:(
+                        <div style={{fontSize:11,color:T.green}}>Ligado · €{acc.total?.toFixed(2)}</div>
+                      )}
+                    </div>
+                  </div>
+                  {!acc.error&&(
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6}}>
+                      <div style={{background:T.surface2,borderRadius:8,padding:'7px 9px'}}>
+                        <div style={{fontSize:9,color:T.textTer,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:2}}>Cash</div>
+                        <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:T.mono}}>€{acc.cash?.toFixed(0)}</div>
+                      </div>
+                      <div style={{background:T.surface2,borderRadius:8,padding:'7px 9px'}}>
+                        <div style={{fontSize:9,color:T.textTer,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:2}}>Posições</div>
+                        <div style={{fontSize:12,fontWeight:700,color:T.text,fontFamily:T.mono}}>€{acc.marketValue?.toFixed(0)}</div>
+                      </div>
+                      <div style={{background:T.surface2,borderRadius:8,padding:'7px 9px'}}>
+                        <div style={{fontSize:9,color:T.textTer,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:2}}>P&L</div>
+                        <div style={{fontSize:12,fontWeight:700,color:acc.ppl>=0?T.green:T.red,fontFamily:T.mono}}>{acc.ppl>=0?'+':''}€{acc.ppl?.toFixed(0)}</div>
+                      </div>
+                    </div>
+                  )}
+                </Card>
+              ))}
+
+              <div style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase',marginBottom:8,marginTop:4}}>Sincronizar com conta da app</div>
+              <Card style={{padding:14,marginBottom:12}}>
+                <div style={{fontSize:11,color:T.textSec,marginBottom:10,lineHeight:1.5}}>Selecciona a conta da app que corresponde ao teu portfolio T212. O saldo e as transacções serão actualizados automaticamente.</div>
+                <Sel label="Conta da app" value={selAccount} onChange={setSelAccount} options={[{value:'',label:'Selecciona uma conta…'},...investAccounts.map(a=>({value:a.id,label:a.nome})),...accounts.filter(a=>a.tipo!=='corretora').map(a=>({value:a.id,label:`${a.nome} (${a.tipo})`}))]}/>
+                {syncResult&&!syncing&&(
+                  <div style={{marginTop:10,padding:'8px 10px',background:syncResult.ok?'rgba(74,222,128,0.08)':'rgba(248,113,113,0.08)',borderRadius:8}}>
+                    {syncResult.ok?(
+                      <div style={{fontSize:11,color:T.green}}>✓ Sincronizado — {syncResult.results?.map((r:any)=>`${r.account}: €${r.total?.toFixed(2)} · ${r.newTransactions} novas`).join(' · ')}</div>
+                    ):(
+                      <div style={{fontSize:11,color:T.red}}>✗ {syncResult.error}</div>
+                    )}
+                  </div>
+                )}
+              </Card>
+              <Btn onClick={sync} variant="primary" accent={pal.accent} style={{width:'100%',opacity:selAccount&&!syncing?1:0.4}}>
+                {syncing?'A sincronizar…':'↻ Sincronizar agora'}
+              </Btn>
+              <div style={{marginTop:12,fontSize:11,color:T.textTer,lineHeight:1.6,padding:'0 4px'}}>
+                ℹ️ A sincronização automática corre todos os dias de madrugada junto com a verificação da Drive.
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────
 const NotificationsScreen = ({onClose,pal}:{onClose:()=>void,pal:{accent:string,soft:string}}) => {
   const [notifs,setNotifs] = useState<AppNotification[]>([])
   const [loading,setLoading] = useState(true)
@@ -1667,6 +1789,7 @@ const SettingsPanel = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accoun
   const [editing,setEditing] = useState<Account|null>(null)
   const [showRules,setShowRules] = useState(false)
   const [showDrive,setShowDrive] = useState(false)
+  const [showT212,setShowT212] = useState(false)
   const openNew = () => { setEditing(null); setFormOpen(true) }
   const openEdit = (a:Account) => { setEditing(a); setFormOpen(true) }
   const del = async (id:string) => { if(!confirm('Apagar esta conta? As transações associadas também serão removidas.')) return; await deleteAccount(id); await onRefresh() }
@@ -1716,6 +1839,11 @@ const SettingsPanel = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accoun
             <span style={{flex:1,textAlign:'left',fontSize:13,fontWeight:600,color:T.text}}>Google Drive</span>
             <span style={{fontSize:11,color:T.textTer}}>›</span>
           </button>
+          <button onClick={()=>setShowT212(true)} style={{width:'100%',display:'flex',alignItems:'center',gap:10,background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,padding:'12px 14px',cursor:'pointer',marginBottom:10}}>
+            <span style={{fontSize:16}}>📈</span>
+            <span style={{flex:1,textAlign:'left',fontSize:13,fontWeight:600,color:T.text}}>Trading 212</span>
+            <span style={{fontSize:11,color:T.textTer}}>›</span>
+          </button>
           <button onClick={()=>setShowRules(true)} style={{width:'100%',display:'flex',alignItems:'center',gap:10,background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,padding:'12px 14px',cursor:'pointer',marginBottom:14}}>
             <BrainCircuit size={16} color={pal.accent}/>
             <span style={{flex:1,textAlign:'left',fontSize:13,fontWeight:600,color:T.text}}>Regras Aprendidas</span>
@@ -1727,6 +1855,7 @@ const SettingsPanel = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accoun
       {formOpen&&<AccountForm initial={editing} onClose={()=>setFormOpen(false)} onSaved={onRefresh} pal={pal} accountsLen={accounts.length}/>}
       {showRules&&<RulesScreen onClose={()=>setShowRules(false)} pal={pal}/>}
       {showDrive&&<DriveSettingsScreen onClose={()=>setShowDrive(false)} accounts={accounts} onRefresh={onRefresh} pal={pal}/>}
+      {showT212&&<T212Screen onClose={()=>setShowT212(false)} accounts={accounts} onRefresh={onRefresh} pal={pal}/>}
     </div>
   )
 }

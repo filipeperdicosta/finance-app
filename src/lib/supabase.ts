@@ -405,3 +405,20 @@ export async function markNotificationsRead(ids?: string[]) {
 export async function deleteNotification(id: string) {
   return supabase.from('notifications').delete().eq('id', id)
 }
+
+// ── Trading 212 ───────────────────────────────────────────────────
+export async function syncT212(accountId: string) {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Não autenticado' }
+  const res = await fetch('/api/t212/sync', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: user.id, account_id: accountId }),
+  })
+  return res.json()
+}
+
+export async function getT212Status() {
+  const res = await fetch('/api/t212/status')
+  return res.json()
+}
