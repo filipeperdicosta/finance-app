@@ -1,5 +1,6 @@
 // Helper partilhado para chamadas à API do Trading 212
 // Autenticação: HTTP Basic Auth com API_KEY:API_SECRET em Base64
+// Permissões necessárias: Account data + Portfolio (sem History)
 
 const T212_BASE = 'https://live.trading212.com/api/v0'
 
@@ -37,47 +38,20 @@ export async function t212Fetch(path: string, config: T212AccountConfig) {
 }
 
 export type T212Portfolio = {
-  cash: number
-  invested: number
-  marketValue: number
-  ppl: number       // P&L: ganho/perda não realizado (preço actual - preço médio compra)
-  total: number     // cash + valor de mercado actual das posições
+  cash: number        // cash livre disponível
+  invested: number    // valor investido ao preço de compra
+  marketValue: number // valor actual das posições (invested + ppl)
+  ppl: number         // P&L: ganho/perda não realizado
+  total: number       // cash + marketValue = valor total da conta
 }
 
+// Usa apenas /equity/account/cash — não requer permissão History.
+// Este endpoint já devolve tudo convertido para EUR, sem risco de misturar moedas.
 export async function getT212Portfolio(config: T212AccountConfig): Promise<T212Portfolio> {
-  // /equity/account/cash devolve:
-  // { free, invested, ppl, result, pieCash, blocked, total }
-  // 'total' = cash total (free + blocked + pieCash)
-  // 'ppl'   = profit/loss não realizado das posições abertas
-  // 'invested' = valor investido ao preço de compra
-  // O valor de mercado actual das posições = invested + ppl
   const cash = await t212Fetch('/equity/account/cash', config)
   const free = Number(cash.free) || 0
   const invested = Number(cash.invested) || 0
   const ppl = Number(cash.ppl) || 0
-  const marketValue = invested + ppl   // valor actual das posições (sem cash)
-  return {
-    cash: free,
-    invested,
-    marketValue,
-    ppl,
-    total: free + marketValue,
-  }
-  // Nota: não usamos /equity/portfolio (lista de posições) para calcular o total
-  // porque os preços podem estar em moeda estrangeira (USD, GBP) e introduziriam
-  // erros de conversão. O endpoint /cash já devolve tudo convertido para EUR.
-}
-
-// Transacções em dinheiro (depósitos, levantamentos, dividendos, fees)
-// com cursor-based pagination — devolve todas, mais recentes primeiro
-// Nota: requer permissão "History" na API key. Se der 403, a key não tem essa permissão.
-export async function getT212Transactions(config: T212AccountConfig, limit = 50): Promise<any[]> {
-  const items: any[] = []
-  let path: string | null = `/equity/history/transactions?limit=${limit}`
-  while (path) {
-    const data = await t212Fetch(path, config)
-    items.push(...(data.items ?? []))
-    path = data.nextPagePath ?? null
-  }
-  return items
+  const marketValue = invested + ppl
+  return { cash: free, invested, marketValue, ppl, total: free + marketValue }
 }

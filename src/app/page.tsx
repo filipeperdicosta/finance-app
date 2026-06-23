@@ -1122,7 +1122,7 @@ const T212Screen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accounts:
               </Btn>
               <div style={{marginTop:12,fontSize:11,color:T.textTer,lineHeight:1.6,padding:'0 4px'}}>
                 ℹ️ A sincronização automática corre todos os dias de madrugada.<br/>
-                ⚠ Para importar transacções, a API key precisa da permissão <strong style={{color:T.textSec}}>History</strong> activa.
+                Apenas o saldo total é actualizado — não são importadas transacções individuais.
               </div>
             </>
           )}
