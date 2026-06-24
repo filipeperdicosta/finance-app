@@ -78,8 +78,9 @@ export type ImovelRenda = {
 
 // ── Data helpers ───────────────────────────────────────────────
 export async function loadAllData() {
+  const TAG_ORDER: Record<string,number> = { familiar:0, pessoal:1, investimento:2, patrimonio:3 }
   const [accounts, transactions, imoveis, rendas, contaImovel] = await Promise.all([
-    supabase.from('accounts').select('*').eq('ativa', true).order('ordem'),
+    supabase.from('accounts').select('*').eq('ativa', true).order('nome'),
     supabase.from('transactions').select('*')
       .eq('excluir_analise', false)
       .gte('data', new Date(new Date().getFullYear(), new Date().getMonth() - 5, 1).toISOString().split('T')[0])
@@ -91,8 +92,14 @@ export async function loadAllData() {
       .eq('ano', new Date().getFullYear()),
     supabase.from('conta_imovel').select('*'),
   ])
+  const sortedAccounts = ((accounts.data ?? []) as Account[]).sort((a,b)=>{
+    const ta = TAG_ORDER[a.budget_tag??''] ?? 9
+    const tb = TAG_ORDER[b.budget_tag??''] ?? 9
+    if(ta!==tb) return ta-tb
+    return (a.nome??'').localeCompare(b.nome??'','pt')
+  })
   return {
-    accounts: (accounts.data ?? []) as Account[],
+    accounts: sortedAccounts,
     transactions: (transactions.data ?? []) as Transaction[],
     imoveis: (imoveis.data ?? []) as Imovel[],
     rendas: (rendas.data ?? []) as ImovelRenda[],

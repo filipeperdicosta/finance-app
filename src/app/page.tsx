@@ -1106,12 +1106,16 @@ const EnableBankingScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
                       </div>
                       {(s.accounts??[]).map((acc:any,ai:number)=>{
                         const isSyncing=syncing===acc.account_uid
+                        const linkedAccount = accounts.find((a:Account)=>a.id===acc.account_id)
                         return (
                           <div key={acc.account_uid} style={{display:'flex',alignItems:'center',gap:8,padding:'10px 14px',borderBottom:ai<(s.accounts??[]).length-1?`1px solid ${T.border}`:'none'}}>
                             <div style={{flex:1,minWidth:0}}>
-                              <div style={{fontSize:12,color:T.text,fontWeight:500}}>{acc.name??acc.iban?.slice(-8)??acc.account_uid.slice(0,12)+'…'}</div>
+                              <div style={{fontSize:12,color:T.text,fontWeight:600}}>{acc.name??acc.iban?.slice(-8)??acc.account_uid.slice(0,12)+'…'}</div>
                               {acc.iban&&<div style={{fontSize:10,color:T.textTer}}>{acc.iban}</div>}
-                              {acc.account_id?<div style={{fontSize:10,color:T.green,marginTop:1}}>✓ Associada</div>:<div style={{fontSize:10,color:'#FBBF24',marginTop:1}}>⚠ Sem conta associada</div>}
+                              {linkedAccount
+                                ? <div style={{fontSize:10,color:T.green,marginTop:2}}>↳ {linkedAccount.nome}</div>
+                                : <div style={{fontSize:10,color:'#FBBF24',marginTop:2}}>⚠ Sem conta associada</div>
+                              }
                             </div>
                             <div style={{display:'flex',gap:6,flexShrink:0}}>
                               {acc.account_id&&<button onClick={()=>!syncing&&sync(acc.account_uid)} disabled={!!syncing} style={{background:pal.soft,color:pal.accent,border:'none',borderRadius:8,padding:'5px 10px',fontSize:11,fontWeight:600,cursor:syncing?'default':'pointer',opacity:syncing?0.5:1,display:'flex',alignItems:'center',gap:4}}><RefreshCw size={11}/>{isSyncing?'…':'Sync'}</button>}
@@ -1350,7 +1354,7 @@ const NotificationsScreen = ({onClose,pal}:{onClose:()=>void,pal:{accent:string,
                   <div style={{fontSize:20,lineHeight:1,flexShrink:0,marginTop:2}}>{typeIcon(n.type)}</div>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontSize:13,fontWeight:600,color:typeColor(n.type,pal),marginBottom:2}}>{n.title}</div>
-                    {n.body&&<div style={{fontSize:11,color:T.textSec}}>{n.body}</div>}
+                    {n.body&&<div style={{fontSize:11,color:T.textSec,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{n.body.split(' | ')[0]}{n.body.includes(' | ')&&' …'}</div>}
                     <div style={{fontSize:10,color:T.textTer,marginTop:4}}>{fmt(n.created_at)}</div>
                   </div>
                   <button onClick={e=>{e.stopPropagation();del(n.id)}} style={{background:'none',border:'none',cursor:'pointer',padding:2,flexShrink:0}}>
@@ -1368,6 +1372,13 @@ const NotificationsScreen = ({onClose,pal}:{onClose:()=>void,pal:{accent:string,
                     {meta.errors&&Array.isArray(meta.errors)&&meta.errors.length>0&&(
                       <div style={{marginTop:8,background:'rgba(248,113,113,0.08)',borderRadius:8,padding:'8px 10px'}}>
                         {meta.errors.map((e:string,i:number)=><div key={i} style={{fontSize:10,color:T.red,marginBottom:2}}>{e}</div>)}
+                      </div>
+                    )}
+                    {n.body&&n.body.includes(' | ')&&(
+                      <div style={{marginTop:8,background:T.surface2,borderRadius:8,padding:'8px 10px'}}>
+                        {n.body.split(' | ').map((line:string,i:number)=>(
+                          <div key={i} style={{fontSize:10,color:line.startsWith('✗')?T.red:T.textSec,marginBottom:2,wordBreak:'break-word'}}>{line}</div>
+                        ))}
                       </div>
                     )}
                     {meta.duration_sec&&<div style={{fontSize:10,color:T.textTer,marginTop:6}}>⏱ {meta.duration_sec}s</div>}

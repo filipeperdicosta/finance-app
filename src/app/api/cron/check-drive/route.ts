@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getValidAccessToken, getSupabaseAdmin, createNotification } from '@/lib/googleDrive'
 import { parseStatementWithGemini, detectMimeType, categorizeSingleTransaction } from '@/lib/geminiParse'
 import { getT212Configs, getT212Portfolio } from '@/lib/t212'
-import { getEnableBankingBalance, getEnableBankingTransactions } from '@/lib/enableBanking'
+import { getEnableBankingBalance, getEnableBankingTransactions, getMccCategory } from '@/lib/enableBanking'
 
 // Verificação automática diária: para CADA utilizador com Drive ligada,
 // percorre as suas contas com pasta associada, identifica ficheiros novos
@@ -271,20 +271,19 @@ export async function GET(req: NextRequest) {
             await supabaseEB.from('accounts').update({ saldo_atual: balance, saldo_data: today }).eq('id', ebAcc.account_id)
           }
 
-          // 2) Transacções novas com categorização inteligente
-          const dateFrom = new Date(Date.now() - 90*24*60*60*1000).toISOString().split('T')[0]
+          // 90 dias se conta vazia, 14 dias se já tem dados
+          const { count: ebCount } = await supabaseEB.from('transactions').select('*', { count: 'exact', head: true }).eq('account_id', ebAcc.account_id)
+          const ebDays = (ebCount ?? 0) > 0 ? 14 : 90
+          const dateFrom = new Date(Date.now() - ebDays*24*60*60*1000).toISOString().split('T')[0]
+
           let newTxns = 0
           try {
             const txns = await getEnableBankingTransactions(ebAcc.account_uid, dateFrom)
             const { data: existing } = await supabaseEB.from('transactions').select('hash').eq('account_id', ebAcc.account_id)
             const existingHashes = new Set((existing ?? []).map((t: any) => t.hash))
-            const newTxnsList = txns.filter((t: any) => {
-              const hash = `eb-${ebAcc.account_uid}-${t.entry_reference ?? t.transaction_id ?? ''}`
-              return !existingHashes.has(hash)
-            })
+            const newTxnsList = txns.filter((t: any) => !existingHashes.has(`eb-${ebAcc.account_uid}-${t.entry_reference ?? t.transaction_id ?? ''}`))
 
             if (newTxnsList.length > 0) {
-              // Categoriza cada transacção nova (regras → Gemini fallback)
               const toInsert = await Promise.all(newTxnsList.map(async (t: any, i: number) => {
                 const amount = Number(t.transaction_amount?.amount) || 0
                 const valor = t.credit_debit_indicator === 'DBIT' ? -Math.abs(amount) : Math.abs(amount)
@@ -294,7 +293,12 @@ export async function GET(req: NextRequest) {
                   ?? t.additional_information
                   ?? t.creditor_account?.iban ?? t.debtor_account?.iban
                   ?? 'Transação'
-                const categoria = await categorizeSingleTransaction(descritivo, valor, rules)
+                let categoria: string
+                if (valor >= 0) { categoria = 'Receita' }
+                else {
+                  const mccCat = getMccCategory(t.merchant_category_code)
+                  categoria = mccCat ?? await categorizeSingleTransaction(descritivo, valor, rules)
+                }
                 return {
                   account_id: ebAcc.account_id,
                   data: t.booking_date ?? t.value_date ?? today,

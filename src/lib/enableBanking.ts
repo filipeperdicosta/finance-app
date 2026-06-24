@@ -129,8 +129,49 @@ export async function getEnableBankingBalance(accountUid: string) {
 }
 
 // Busca transacções de uma conta
-export async function getEnableBankingTransactions(accountUid: string, dateFrom?: string) {
-  const params = dateFrom ? `?date_from=${dateFrom}` : ''
-  const data = await ebFetch(`/accounts/${accountUid}/transactions${params}`)
-  return (data.transactions ?? []) as any[]
+// MCC (Merchant Category Code) → categoria da app
+const MCC_MAP: Record<string, string> = {
+  '5411': 'Compras', '5412': 'Compras', '5441': 'Compras', '5451': 'Compras',
+  '5462': 'Compras', '5499': 'Compras', '5311': 'Compras', '5331': 'Compras',
+  '5912': 'Saúde', '8011': 'Saúde', '8021': 'Saúde', '8049': 'Saúde', '8099': 'Saúde',
+  '5812': 'Restauração', '5813': 'Restauração', '5814': 'Restauração',
+  '5541': 'Transportes', '5542': 'Transportes', '4111': 'Transportes',
+  '4121': 'Transportes', '4131': 'Transportes', '7011': 'Viagens',
+  '4411': 'Viagens', '4511': 'Viagens', '7512': 'Viagens',
+  '7922': 'Lazer', '7832': 'Lazer', '7993': 'Lazer', '7999': 'Lazer',
+  '5945': 'Lazer', '5947': 'Lazer',
+  '4814': 'Utilities', '4899': 'Utilities', '4911': 'Utilities', '4941': 'Utilities',
+  '6011': 'Transferências', '6012': 'Transferências',
+}
+
+export function getMccCategory(mcc?: string): string | null {
+  if (!mcc) return null
+  return MCC_MAP[mcc] ?? null
+}
+
+// Busca transacções com paginação automática via continuation_key
+// dateFrom: data de início no formato YYYY-MM-DD
+export async function getEnableBankingTransactions(accountUid: string, dateFrom?: string): Promise<any[]> {
+  const all: any[] = []
+  const baseParams = dateFrom ? `?date_from=${dateFrom}` : ''
+  let url = `/accounts/${accountUid}/transactions${baseParams}`
+
+  // Segurança: máximo de 10 páginas (500 transacções) por sync
+  let pages = 0
+  while (url && pages < 10) {
+    const data = await ebFetch(url)
+    const txns = data.transactions ?? []
+    all.push(...txns)
+    pages++
+
+    // Enable Banking usa continuation_key para paginação
+    const key = data.continuation_key
+    if (key && txns.length > 0) {
+      const sep = url.includes('?') ? '&' : '?'
+      url = `/accounts/${accountUid}/transactions${baseParams}${sep}continuation_key=${encodeURIComponent(key)}`
+    } else {
+      break
+    }
+  }
+  return all
 }
