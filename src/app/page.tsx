@@ -416,7 +416,7 @@ const TrendTile = ({data,accent,catFilter}:{data:{m:string,rec:number,desp:numbe
 // ─────────────────────────────────────────────────────────────────
 // HERO
 // ─────────────────────────────────────────────────────────────────
-const Hero = ({pal,title,mainValue,mainColor,kpis,trend,period,mainSuffix,sparkMode}:{pal:{grad:string,accent:string,soft:string},title:string,mainValue:string,mainColor?:string,kpis:{l:string,v:string,c:string}[],trend:{m:string,rec:number,desp:number,net:number}[],period:string,mainSuffix?:string,sparkMode?:'budget'|'patrimonio'}) => (
+const Hero = ({pal,title,mainValue,mainColor,kpis,trend,period,mainSuffix,sparkMode,onPrev,onNext,canNext}:{pal:{grad:string,accent:string,soft:string},title:string,mainValue:string,mainColor?:string,kpis:{l:string,v:string,c:string}[],trend:{m:string,rec:number,desp:number,net:number}[],period:string,mainSuffix?:string,sparkMode?:'budget'|'patrimonio',onPrev?:()=>void,onNext?:()=>void,canNext?:boolean}) => (
   <div style={{background:pal.grad,borderRadius:18,padding:'20px 18px 16px',marginBottom:16,border:'1px solid rgba(255,255,255,0.05)'}}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14}}>
       <div>
@@ -426,7 +426,15 @@ const Hero = ({pal,title,mainValue,mainColor,kpis,trend,period,mainSuffix,sparkM
           {mainSuffix&&<span style={{fontSize:12,color:'rgba(255,255,255,0.3)'}}>{mainSuffix}</span>}
         </div>
       </div>
-      <div style={{fontSize:11,color:'rgba(255,255,255,0.45)',fontWeight:500,marginTop:4}}>{period}</div>
+      {onPrev ? (
+        <div style={{display:'flex',alignItems:'center',gap:4,marginTop:2}}>
+          <button onClick={onPrev} style={{background:'none',border:'none',cursor:'pointer',color:'rgba(255,255,255,0.5)',fontSize:18,lineHeight:1,padding:'0 2px'}}>‹</button>
+          <span style={{fontSize:11,color:'rgba(255,255,255,0.45)',fontWeight:600,minWidth:52,textAlign:'center'}}>{period}</span>
+          <button onClick={onNext} disabled={!canNext} style={{background:'none',border:'none',cursor:canNext?'pointer':'default',color:canNext?'rgba(255,255,255,0.5)':'rgba(255,255,255,0.15)',fontSize:18,lineHeight:1,padding:'0 2px'}}>›</button>
+        </div>
+      ) : (
+        <div style={{fontSize:11,color:'rgba(255,255,255,0.45)',fontWeight:500,marginTop:4}}>{period}</div>
+      )}
     </div>
     <div style={{display:'grid',gridTemplateColumns:`repeat(${kpis.length},1fr)`,gap:6,marginBottom:14}}>
       {kpis.map((k,i)=>(<div key={i} style={{background:'rgba(255,255,255,0.08)',borderRadius:10,padding:'9px 10px'}}><div style={{fontSize:9,color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:600,marginBottom:3}}>{k.l}</div><div style={{fontSize:kpis.length===4?11:12,fontWeight:700,color:k.c,fontFamily:T.mono}}>{k.v}</div></div>))}
@@ -2524,20 +2532,11 @@ const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAllTxns,onRefre
 
   return (
     <div>
-      <Hero pal={pal} title={title} period={period} mainValue={big(view.saldo)} mainColor={view.saldo<0?'#FCA5A5':'#FFF'} trend={view.trend} kpis={[{l:'Receitas',v:dec(view.rec),c:'#4ADE80'},{l:'Despesas',v:dec(view.desp),c:'#F87171'},{l:'Saldo mês',v:sgn(view.net),c:view.net>=0?'#4ADE80':'#F87171'}]}/>
+      <Hero pal={pal} title={title} period={period} mainValue={big(view.saldo)} mainColor={view.saldo<0?'#FCA5A5':'#FFF'} trend={view.trend} kpis={[{l:'Receitas',v:dec(view.rec),c:'#4ADE80'},{l:'Despesas',v:dec(view.desp),c:'#F87171'},{l:'Saldo mês',v:sgn(view.net),c:view.net>=0?'#4ADE80':'#F87171'}]} onPrev={()=>{setMonthOffset(o=>o-1);setCatSel(null)}} onNext={()=>{if(canGoForward){setMonthOffset(o=>o+1);setCatSel(null)}}} canNext={canGoForward}/>
       <AccountList accounts={tagAccs} sel={sel} onSel={setSel} pal={pal}/>
       <div style={{marginBottom:20}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'0 2px'}}>
-          <div style={{display:'flex',alignItems:'center',gap:6}}>
-            <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase'}}>{sel?`Despesas — ${selName}`:'Despesas'}</span>
-          </div>
-          <div style={{display:'flex',alignItems:'center',gap:8}}>
-            <button onClick={()=>{setMonthOffset(o=>o-1);setCatSel(null)}} style={{background:'none',border:'none',cursor:'pointer',padding:'2px 6px',color:T.textSec,fontSize:16,lineHeight:1}}>‹</button>
-            <span style={{fontSize:11,color:T.textSec,fontWeight:600,minWidth:52,textAlign:'center'}}>{period}</span>
-            <button onClick={()=>{if(canGoForward){setMonthOffset(o=>o+1);setCatSel(null)}}} style={{background:'none',border:'none',cursor:canGoForward?'pointer':'default',padding:'2px 6px',color:canGoForward?T.textSec:T.border,fontSize:16,lineHeight:1}}>›</button>
-          </div>
-        </div>
-        <div style={{display:'flex',justifyContent:'flex-end',marginBottom:6,padding:'0 2px'}}>
+          <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase'}}>{sel?`Despesas — ${selName}`:'Despesas'}</span>
           <div style={{display:'flex',gap:10}}>
             {catSel&&<span onClick={()=>setCatSel(null)} style={{fontSize:12,color:pal.accent,fontWeight:600,cursor:'pointer'}}>✕ Ver tudo</span>}
             {!catSel&&<span onClick={()=>setShowAllCats(true)} style={{fontSize:12,color:pal.accent,fontWeight:600,cursor:'pointer'}}>Ver todas →</span>}
