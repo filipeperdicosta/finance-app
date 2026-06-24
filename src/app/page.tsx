@@ -1348,6 +1348,14 @@ const NotificationsScreen = ({onClose,pal}:{onClose:()=>void,pal:{accent:string,
           <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ArrowLeft size={18} color={T.textSec}/></button>
           <div style={{fontSize:16,fontWeight:700,color:T.text,flex:1}}>Notificações</div>
           {notifs.length>0&&<button onClick={async()=>{await Promise.all(notifs.map(n=>deleteNotification(n.id)));setNotifs([])}} style={{background:'none',border:'none',cursor:'pointer',fontSize:11,color:T.textTer}}>Limpar tudo</button>}
+          <button onClick={async()=>{
+            const secret = prompt('CRON_SECRET:')
+            if(!secret) return
+            const res = await fetch('/api/cron/trigger',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({secret})})
+            const data = await res.json()
+            if(data.ok) { alert('Cron executado! Verifica as notificações.'); await load() }
+            else alert('Erro: ' + (data.error ?? JSON.stringify(data)))
+          }} style={{background:'none',border:'none',cursor:'pointer',fontSize:10,color:T.textTer}}>▶ cron</button>
         </div>
         <div style={{padding:'12px 14px'}}>
           {loading&&<div style={{padding:32,textAlign:'center',color:T.textSec,fontSize:13}}>A carregar…</div>}

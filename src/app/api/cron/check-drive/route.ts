@@ -205,26 +205,100 @@ export async function GET(req: NextRequest) {
       })
     }
 
-    // ── T212: actualiza saldo do portfolio (não requer permissão History) ──
+    // ── T212: actualiza saldo do portfolio ──
     const t212Configs = getT212Configs()
     if (t212Configs.length > 0) {
-      const supabase = getSupabaseAdmin()
-      const { data: savedConfigs } = await supabase.from('t212_config').select('*')
-      for (const saved of savedConfigs ?? []) {
+      const supabaseT212 = getSupabaseAdmin()
+      const { data: t212SavedConfigs } = await supabaseT212.from('t212_config').select('*')
+      for (const saved of t212SavedConfigs ?? []) {
         const apiConfig = t212Configs.find((c: any) => c.label === saved.label)
         if (!apiConfig) continue
         try {
           const portfolio = await getT212Portfolio(apiConfig)
           const today = new Date().toISOString().split('T')[0]
-          await supabase.from('accounts').update({ saldo_atual: portfolio.total, saldo_data: today }).eq('id', saved.account_id)
-          console.log(`T212 cron: ${saved.label} → €${portfolio.total.toFixed(2)} (cash: €${portfolio.cash.toFixed(2)}, posições: €${portfolio.marketValue.toFixed(2)})`)
+          await supabaseT212.from('accounts').update({ saldo_atual: portfolio.total, saldo_data: today }).eq('id', saved.account_id)
+          await createNotification({
+            userId: saved.user_id,
+            type: 'cron_summary',
+            title: `T212 ${saved.label} actualizado`,
+            body: `Total: €${portfolio.total.toFixed(2)} · Cash: €${portfolio.cash.toFixed(2)} · Posições: €${portfolio.marketValue.toFixed(2)} · P&L: ${portfolio.ppl >= 0 ? '+' : ''}€${portfolio.ppl.toFixed(2)}`,
+            meta: { ...portfolio, account_id: saved.account_id },
+          })
+          console.log(`T212 cron: ${saved.label} → €${portfolio.total.toFixed(2)}`)
         } catch (err: any) {
           console.error(`T212 cron error (${saved.label}):`, err.message)
+          await createNotification({
+            userId: saved.user_id,
+            type: 'import_error',
+            title: `Erro T212 ${saved.label}`,
+            body: err.message,
+            meta: { account_id: saved.account_id },
+          }).catch(() => {})
         }
       }
     }
 
-        return NextResponse.json({ ok: true, ...summary, duration_sec: durationSec })
+    // ── Enable Banking: actualiza saldos e importa transacções ──
+    const supabaseEB = getSupabaseAdmin()
+    const { data: ebAccounts } = await supabaseEB
+      .from('enablebanking_accounts')
+      .select('*, enablebanking_sessions(bank_name, valid_until, user_id)')
+      .not('account_id', 'is', null)
+    if ((ebAccounts ?? []).length > 0) {
+      const { getEnableBankingBalance, getEnableBankingTransactions } = await import('@/lib/enableBanking')
+      const today = new Date().toISOString().split('T')[0]
+      for (const ebAcc of ebAccounts ?? []) {
+        const session = ebAcc.enablebanking_sessions as any
+        if (!session || new Date(session.valid_until) < new Date()) continue
+        const userId = session.user_id
+        try {
+          const balance = await getEnableBankingBalance(ebAcc.account_uid)
+          if (balance !== null) {
+            await supabaseEB.from('accounts').update({ saldo_atual: balance, saldo_data: today }).eq('id', ebAcc.account_id)
+          }
+          // Transacções dos últimos 90 dias
+          const dateFrom = new Date(Date.now() - 90*24*60*60*1000).toISOString().split('T')[0]
+          let newTxns = 0
+          try {
+            const txns = await getEnableBankingTransactions(ebAcc.account_uid, dateFrom)
+            const { data: existing } = await supabaseEB.from('transactions').select('hash').eq('account_id', ebAcc.account_id)
+            const existingHashes = new Set((existing ?? []).map((t: any) => t.hash))
+            const toInsert = txns.filter((t: any) => !existingHashes.has(`eb-${ebAcc.account_uid}-${t.entry_reference ?? t.transaction_id ?? ''}`))
+              .map((t: any, i: number) => {
+                const amount = Number(t.transaction_amount?.amount) || 0
+                const valor = t.credit_debit_indicator === 'DBIT' ? -Math.abs(amount) : Math.abs(amount)
+                return {
+                  account_id: ebAcc.account_id,
+                  data: t.booking_date ?? t.value_date ?? today,
+                  descritivo: t.remittance_information?.unstructured?.[0] ?? t.creditor?.name ?? t.debtor?.name ?? 'Transação',
+                  valor, categoria: valor >= 0 ? 'Receita' : 'Transferências',
+                  categoria_confirmada: false, ai_confianca: null, excluir_analise: false,
+                  imovel_classificado: false, ordem_extrato: i,
+                  hash: `eb-${ebAcc.account_uid}-${t.entry_reference ?? t.transaction_id ?? i}`,
+                  import_batch_id: null, imovel_id: null, notas: null, subcategoria: null, descritivo_norm: null,
+                }
+              })
+            if (toInsert.length) await supabaseEB.from('transactions').upsert(toInsert, { onConflict: 'hash', ignoreDuplicates: true })
+            newTxns = toInsert.length
+          } catch (txnErr: any) {
+            console.warn(`EB cron transactions (${session.bank_name}):`, txnErr.message)
+          }
+          await createNotification({
+            userId,
+            type: 'cron_summary',
+            title: `${session.bank_name} actualizado`,
+            body: `Saldo: €${balance?.toFixed(2) ?? 'N/A'} · ${newTxns} transacções novas`,
+            meta: { account_id: ebAcc.account_id, balance, new_transactions: newTxns },
+          })
+          console.log(`EB cron: ${session.bank_name} → €${balance?.toFixed(2)}, ${newTxns} txns novas`)
+        } catch (err: any) {
+          console.error(`EB cron error (${session.bank_name}):`, err.message)
+          await createNotification({ userId, type: 'import_error', title: `Erro ${session.bank_name}`, body: err.message, meta: {} }).catch(() => {})
+        }
+      }
+    }
+
+    return NextResponse.json({ ok: true, ...summary, duration_sec: durationSec })
 
   } catch (err: any) {
     console.error('Cron check-drive exception:', err)
