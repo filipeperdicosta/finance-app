@@ -128,15 +128,21 @@ function monthYearLabel(ym:string|null):string {
   return `${MONTHS_FULL[m-1]} ${y}`
 }
 
-function computeView(accounts:Account[], transactions:Transaction[], tag:string, selId:string|null) {
+function computeView(accounts:Account[], transactions:Transaction[], tag:string, selId:string|null, monthOffset=0) {
   const accs = accounts.filter(a=>a.budget_tag===tag && (selId?a.id===selId:true))
   if (!accs.length) return {saldo:0,rec:0,desp:0,net:0,cats:[],trend:[],txns:[],refMonth:null as string|null}
   const ids = new Set(accs.map(a=>a.id))
   const txns = transactions.filter(t=>ids.has(t.account_id))
   const saldo = accs.reduce((s,a)=>s+accountSaldo(a),0)
 
-  // Mês de referência = mês mais recente com transações (não o mês civil actual)
-  const refMonth = latestMonthWithData(txns)
+  // Mês de referência = mês mais recente com transações, ajustado pelo offset de navegação
+  const latestMonth = latestMonthWithData(txns)
+  let refMonth: string|null = latestMonth
+  if (latestMonth && monthOffset !== 0) {
+    const [ry,rm] = latestMonth.split('-').map(Number)
+    const d = new Date(ry,rm-1,1); d.setMonth(d.getMonth()+monthOffset)
+    refMonth = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
+  }
   const monthTxns = refMonth ? txns.filter(t=>t.data.startsWith(refMonth)) : []
 
   const rec = monthTxns.filter(t=>t.valor>0).reduce((s,t)=>s+t.valor,0)
@@ -146,23 +152,22 @@ function computeView(accounts:Account[], transactions:Transaction[], tag:string,
   const totalDesp = Object.values(catMap).reduce((s,v)=>s+v,0)||1
   const cats = Object.entries(catMap).map(([nome,v])=>({nome,v,pct:Math.round(v/totalDesp*100),...getCatStyle(nome)})).sort((a,b)=>b.v-a.v)
 
-  // Sparkline: 5 meses terminando no mês de referência (ou vazio se não há dados)
+  // Sparkline: 5 meses terminando no mês de referência
   const trend = refMonth ? Array.from({length:5},(_,i)=>{
     const offset=i-4
-    const [ry,rm] = refMonth.split('-').map(Number)
+    const [ry,rm] = refMonth!.split('-').map(Number)
     const d = new Date(ry,rm-1,1); d.setMonth(d.getMonth()+offset)
     const ym=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
     const mt=txns.filter(t=>t.data.startsWith(ym))
     const mRec=mt.filter(t=>t.valor>0).reduce((s,t)=>s+t.valor,0)
     const mDesp=mt.filter(t=>t.valor<0).reduce((s,t)=>s+Math.abs(t.valor),0)
-    return {m:getMonthLabel(offset,refMonth),rec:mRec,desp:mDesp,net:+(mRec-mDesp).toFixed(2)}
+    return {m:getMonthLabel(offset,refMonth!),rec:mRec,desp:mDesp,net:+(mRec-mDesp).toFixed(2)}
   }) : []
 
-  // Últimas transações: as 8 mais recentes no geral, independente do mês de referência.
-  // 'txns' já vem ordenado de forma estável pela query (data desc, created_at asc) — não reordenar aqui.
-  const recentTxns = txns.slice(0,8)
+  // Últimas transações do mês seleccionado (8 mais recentes)
+  const recentTxns = monthTxns.slice(0,8)
 
-  return {saldo,rec,desp,net:+(rec-desp).toFixed(2),cats,trend,txns:recentTxns,refMonth}
+  return {saldo,rec,desp,net:+(rec-desp).toFixed(2),cats,trend,txns:recentTxns,refMonth,latestMonth}
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -892,37 +897,76 @@ const AccountForm = ({initial,onClose,onSaved,pal,accountsLen}:{initial:Account|
 // ─────────────────────────────────────────────────────────────────
 // ALL CATEGORIES SCREEN — grid 2 colunas, toque vai a transações filtradas
 // ─────────────────────────────────────────────────────────────────
-const AllCategoriesScreen = ({cats,period,subtitle,onClose,onSelectCategoria,pal}:{cats:{nome:string,v:number,pct:number,cor:string,icon:string}[],period:string,subtitle:string,onClose:()=>void,onSelectCategoria:(categoria:string)=>void,pal:{accent:string,soft:string}}) => (
-  <div style={{position:'fixed',inset:0,background:T.bg,zIndex:85,overflowY:'auto',fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
-    <div style={{maxWidth:440,margin:'0 auto'}}>
-      <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',background:T.surface,borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,zIndex:10}}>
-        <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ArrowLeft size={18} color={T.textSec}/></button>
-        <div style={{flex:1}}>
-          <div style={{fontSize:16,fontWeight:700,color:T.text}}>Todas as categorias</div>
-          <div style={{fontSize:11,color:T.textSec}}>{period} · {subtitle}</div>
+const AllCategoriesScreen = ({transactions,accounts,tag,sel,initialMonth,subtitle,onClose,onSelectCategoria,pal}:{transactions:Transaction[],accounts:Account[],tag:string,sel:string|null,initialMonth:string|null,subtitle:string,onClose:()=>void,onSelectCategoria:(categoria:string,month:string)=>void,pal:{accent:string,soft:string}}) => {
+  // Usa o mesmo mês que o BudgetScreen tinha quando foi aberto, mas permite navegar independentemente
+  const allTagAccs = accounts.filter(a=>a.budget_tag===tag)
+  const allTxns = transactions.filter(t=>(sel?t.account_id===sel:allTagAccs.some(a=>a.id===t.account_id)))
+  const latestMonth = latestMonthWithData(allTxns)
+
+  const [monthOffset,setMonthOffset] = useState(()=>{
+    // calcula offset inicial baseado no mês que estava aberto no BudgetScreen
+    if(!initialMonth||!latestMonth) return 0
+    const [ly,lm]=latestMonth.split('-').map(Number)
+    const [iy,im]=initialMonth.split('-').map(Number)
+    return (iy-ly)*12+(im-lm)
+  })
+
+  const currentMonth = useMemo(()=>{
+    if(!latestMonth) return null
+    const [ly,lm]=latestMonth.split('-').map(Number)
+    const d=new Date(ly,lm-1,1); d.setMonth(d.getMonth()+monthOffset)
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
+  },[latestMonth,monthOffset])
+
+  const cats = useMemo(()=>{
+    if(!currentMonth) return []
+    const monthTxns = allTxns.filter(t=>t.data.startsWith(currentMonth)&&t.valor<0&&t.categoria)
+    const catMap:Record<string,number>={}
+    monthTxns.forEach(t=>{catMap[t.categoria!]=(catMap[t.categoria!]||0)+Math.abs(t.valor)})
+    const total=Object.values(catMap).reduce((s,v)=>s+v,0)||1
+    return Object.entries(catMap).map(([nome,v])=>({nome,v,pct:Math.round(v/total*100),...getCatStyle(nome)})).sort((a,b)=>b.v-a.v)
+  },[allTxns,currentMonth])
+
+  const canGoForward = monthOffset < 0
+  const period = monthYearLabel(currentMonth)
+
+  return (
+    <div style={{position:'fixed',inset:0,background:T.bg,zIndex:85,overflowY:'auto',fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
+      <div style={{maxWidth:440,margin:'0 auto'}}>
+        <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',background:T.surface,borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,zIndex:10}}>
+          <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ArrowLeft size={18} color={T.textSec}/></button>
+          <div style={{flex:1}}>
+            <div style={{fontSize:16,fontWeight:700,color:T.text}}>Todas as categorias</div>
+            <div style={{fontSize:11,color:T.textSec}}>{subtitle}</div>
+          </div>
+          <div style={{display:'flex',alignItems:'center',gap:4}}>
+            <button onClick={()=>setMonthOffset(o=>o-1)} style={{background:'none',border:'none',cursor:'pointer',padding:'4px 8px',color:T.textSec,fontSize:18,lineHeight:1}}>‹</button>
+            <span style={{fontSize:12,color:T.text,fontWeight:600,minWidth:60,textAlign:'center'}}>{period}</span>
+            <button onClick={()=>{if(canGoForward)setMonthOffset(o=>o+1)}} style={{background:'none',border:'none',cursor:canGoForward?'pointer':'default',padding:'4px 8px',color:canGoForward?T.textSec:T.border,fontSize:18,lineHeight:1}}>›</button>
+          </div>
         </div>
-      </div>
-      <div style={{padding:14}}>
-        {cats.length===0&&<Card><div style={{padding:32,textAlign:'center',color:T.textSec,fontSize:13}}>Sem despesas categorizadas este mês.</div></Card>}
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
-          {cats.map((c,i)=>(
-            <div key={i} onClick={()=>onSelectCategoria(c.nome)} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:12,padding:12,cursor:'pointer'}}>
-              <div style={{display:'flex',alignItems:'center',gap:7,marginBottom:6}}>
-                <span style={{fontSize:16}}>{c.icon}</span>
-                <span style={{fontSize:11,color:T.text,fontWeight:600,flex:1,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{c.nome}</span>
+        <div style={{padding:14}}>
+          {cats.length===0&&<Card><div style={{padding:32,textAlign:'center',color:T.textSec,fontSize:13}}>Sem despesas em {period}.</div></Card>}
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+            {cats.map((c,i)=>(
+              <div key={i} onClick={()=>currentMonth&&onSelectCategoria(c.nome,currentMonth)} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:12,padding:12,cursor:'pointer'}}>
+                <div style={{display:'flex',alignItems:'center',gap:7,marginBottom:6}}>
+                  <span style={{fontSize:16}}>{c.icon}</span>
+                  <span style={{fontSize:11,color:T.text,fontWeight:600,flex:1,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{c.nome}</span>
+                </div>
+                <div style={{display:'flex',alignItems:'baseline',justifyContent:'space-between',marginBottom:4}}>
+                  <span style={{fontSize:13,color:T.text,fontWeight:700,fontFamily:T.mono}}>{dec(c.v)}</span>
+                  <span style={{fontSize:9,color:T.textTer,fontWeight:600}}>{c.pct}%</span>
+                </div>
+                <div style={{height:3,borderRadius:2,background:T.border}}><div style={{width:`${c.pct}%`,height:'100%',borderRadius:2,background:c.cor}}/></div>
               </div>
-              <div style={{display:'flex',alignItems:'baseline',justifyContent:'space-between',marginBottom:4}}>
-                <span style={{fontSize:13,color:T.text,fontWeight:700,fontFamily:T.mono}}>{dec(c.v)}</span>
-                <span style={{fontSize:9,color:T.textTer,fontWeight:600}}>{c.pct}%</span>
-              </div>
-              <div style={{height:3,borderRadius:2,background:T.border}}><div style={{width:`${c.pct}%`,height:'100%',borderRadius:2,background:c.cor}}/></div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
     </div>
-  </div>
-)
+  )
+}
 
 // ─────────────────────────────────────────────────────────────────
 // RULES SCREEN — gestão de regras de categorização aprendidas (com bulk)
@@ -2445,12 +2489,14 @@ const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAllTxns,onRefre
   const [catSel,setCatSel] = useState<string|null>(null)
   const [editTxn,setEditTxn] = useState<Transaction|null>(null)
   const [showAllCats,setShowAllCats] = useState(false)
+  const [monthOffset,setMonthOffset] = useState(0)
   const tagAccs = accounts.filter(a=>a.budget_tag===tag)
-  const view = computeView(accounts,transactions,tag,sel)
+  const view = computeView(accounts,transactions,tag,sel,monthOffset)
   const period = monthYearLabel(view.refMonth)
   const selName = tagAccs.find(a=>a.id===sel)?.nome.split(' ').slice(-1)[0]
   const topCats = view.cats.slice(0,9)
-  const hasMore = view.cats.length>9
+  // Can't go forward past the latest month with data
+  const canGoForward = monthOffset < 0
 
   // Quando uma categoria está seleccionada, filtra gráfico + lista de transações abaixo
   const catTrend = useMemo(()=>{
@@ -2482,7 +2528,16 @@ const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAllTxns,onRefre
       <AccountList accounts={tagAccs} sel={sel} onSel={setSel} pal={pal}/>
       <div style={{marginBottom:20}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'0 2px'}}>
-          <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase'}}>{sel?`Despesas — ${selName}`:'Despesas'}</span>
+          <div style={{display:'flex',alignItems:'center',gap:6}}>
+            <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase'}}>{sel?`Despesas — ${selName}`:'Despesas'}</span>
+          </div>
+          <div style={{display:'flex',alignItems:'center',gap:8}}>
+            <button onClick={()=>{setMonthOffset(o=>o-1);setCatSel(null)}} style={{background:'none',border:'none',cursor:'pointer',padding:'2px 6px',color:T.textSec,fontSize:16,lineHeight:1}}>‹</button>
+            <span style={{fontSize:11,color:T.textSec,fontWeight:600,minWidth:52,textAlign:'center'}}>{period}</span>
+            <button onClick={()=>{if(canGoForward){setMonthOffset(o=>o+1);setCatSel(null)}}} style={{background:'none',border:'none',cursor:canGoForward?'pointer':'default',padding:'2px 6px',color:canGoForward?T.textSec:T.border,fontSize:16,lineHeight:1}}>›</button>
+          </div>
+        </div>
+        <div style={{display:'flex',justifyContent:'flex-end',marginBottom:6,padding:'0 2px'}}>
           <div style={{display:'flex',gap:10}}>
             {catSel&&<span onClick={()=>setCatSel(null)} style={{fontSize:12,color:pal.accent,fontWeight:600,cursor:'pointer'}}>✕ Ver tudo</span>}
             {!catSel&&<span onClick={()=>setShowAllCats(true)} style={{fontSize:12,color:pal.accent,fontWeight:600,cursor:'pointer'}}>Ver todas →</span>}
@@ -2503,7 +2558,7 @@ const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAllTxns,onRefre
         <Card>{catTxns.length?catTxns.map((t,i)=><TxnRow key={t.id} t={t} last={i===catTxns.length-1} onClick={()=>setEditTxn(t)} accounts={tagAccs}/>):<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem transações. Importa o teu primeiro extracto.</div>}</Card>
       </div>
       {editTxn&&<TxnEditForm txn={editTxn} onClose={()=>setEditTxn(null)} onSaved={onRefresh} pal={pal} accounts={accounts}/>}
-      {showAllCats&&<AllCategoriesScreen cats={view.cats} period={period} subtitle={title.replace('Conta Corrente ','')} onClose={()=>setShowAllCats(false)} onSelectCategoria={(cat)=>{setShowAllCats(false);onViewAllTxns(cat, sel??undefined)}} pal={pal}/>}
+      {showAllCats&&<AllCategoriesScreen transactions={transactions} accounts={accounts} tag={tag} sel={sel} initialMonth={view.refMonth} subtitle={title.replace('Conta Corrente ','')} onClose={()=>setShowAllCats(false)} onSelectCategoria={(cat,month)=>{setShowAllCats(false);onViewAllTxns(cat, sel??undefined)}} pal={pal}/>}
     </div>
   )
 }
