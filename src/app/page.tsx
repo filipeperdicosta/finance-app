@@ -471,22 +471,27 @@ const CatRow = ({nome,v,pct,cor,icon,last,onClick}:{nome:string,v:number,pct:num
     <div style={{height:3,borderRadius:2,background:T.border}}><div style={{width:`${pct}%`,height:'100%',borderRadius:2,background:cor}}/></div>
   </div>
 )
-const TxnRow = ({t,last,onClick}:{t:Transaction,last:boolean,onClick?:()=>void}) => (
+const TxnRow = ({t,last,onClick,accounts}:{t:Transaction,last:boolean,onClick?:()=>void,accounts?:Account[]}) => {
+  const accountName = accounts?.find(a=>a.id===t.account_id)?.nome
+  return (
   <div onClick={onClick} style={{display:'flex',alignItems:'center',gap:12,padding:'11px 16px',borderBottom:last?'none':`1px solid ${T.border}`,cursor:onClick?'pointer':'default'}}>
     <div style={{width:38,height:38,borderRadius:12,background:T.surface2,display:'flex',alignItems:'center',justifyContent:'center',fontSize:17,flexShrink:0}}>{getCatStyle(t.categoria??'Despesas Gerais').icon}</div>
     <div style={{flex:1,minWidth:0}}>
       <div style={{fontSize:13,fontWeight:500,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div>
-      <div style={{fontSize:11,color:T.textSec,marginTop:2}}>{t.categoria??'Sem categoria'} · {t.data}</div>
+      <div style={{fontSize:11,color:T.textSec,marginTop:2}}>
+        {accountName&&<span style={{color:T.textTer}}>{accountName} · </span>}{t.categoria??'Sem categoria'} · {t.data}
+      </div>
     </div>
     {onClick&&<Edit2 size={13} color={T.textTer} style={{flexShrink:0}}/>}
-    <div style={{fontSize:13,fontWeight:700,color:t.valor>=0?T.green:T.red,fontFamily:T.mono,whiteSpace:'nowrap'}}>{t.valor>=0?'+ ':'− '}{dec(t.valor)}</div>
+    <div style={{fontSize:13,fontWeight:700,color:t.valor>=0?T.green:T.red,fontFamily:T.mono,whiteSpace:'nowrap'}}>{t.valor>=0?'+ ':'− '}{dec(Math.abs(t.valor))}</div>
   </div>
-)
+  )
+}
 
 // ─────────────────────────────────────────────────────────────────
 // TRANSACTION EDIT FORM
 // ─────────────────────────────────────────────────────────────────
-const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis}:{txn:Transaction,onClose:()=>void,onSaved:()=>void,pal:{accent:string,soft:string},imoveis?:Imovel[]}) => {
+const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis,accounts}:{txn:Transaction,onClose:()=>void,onSaved:()=>void,pal:{accent:string,soft:string},imoveis?:Imovel[],accounts?:Account[]}) => {
   const [descritivo,setDescritivo] = useState(txn.descritivo)
   const [valor,setValor] = useState(String(txn.valor))
   const [categoria,setCategoria] = useState(txn.valor>=0?'Receita':(txn.categoria??'Despesas Gerais'))
@@ -528,7 +533,10 @@ const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis}:{txn:Transaction,onClose:
     <div onClick={onClose} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:120,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
       <div onClick={e=>e.stopPropagation()} style={{background:T.surface,borderRadius:'20px 20px 0 0',width:'100%',maxWidth:440,maxHeight:'88vh',overflow:'auto',padding:'0 0 24px'}}>
         <div style={{display:'flex',alignItems:'center',padding:'16px 18px',borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,background:T.surface}}>
-          <div style={{flex:1,fontSize:15,fontWeight:700,color:T.text}}>Editar Transação</div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:15,fontWeight:700,color:T.text}}>Editar Transação</div>
+            {accounts&&<div style={{fontSize:11,color:T.textTer,marginTop:2}}>{accounts.find(a=>a.id===txn.account_id)?.nome ?? ''}</div>}
+          </div>
           <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer'}}><X size={18} color={T.textSec}/></button>
         </div>
         <div style={{padding:'20px 18px'}}>
@@ -733,16 +741,19 @@ const AllTransactionsScreen = ({allTxns,accounts,tag,pal,onClose,onRefresh,imove
               <Card>
                 {txns.map((t,i)=>{
                   const isSel = selected.has(t.id)
+                  const accountName = accounts.find(a=>a.id===t.account_id)?.nome
                   return (
                     <div key={t.id} onClick={()=>selectMode?toggleSel(t.id):setEditTxn(t)} style={{display:'flex',alignItems:'center',gap:11,padding:'11px 14px',borderBottom:i<txns.length-1?`1px solid ${T.border}`:'none',cursor:'pointer',background:isSel?pal.soft:'transparent',transition:'background 0.12s'}}>
                       {selectMode&&<div style={{flexShrink:0}}>{isSel?<CheckSquare size={18} color={pal.accent}/>:<Square size={18} color={T.textTer}/>}</div>}
                       <div style={{width:36,height:36,borderRadius:11,background:T.surface2,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,flexShrink:0}}>{getCatStyle(t.categoria??'Despesas Gerais').icon}</div>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontSize:13,fontWeight:500,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div>
-                        <div style={{fontSize:11,color:T.textSec,marginTop:2}}>{t.categoria??'Sem categoria'} · {t.data}</div>
+                        <div style={{fontSize:11,color:T.textSec,marginTop:2}}>
+                          {accountName&&<span style={{color:T.textTer}}>{accountName} · </span>}{t.categoria??'Sem categoria'} · {t.data}
+                        </div>
                       </div>
                       {!selectMode&&<Edit2 size={13} color={T.textTer} style={{flexShrink:0}}/>}
-                      <div style={{fontSize:13,fontWeight:700,color:t.valor>=0?T.green:T.red,fontFamily:T.mono,whiteSpace:'nowrap'}}>{t.valor>=0?'+ ':'− '}{dec(t.valor)}</div>
+                      <div style={{fontSize:13,fontWeight:700,color:t.valor>=0?T.green:T.red,fontFamily:T.mono,whiteSpace:'nowrap'}}>{t.valor>=0?'+ ':'− '}{dec(Math.abs(t.valor))}</div>
                     </div>
                   )
                 })}
@@ -761,7 +772,7 @@ const AllTransactionsScreen = ({allTxns,accounts,tag,pal,onClose,onRefresh,imove
       </div>
 
       {showFilters&&<FilterSheet filters={filters} onApply={setFilters} onClose={()=>setShowFilters(false)} pal={pal} tagAccounts={tagAccounts}/>}
-      {editTxn&&<TxnEditForm txn={editTxn} onClose={()=>setEditTxn(null)} onSaved={onRefresh} pal={pal} imoveis={imoveis}/>}
+      {editTxn&&<TxnEditForm txn={editTxn} onClose={()=>setEditTxn(null)} onSaved={onRefresh} pal={pal} imoveis={imoveis} accounts={accounts}/>}
       {showRecat&&<RecategorizeSheet count={selected.size} onApply={doRecat} onClose={()=>setShowRecat(false)} pal={pal}/>}
     </div>
   )
@@ -1239,7 +1250,7 @@ const T212Screen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accounts:
                       <div key={i} style={{padding:'8px 10px',background:r.error?'rgba(248,113,113,0.08)':r.warning?'rgba(251,191,36,0.08)':'rgba(74,222,128,0.08)',borderRadius:8,marginBottom:6}}>
                         {r.error?<div style={{fontSize:11,color:T.red}}>✗ {r.error}</div>:(
                           <>
-                            <div style={{fontSize:11,color:T.green}}>✓ {r.account}: €{r.total?.toFixed(2)} · {r.newTransactions} transacções novas</div>
+                            <div style={{fontSize:11,color:T.green}}>✓ {r.account}: €{r.total?.toFixed(2)}{r.newTransactions!=null?` · ${r.newTransactions} transacção${r.newTransactions!==1?'s':''} nova${r.newTransactions!==1?'s':''}`:''}</div>
                             {r.warning&&<div style={{fontSize:10,color:'#FBBF24',marginTop:4}}>⚠ {r.warning}</div>}
                           </>
                         )}
@@ -1268,6 +1279,10 @@ const NotificationsScreen = ({onClose,pal}:{onClose:()=>void,pal:{accent:string,
   const [notifs,setNotifs] = useState<AppNotification[]>([])
   const [loading,setLoading] = useState(true)
   const [expanded,setExpanded] = useState<string|null>(null)
+  const [showCronModal,setShowCronModal] = useState(false)
+  const [cronSecret,setCronSecret] = useState('')
+  const [cronState,setCronState] = useState<'idle'|'running'|'done'|'error'>('idle')
+  const [cronResult,setCronResult] = useState<any>(null)
 
   const load = useCallback(async()=>{
     setLoading(true)
@@ -1315,14 +1330,7 @@ const NotificationsScreen = ({onClose,pal}:{onClose:()=>void,pal:{accent:string,
           <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ArrowLeft size={18} color={T.textSec}/></button>
           <div style={{fontSize:16,fontWeight:700,color:T.text,flex:1}}>Notificações</div>
           {notifs.length>0&&<button onClick={async()=>{await Promise.all(notifs.map(n=>deleteNotification(n.id)));setNotifs([])}} style={{background:'none',border:'none',cursor:'pointer',fontSize:11,color:T.textTer}}>Limpar tudo</button>}
-          <button onClick={async()=>{
-            const secret = prompt('CRON_SECRET:')
-            if(!secret) return
-            const res = await fetch('/api/cron/trigger',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({secret})})
-            const data = await res.json()
-            if(data.ok) { alert('Cron executado! Verifica as notificações.'); await load() }
-            else alert('Erro: ' + (data.error ?? JSON.stringify(data)))
-          }} style={{background:'none',border:'none',cursor:'pointer',fontSize:10,color:T.textTer}}>▶ cron</button>
+          <button onClick={()=>{setShowCronModal(true);setCronState('idle');setCronResult(null)}} style={{background:'none',border:'none',cursor:'pointer',fontSize:10,color:T.textTer}}>▶ cron</button>
         </div>
         <div style={{padding:'12px 14px'}}>
           {loading&&<div style={{padding:32,textAlign:'center',color:T.textSec,fontSize:13}}>A carregar…</div>}
@@ -1370,9 +1378,89 @@ const NotificationsScreen = ({onClose,pal}:{onClose:()=>void,pal:{accent:string,
           })}
         </div>
       </div>
+
+      {/* Modal cron trigger com feedback */}
+      {showCronModal&&(
+        <div onClick={()=>cronState!=='running'&&setShowCronModal(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:120,display:'flex',alignItems:'center',justifyContent:'center',padding:'0 16px'}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:T.surface,borderRadius:16,width:'100%',maxWidth:380,padding:'24px 20px'}}>
+            {cronState==='idle'&&(
+              <>
+                <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:6}}>Executar cron manualmente</div>
+                <div style={{fontSize:12,color:T.textSec,marginBottom:16,lineHeight:1.5}}>Introduz o CRON_SECRET (está nas variáveis de ambiente do Vercel).</div>
+                <input
+                  type="password"
+                  placeholder="CRON_SECRET"
+                  value={cronSecret}
+                  onChange={e=>setCronSecret(e.target.value)}
+                  onKeyDown={async e=>{
+                    if(e.key==='Enter' && cronSecret){
+                      setCronState('running')
+                      const res = await fetch('/api/cron/trigger',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({secret:cronSecret})})
+                      const data = await res.json()
+                      setCronResult(data)
+                      setCronState(data.ok?'done':'error')
+                      if(data.ok) await load()
+                    }
+                  }}
+                  style={{width:'100%',background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,padding:'10px 12px',color:T.text,fontSize:13,outline:'none',boxSizing:'border-box',marginBottom:12}}
+                  autoFocus
+                />
+                <div style={{display:'flex',gap:8}}>
+                  <button onClick={()=>setShowCronModal(false)} style={{flex:1,background:T.surface2,border:'none',borderRadius:10,padding:'10px',color:T.textSec,fontSize:13,cursor:'pointer'}}>Cancelar</button>
+                  <button onClick={async()=>{
+                    if(!cronSecret) return
+                    setCronState('running')
+                    const res = await fetch('/api/cron/trigger',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({secret:cronSecret})})
+                    const data = await res.json()
+                    setCronResult(data)
+                    setCronState(data.ok?'done':'error')
+                    if(data.ok) await load()
+                  }} style={{flex:2,background:pal.accent,border:'none',borderRadius:10,padding:'10px',color:'#0B0B12',fontSize:13,fontWeight:700,cursor:'pointer',opacity:cronSecret?1:0.4}}>Executar</button>
+                </div>
+              </>
+            )}
+            {cronState==='running'&&(
+              <div style={{textAlign:'center',padding:'8px 0'}}>
+                <RefreshCw size={28} color={pal.accent} style={{marginBottom:12,animation:'spin 1s linear infinite'}}/>
+                <div style={{fontSize:14,fontWeight:700,color:T.text,marginBottom:6}}>Cron a executar…</div>
+                <div style={{fontSize:12,color:T.textSec,lineHeight:1.5}}>A verificar Drive, T212 e Enable Banking.<br/>Pode demorar 30–60 segundos.</div>
+              </div>
+            )}
+            {(cronState==='done'||cronState==='error')&&(
+              <div>
+                <div style={{fontSize:14,fontWeight:700,color:cronState==='done'?T.green:T.red,marginBottom:10}}>
+                  {cronState==='done'?'✓ Cron executado com sucesso':'✗ Erro ao executar cron'}
+                </div>
+                {cronResult&&(
+                  <div style={{background:T.surface2,borderRadius:10,padding:'10px 12px',marginBottom:14,fontSize:11,color:T.textSec,maxHeight:200,overflowY:'auto'}}>
+                    {cronState==='done'?(
+                      <>
+                        <div style={{marginBottom:4}}>⏱ {cronResult.duration_sec}s</div>
+                        {cronResult.files_imported!=null&&<div>📂 Drive: {cronResult.files_imported} ficheiros importados</div>}
+                        {cronResult.files_failed>0&&<div style={{color:T.red}}>⚠ {cronResult.files_failed} ficheiros falhados</div>}
+                      </>
+                    ):(
+                      <div style={{color:T.red}}>{cronResult.error}</div>
+                    )}
+                  </div>
+                )}
+                <button onClick={async()=>{
+                  setShowCronModal(false)
+                  setCronSecret('')
+                  setCronState('idle')
+                  await load()
+                }} style={{width:'100%',background:pal.accent,border:'none',borderRadius:10,padding:'10px',color:'#0B0B12',fontSize:13,fontWeight:700,cursor:'pointer'}}>
+                  Fechar e actualizar notificações
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
+
 
 // ─────────────────────────────────────────────────────────────────
 // DRIVE FOLDER PICKER — navega pastas da Drive para associar a uma conta
@@ -2401,9 +2489,9 @@ const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAllTxns,onRefre
       <TrendTile data={catTrend} accent={pal.accent} catFilter={catSel}/>
       <div style={{marginBottom:20}}>
         <Lbl title={catSel?`Transações — ${catSel}`:'Últimas transações'} action="Ver todas →" accent={pal.accent} onAction={()=>onViewAllTxns(catSel??undefined, sel??undefined)}/>
-        <Card>{catTxns.length?catTxns.map((t,i)=><TxnRow key={t.id} t={t} last={i===catTxns.length-1} onClick={()=>setEditTxn(t)}/>):<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem transações. Importa o teu primeiro extracto.</div>}</Card>
+        <Card>{catTxns.length?catTxns.map((t,i)=><TxnRow key={t.id} t={t} last={i===catTxns.length-1} onClick={()=>setEditTxn(t)} accounts={tagAccs}/>):<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem transações. Importa o teu primeiro extracto.</div>}</Card>
       </div>
-      {editTxn&&<TxnEditForm txn={editTxn} onClose={()=>setEditTxn(null)} onSaved={onRefresh} pal={pal}/>}
+      {editTxn&&<TxnEditForm txn={editTxn} onClose={()=>setEditTxn(null)} onSaved={onRefresh} pal={pal} accounts={accounts}/>}
       {showAllCats&&<AllCategoriesScreen cats={view.cats} period={period} subtitle={title.replace('Conta Corrente ','')} onClose={()=>setShowAllCats(false)} onSelectCategoria={(cat)=>{setShowAllCats(false);onViewAllTxns(cat, sel??undefined)}} pal={pal}/>}
     </div>
   )
@@ -2712,7 +2800,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
 
       {formOpen&&<ImovelForm initial={editing} accounts={accounts} linkedAccountIds={editing?linkedAccounts(editing.id):new Set()} onClose={()=>setFormOpen(false)} onSaved={onRefresh} pal={pal} imoveisLen={imoveis.length}/>}
       {showQueue&&<AssignQueue txns={porAssociar} imoveis={imoveis} onClose={()=>setShowQueue(false)} onRefresh={onRefresh} pal={pal}/>}
-      {editTxn&&<TxnEditForm txn={editTxn} onClose={()=>setEditTxn(null)} onSaved={onRefresh} pal={pal} imoveis={imoveis}/>}
+      {editTxn&&<TxnEditForm txn={editTxn} onClose={()=>setEditTxn(null)} onSaved={onRefresh} pal={pal} imoveis={imoveis} accounts={accounts}/>}
     </div>
   )
 }

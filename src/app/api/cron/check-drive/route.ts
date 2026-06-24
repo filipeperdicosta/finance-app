@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getValidAccessToken, getSupabaseAdmin, createNotification } from '@/lib/googleDrive'
-import { parseStatementWithGemini, detectMimeType } from '@/lib/geminiParse'
+import { parseStatementWithGemini, detectMimeType, categorizeSingleTransaction } from '@/lib/geminiParse'
 import { getT212Configs, getT212Portfolio } from '@/lib/t212'
-import { categorizeSingleTransaction } from '@/lib/geminiParse'
+import { getEnableBankingBalance, getEnableBankingTransactions } from '@/lib/enableBanking'
 
 // Verificação automática diária: para CADA utilizador com Drive ligada,
 // percorre as suas contas com pasta associada, identifica ficheiros novos
@@ -247,7 +247,7 @@ export async function GET(req: NextRequest) {
       .not('account_id', 'is', null)
 
     if ((ebAccounts ?? []).length > 0) {
-      const { getEnableBankingBalance, getEnableBankingTransactions } = await import('@/lib/enableBanking')
+      // getEnableBankingBalance and getEnableBankingTransactions imported statically at top
       const today = new Date().toISOString().split('T')[0]
 
       // Carrega regras aprendidas uma vez para todas as contas
@@ -288,8 +288,12 @@ export async function GET(req: NextRequest) {
               const toInsert = await Promise.all(newTxnsList.map(async (t: any, i: number) => {
                 const amount = Number(t.transaction_amount?.amount) || 0
                 const valor = t.credit_debit_indicator === 'DBIT' ? -Math.abs(amount) : Math.abs(amount)
-                const descritivo = t.remittance_information?.unstructured?.[0]
-                  ?? t.creditor?.name ?? t.debtor?.name ?? 'Transação'
+                const descritivo = t.remittance_information?.[0]
+                  ?? t.creditor?.name ?? t.debtor?.name
+                  ?? t.bank_transaction_code?.description
+                  ?? t.additional_information
+                  ?? t.creditor_account?.iban ?? t.debtor_account?.iban
+                  ?? 'Transação'
                 const categoria = await categorizeSingleTransaction(descritivo, valor, rules)
                 return {
                   account_id: ebAcc.account_id,

@@ -68,8 +68,12 @@ export async function POST(req: NextRequest) {
             const toInsert = await Promise.all(newTxnsList.map(async (t: any, i: number) => {
               const amount = Number(t.transaction_amount?.amount) || 0
               const valor = t.credit_debit_indicator === 'DBIT' ? -Math.abs(amount) : Math.abs(amount)
-              const descritivo = t.remittance_information?.unstructured?.[0]
-                ?? t.creditor?.name ?? t.debtor?.name ?? 'Transação'
+              const descritivo = t.remittance_information?.[0]
+                ?? t.creditor?.name ?? t.debtor?.name
+                ?? t.bank_transaction_code?.description
+                ?? t.additional_information
+                ?? t.creditor_account?.iban ?? t.debtor_account?.iban
+                ?? 'Transação'
               const categoria = await categorizeSingleTransaction(descritivo, valor, rules)
               return {
                 account_id: ebAcc.account_id,
