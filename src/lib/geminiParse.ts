@@ -167,3 +167,57 @@ export function detectMimeType(filename: string): string {
   if (name.endsWith('.csv')) return 'text/csv'
   return 'application/pdf'
 }
+
+// Categoriza uma única transacção usando regras aprendidas como prioridade,
+// e Gemini só como fallback quando não há regra. Valor positivo → sempre "Receita".
+// Usada pelo Enable Banking e outros imports automáticos sem PDF.
+export async function categorizeSingleTransaction(
+  descritivo: string,
+  valor: number,
+  rules: { pattern: string; categoria: string; vezes_usada: number }[]
+): Promise<string> {
+  // Regra absoluta: valor positivo = Receita
+  if (valor >= 0) return 'Receita'
+
+  // 1) Tenta regras aprendidas primeiro
+  const upper = descritivo.toUpperCase()
+  const sorted = [...rules].sort((a, b) => b.vezes_usada - a.vezes_usada)
+  for (const rule of sorted) {
+    if (rule.pattern && upper.includes(rule.pattern)) return rule.categoria
+  }
+
+  // 2) Fallback: Gemini para categorizar só esta transacção
+  const apiKey = process.env.GEMINI_API_KEY
+  if (!apiKey) return 'Despesas Gerais'
+
+  try {
+    const prompt = `Classifica esta transacção bancária numa única categoria.
+Descritivo: "${descritivo}"
+Valor: ${valor}€
+
+Categorias disponíveis (escolhe exactamente uma):
+${CATEGORIES.join(', ')}
+
+Responde APENAS com o nome exacto da categoria, sem mais nenhum texto.`
+
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.1, maxOutputTokens: 32 },
+        }),
+      }
+    )
+    if (!res.ok) return 'Despesas Gerais'
+    const data = await res.json()
+    const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? ''
+    const normalizeCat = (s: string) => s?.trim().toLowerCase()
+    const catLookup = new Map(CATEGORIES.map(c => [normalizeCat(c), c]))
+    return catLookup.get(normalizeCat(raw)) ?? 'Despesas Gerais'
+  } catch {
+    return 'Despesas Gerais'
+  }
+}

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getValidAccessToken, getSupabaseAdmin, createNotification } from '@/lib/googleDrive'
 import { parseStatementWithGemini, detectMimeType } from '@/lib/geminiParse'
 import { getT212Configs, getT212Portfolio } from '@/lib/t212'
+import { categorizeSingleTransaction } from '@/lib/geminiParse'
 
 // Verificação automática diária: para CADA utilizador com Drive ligada,
 // percorre as suas contas com pasta associada, identifica ficheiros novos
@@ -238,63 +239,99 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // ── Enable Banking: actualiza saldos e importa transacções ──
+    // ── Enable Banking: actualiza saldos e importa transacções com categorização ──
     const supabaseEB = getSupabaseAdmin()
     const { data: ebAccounts } = await supabaseEB
       .from('enablebanking_accounts')
-      .select('*, enablebanking_sessions(bank_name, valid_until, user_id)')
+      .select('*, enablebanking_sessions(bank_name, valid_until, user_id), accounts(nome)')
       .not('account_id', 'is', null)
+
     if ((ebAccounts ?? []).length > 0) {
       const { getEnableBankingBalance, getEnableBankingTransactions } = await import('@/lib/enableBanking')
       const today = new Date().toISOString().split('T')[0]
+
+      // Carrega regras aprendidas uma vez para todas as contas
+      const { data: rulesData } = await supabaseEB.from('category_rules').select('*').eq('ativa', true).order('vezes_usada', { ascending: false })
+      const rules = (rulesData ?? []) as { pattern: string; categoria: string; vezes_usada: number }[]
+
+      // Agrupa por utilizador para notificação única no fim
+      const ebResultsByUser: Record<string, { bankName: string; accountName: string; balance: number | null; newTxns: number; error?: string }[]> = {}
+
       for (const ebAcc of ebAccounts ?? []) {
         const session = ebAcc.enablebanking_sessions as any
         if (!session || new Date(session.valid_until) < new Date()) continue
         const userId = session.user_id
+        const accountName = (ebAcc.accounts as any)?.nome ?? session.bank_name
+        if (!ebResultsByUser[userId]) ebResultsByUser[userId] = []
+
         try {
+          // 1) Saldo actualizado
           const balance = await getEnableBankingBalance(ebAcc.account_uid)
           if (balance !== null) {
             await supabaseEB.from('accounts').update({ saldo_atual: balance, saldo_data: today }).eq('id', ebAcc.account_id)
           }
-          // Transacções dos últimos 90 dias
+
+          // 2) Transacções novas com categorização inteligente
           const dateFrom = new Date(Date.now() - 90*24*60*60*1000).toISOString().split('T')[0]
           let newTxns = 0
           try {
             const txns = await getEnableBankingTransactions(ebAcc.account_uid, dateFrom)
             const { data: existing } = await supabaseEB.from('transactions').select('hash').eq('account_id', ebAcc.account_id)
             const existingHashes = new Set((existing ?? []).map((t: any) => t.hash))
-            const toInsert = txns.filter((t: any) => !existingHashes.has(`eb-${ebAcc.account_uid}-${t.entry_reference ?? t.transaction_id ?? ''}`))
-              .map((t: any, i: number) => {
+            const newTxnsList = txns.filter((t: any) => {
+              const hash = `eb-${ebAcc.account_uid}-${t.entry_reference ?? t.transaction_id ?? ''}`
+              return !existingHashes.has(hash)
+            })
+
+            if (newTxnsList.length > 0) {
+              // Categoriza cada transacção nova (regras → Gemini fallback)
+              const toInsert = await Promise.all(newTxnsList.map(async (t: any, i: number) => {
                 const amount = Number(t.transaction_amount?.amount) || 0
                 const valor = t.credit_debit_indicator === 'DBIT' ? -Math.abs(amount) : Math.abs(amount)
+                const descritivo = t.remittance_information?.unstructured?.[0]
+                  ?? t.creditor?.name ?? t.debtor?.name ?? 'Transação'
+                const categoria = await categorizeSingleTransaction(descritivo, valor, rules)
                 return {
                   account_id: ebAcc.account_id,
                   data: t.booking_date ?? t.value_date ?? today,
-                  descritivo: t.remittance_information?.unstructured?.[0] ?? t.creditor?.name ?? t.debtor?.name ?? 'Transação',
-                  valor, categoria: valor >= 0 ? 'Receita' : 'Transferências',
+                  descritivo, valor, categoria,
                   categoria_confirmada: false, ai_confianca: null, excluir_analise: false,
                   imovel_classificado: false, ordem_extrato: i,
                   hash: `eb-${ebAcc.account_uid}-${t.entry_reference ?? t.transaction_id ?? i}`,
                   import_batch_id: null, imovel_id: null, notas: null, subcategoria: null, descritivo_norm: null,
                 }
-              })
-            if (toInsert.length) await supabaseEB.from('transactions').upsert(toInsert, { onConflict: 'hash', ignoreDuplicates: true })
-            newTxns = toInsert.length
+              }))
+              await supabaseEB.from('transactions').upsert(toInsert, { onConflict: 'hash', ignoreDuplicates: true })
+              newTxns = toInsert.length
+            }
           } catch (txnErr: any) {
-            console.warn(`EB cron transactions (${session.bank_name}):`, txnErr.message)
+            console.warn(`EB cron transactions (${session.bank_name}/${accountName}):`, txnErr.message)
           }
-          await createNotification({
-            userId,
-            type: 'cron_summary',
-            title: `${session.bank_name} actualizado`,
-            body: `Saldo: €${balance?.toFixed(2) ?? 'N/A'} · ${newTxns} transacções novas`,
-            meta: { account_id: ebAcc.account_id, balance, new_transactions: newTxns },
-          })
-          console.log(`EB cron: ${session.bank_name} → €${balance?.toFixed(2)}, ${newTxns} txns novas`)
+
+          ebResultsByUser[userId].push({ bankName: session.bank_name, accountName, balance, newTxns })
+          console.log(`EB cron: ${accountName} → €${balance?.toFixed(2) ?? 'N/A'}, ${newTxns} txns novas`)
+
         } catch (err: any) {
-          console.error(`EB cron error (${session.bank_name}):`, err.message)
-          await createNotification({ userId, type: 'import_error', title: `Erro ${session.bank_name}`, body: err.message, meta: {} }).catch(() => {})
+          console.error(`EB cron error (${session.bank_name}/${accountName}):`, err.message)
+          ebResultsByUser[userId].push({ bankName: session.bank_name, accountName, balance: null, newTxns: 0, error: err.message })
         }
+      }
+
+      // Uma notificação por utilizador com detalhe por conta
+      for (const [userId, results] of Object.entries(ebResultsByUser)) {
+        const hasErrors = results.some(r => r.error)
+        const lines = results.map(r =>
+          r.error
+            ? `✗ ${r.accountName}: ${r.error}`
+            : `${r.accountName}: €${r.balance?.toFixed(2) ?? 'N/A'} · ${r.newTxns} nova${r.newTxns !== 1 ? 's' : ''}`
+        )
+        await createNotification({
+          userId,
+          type: hasErrors ? 'import_error' : 'cron_summary',
+          title: `Enable Banking — ${results.length} conta${results.length !== 1 ? 's' : ''} actualizada${results.length !== 1 ? 's' : ''}`,
+          body: lines.join(' | '),
+          meta: { results },
+        })
       }
     }
 

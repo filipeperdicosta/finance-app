@@ -1132,10 +1132,15 @@ const EnableBankingScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
                     {syncing?'A sincronizar…':'↻ Sincronizar agora'}
                   </Btn>
                   {syncResult&&!syncing&&(
-                    <Card style={{padding:'10px 14px',marginBottom:12,background:syncResult.ok?'rgba(74,222,128,0.05)':'rgba(248,113,113,0.05)'}}>
+                    <Card style={{padding:'10px 14px',marginBottom:12}}>
+                      <div style={{fontSize:12,fontWeight:600,color:T.text,marginBottom:8}}>{syncResult.ok?'✓ Sincronizado':'✗ Erro'}</div>
                       {(syncResult.results??[]).map((r:any,i:number)=>(
-                        <div key={i} style={{fontSize:11,color:r.error?T.red:T.green,marginBottom:2}}>
-                          {r.error?`✗ ${r.error}`:`✓ Saldo: €${r.balance?.toFixed(2)} · ${r.new_transactions} novas`}
+                        <div key={i} style={{fontSize:11,padding:'4px 0',borderBottom:i<(syncResult.results??[]).length-1?`1px solid ${T.border}`:'none'}}>
+                          <span style={{fontWeight:600,color:T.text}}>{r.accountName ?? r.bank}</span>
+                          {r.error
+                            ? <span style={{color:T.red}}> — {r.error}</span>
+                            : <span style={{color:T.textSec}}> — €{r.balance?.toFixed(2)} · <span style={{color:r.newTxns>0?T.green:T.textTer}}>{r.newTxns} nova{r.newTxns!==1?'s':''}</span></span>
+                          }
                         </div>
                       ))}
                     </Card>

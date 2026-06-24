@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getEnableBankingBalance, getEnableBankingTransactions } from '@/lib/enableBanking'
 import { getSupabaseAdmin, createNotification } from '@/lib/googleDrive'
+import { categorizeSingleTransaction } from '@/lib/geminiParse'
 
-// Sincroniza saldos e transacções de contas Enable Banking para a app.
+// Sincroniza saldos e transacções de contas Enable Banking.
 // POST /api/enablebanking/sync  body: { user_id }
 export async function POST(req: NextRequest) {
   let body: any = {}
@@ -12,26 +13,32 @@ export async function POST(req: NextRequest) {
     if (!user_id) return NextResponse.json({ error: 'user_id em falta' }, { status: 400 })
 
     const supabaseAdmin = getSupabaseAdmin()
+    const today = new Date().toISOString().split('T')[0]
 
-    // Busca todas as contas Enable Banking associadas a este utilizador
+    // Carrega regras aprendidas
+    const { data: rulesData } = await supabaseAdmin
+      .from('category_rules').select('*').eq('ativa', true).order('vezes_usada', { ascending: false })
+    const rules = (rulesData ?? []) as { pattern: string; categoria: string; vezes_usada: number }[]
+
+    // Busca todas as contas Enable Banking com conta da app associada
     const { data: ebAccounts } = await supabaseAdmin
       .from('enablebanking_accounts')
-      .select('*, enablebanking_sessions(bank_name, bank_country, valid_until)')
+      .select('*, enablebanking_sessions(bank_name, bank_country, valid_until), accounts(nome)')
       .eq('user_id', user_id)
-      .not('account_id', 'is', null) // só as que têm conta da app associada
+      .not('account_id', 'is', null)
 
     if (!ebAccounts?.length) {
-      return NextResponse.json({ ok: true, message: 'Sem contas Enable Banking configuradas', synced: 0 })
+      return NextResponse.json({ ok: true, message: 'Sem contas Enable Banking configuradas', results: [] })
     }
 
-    const today = new Date().toISOString().split('T')[0]
     const results: any[] = []
 
     for (const ebAcc of ebAccounts) {
       const session = ebAcc.enablebanking_sessions as any
-      // Verifica se a sessão ainda é válida
+      const accountName = (ebAcc.accounts as any)?.nome ?? session?.bank_name ?? 'Conta'
+
       if (session?.valid_until && new Date(session.valid_until) < new Date()) {
-        results.push({ account_uid: ebAcc.account_uid, error: 'Sessão expirada — re-autoriza o banco' })
+        results.push({ accountName, bank: session.bank_name, error: 'Sessão expirada — re-autoriza o banco' })
         continue
       }
 
@@ -39,14 +46,11 @@ export async function POST(req: NextRequest) {
         // 1) Saldo
         const balance = await getEnableBankingBalance(ebAcc.account_uid)
         if (balance !== null) {
-          await supabaseAdmin.from('accounts').update({
-            saldo_atual: balance,
-            saldo_data: today,
-          }).eq('id', ebAcc.account_id)
+          await supabaseAdmin.from('accounts').update({ saldo_atual: balance, saldo_data: today }).eq('id', ebAcc.account_id)
         }
 
-        // 2) Transacções — busca apenas as dos últimos 90 dias para não exceder rate limits
-        const dateFrom = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+        // 2) Transacções novas com categorização
+        const dateFrom = new Date(Date.now() - 90*24*60*60*1000).toISOString().split('T')[0]
         let newTxns = 0
         try {
           const txns = await getEnableBankingTransactions(ebAcc.account_uid, dateFrom)
@@ -54,61 +58,55 @@ export async function POST(req: NextRequest) {
             .from('transactions').select('hash').eq('account_id', ebAcc.account_id)
           const existingHashes = new Set((existing ?? []).map((t: any) => t.hash))
 
-          const toInsert = txns
-            .filter((t: any) => {
-              const hash = `eb-${ebAcc.account_uid}-${t.entry_reference ?? t.transaction_id ?? JSON.stringify(t.transaction_amount)}`
-              return !existingHashes.has(hash)
-            })
-            .map((t: any, i: number) => {
+          const newTxnsList = txns.filter((t: any) => {
+            const hash = `eb-${ebAcc.account_uid}-${t.entry_reference ?? t.transaction_id ?? ''}`
+            return !existingHashes.has(hash)
+          })
+
+          if (newTxnsList.length > 0) {
+            const toInsert = await Promise.all(newTxnsList.map(async (t: any, i: number) => {
               const amount = Number(t.transaction_amount?.amount) || 0
               const valor = t.credit_debit_indicator === 'DBIT' ? -Math.abs(amount) : Math.abs(amount)
               const descritivo = t.remittance_information?.unstructured?.[0]
-                ?? t.creditor?.name
-                ?? t.debtor?.name
-                ?? t.additional_information
-                ?? 'Transação Revolut'
+                ?? t.creditor?.name ?? t.debtor?.name ?? 'Transação'
+              const categoria = await categorizeSingleTransaction(descritivo, valor, rules)
               return {
                 account_id: ebAcc.account_id,
                 data: t.booking_date ?? t.value_date ?? today,
-                descritivo,
-                valor,
-                categoria: valor >= 0 ? 'Receita' : 'Transferências',
-                categoria_confirmada: false,
-                ai_confianca: null,
-                excluir_analise: false,
-                imovel_classificado: false,
-                ordem_extrato: i,
+                descritivo, valor, categoria,
+                categoria_confirmada: false, ai_confianca: null, excluir_analise: false,
+                imovel_classificado: false, ordem_extrato: i,
                 hash: `eb-${ebAcc.account_uid}-${t.entry_reference ?? t.transaction_id ?? i}`,
-                import_batch_id: null,
-                imovel_id: null,
-                notas: null,
-                subcategoria: null,
-                descritivo_norm: null,
+                import_batch_id: null, imovel_id: null, notas: null, subcategoria: null, descritivo_norm: null,
               }
-            })
-
-          if (toInsert.length) {
+            }))
             await supabaseAdmin.from('transactions').upsert(toInsert, { onConflict: 'hash', ignoreDuplicates: true })
+            newTxns = toInsert.length
           }
-          newTxns = toInsert.length
         } catch (txnErr: any) {
-          console.warn(`Enable Banking transactions (${ebAcc.account_uid}): ${txnErr.message}`)
+          console.warn(`EB sync transactions (${accountName}):`, txnErr.message)
         }
 
-        results.push({ account_uid: ebAcc.account_uid, balance, new_transactions: newTxns })
+        results.push({ accountName, bank: session?.bank_name, balance, newTxns })
 
       } catch (err: any) {
-        console.error(`Enable Banking sync error (${ebAcc.account_uid}):`, err.message)
-        results.push({ account_uid: ebAcc.account_uid, error: err.message })
+        console.error(`EB sync error (${accountName}):`, err.message)
+        results.push({ accountName, bank: session?.bank_name, error: err.message })
       }
     }
 
+    // Notificação com detalhe por conta
     const hasErrors = results.some(r => r.error)
+    const lines = results.map(r =>
+      r.error
+        ? `✗ ${r.accountName}: ${r.error}`
+        : `${r.accountName}: €${r.balance?.toFixed(2) ?? 'N/A'} · ${r.newTxns} nova${r.newTxns !== 1 ? 's' : ''}`
+    )
     await createNotification({
       userId: user_id,
       type: hasErrors ? 'import_error' : 'import_success',
-      title: `Enable Banking sincronizado`,
-      body: results.map(r => r.error ? `✗ ${r.error}` : `✓ Saldo: €${r.balance?.toFixed(2)} · ${r.new_transactions} novas`).join(' · '),
+      title: `Enable Banking — ${results.length} conta${results.length !== 1 ? 's' : ''} sincronizada${results.length !== 1 ? 's' : ''}`,
+      body: lines.join('\n'),
       meta: { results },
     })
 
