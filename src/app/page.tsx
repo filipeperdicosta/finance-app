@@ -262,92 +262,87 @@ const Leg = ({c,l,line}:{c:string,l:string,line?:boolean}) => (
   <div style={{display:'flex',alignItems:'center',gap:4}}><div style={{width:line?10:7,height:line?2:7,borderRadius:line?1:2,background:c}}/><span style={{fontSize:9,color:'rgba(255,255,255,0.38)'}}>{l}</span></div>
 )
 const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,net:number}[], mode?:'budget'|'patrimonio'}) => {
-  const maxVal = Math.max(...trend.map(d=>mode==='patrimonio'?Math.abs(d.net):Math.max(d.rec,d.desp)), 0)
-  const hasData = mode==='patrimonio' ? trend.some(d=>d.net!==0) : maxVal>0
-  const midVal = maxVal/2
+  const hasData = mode==='patrimonio' ? trend.some(d=>d.net!==0) : trend.some(d=>d.rec>0||d.desp>0)
+
+  // Shared axis config — identical structure to DynChart, 10px fonts
+  const xAxis = <XAxis dataKey="m" tick={{fontSize:10,fill:'rgba(255,255,255,0.25)'}} axisLine={false} tickLine={false} interval={0} height={14} padding={{left:8,right:8}}/>
+  const margin = {top:4,right:4,bottom:0,left:0}
 
   if(mode==='patrimonio'){
-    // Y axis dinâmico: padding de 10% acima e abaixo para evitar linha horizontal
     const netVals = trend.map(d=>d.net)
     const netMin = Math.min(...netVals)
     const netMax = Math.max(...netVals)
-    const padding = Math.max((netMax-netMin)*0.15, netMax*0.05, 1)
-    const domMin = netMin - padding
-    const domMax = netMax + padding
+    const pad = Math.max((netMax-netMin)*0.15, Math.abs(netMax)*0.05, 1)
+    const domMin = netMin - pad
+    const domMax = netMax + pad
     const midY = (domMin+domMax)/2
+    const yAxis = <YAxis orientation="right" axisLine={false} tickLine={false} domain={[domMin,domMax]} ticks={[midY,domMax]} tickFormatter={(v:number)=>compact(v)} tick={{fontSize:10,fill:'rgba(255,255,255,0.25)'}} width={36}/>
     return (
       <>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
           <span style={{fontSize:9,color:'rgba(255,255,255,0.28)',textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:600}}>Tendência — 5 meses</span>
           <Leg c="rgba(255,255,255,0.7)" l="Património" line/>
         </div>
         {!hasData?(
-          <div style={{height:50,display:'flex',alignItems:'center',justifyContent:'center'}}>
+          <div style={{height:66,display:'flex',alignItems:'center',justifyContent:'center'}}>
             <span style={{fontSize:11,color:'rgba(255,255,255,0.25)'}}>Sem dados neste período</span>
           </div>
         ):(
-          <div style={{position:'relative',height:62}}>
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={trend} margin={{top:4,right:32,bottom:0,left:10}}>
-                <XAxis dataKey="m" tick={{fontSize:9,fill:'rgba(255,255,255,0.2)'}} axisLine={false} tickLine={false} interval={0} height={16} padding={{left:0,right:0}}/>
-                <YAxis hide domain={[domMin, domMax]}/>
-                <ReferenceLine y={midY} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
-                <ReferenceLine y={domMax} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
-                <Tooltip
-                  contentStyle={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,fontSize:11,padding:'6px 10px'}}
-                  itemStyle={{padding:0}}
-                  formatter={(v:any)=>[dec(v),'Património']}
-                  labelStyle={{color:T.text,fontWeight:600,fontSize:11,marginBottom:2}}
-                  cursor={{stroke:'rgba(255,255,255,0.15)',strokeWidth:1}}
-                />
-                <Line dataKey="net" stroke="rgba(255,255,255,0.75)" strokeWidth={1.75} dot={false}/>
-              </LineChart>
-            </ResponsiveContainer>
-            <div style={{position:'absolute',top:4,right:2,fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(domMax)}</div>
-            <div style={{position:'absolute',top:'35%',right:2,transform:'translateY(-50%)',fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(midY)}</div>
-          </div>
+          <ResponsiveContainer width="100%" height={66}>
+            <LineChart data={trend} margin={margin}>
+              {xAxis}{yAxis}
+              <ReferenceLine y={midY} stroke="rgba(255,255,255,0.12)" strokeWidth={1} ifOverflow="visible"/>
+              <ReferenceLine y={domMax} stroke="rgba(255,255,255,0.12)" strokeWidth={1} ifOverflow="visible"/>
+              <Tooltip
+                contentStyle={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,fontSize:11,padding:'6px 10px'}}
+                itemStyle={{padding:0}}
+                formatter={(v:any)=>[dec(v),'Património']}
+                labelStyle={{color:T.text,fontWeight:600,fontSize:11,marginBottom:2}}
+                cursor={{stroke:'rgba(255,255,255,0.15)',strokeWidth:1}}
+              />
+              <Line dataKey="net" stroke="rgba(255,255,255,0.75)" strokeWidth={1.75} dot={false}/>
+            </LineChart>
+          </ResponsiveContainer>
         )}
       </>
     )
   }
 
-  // modo 'budget' — comportamento original (rec + desp + net bar)
+  // modo budget
+  const maxVal = Math.max(...trend.map(d=>Math.max(d.rec,d.desp)), 0)
+  const midVal = maxVal/2
+  const yAxis = <YAxis orientation="right" axisLine={false} tickLine={false} domain={[0,maxVal*1.05]} ticks={[midVal,maxVal]} tickFormatter={(v:number)=>compact(v)} tick={{fontSize:10,fill:'rgba(255,255,255,0.25)'}} width={36}/>
   return (
     <>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
         <span style={{fontSize:9,color:'rgba(255,255,255,0.28)',textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:600}}>Tendência — 5 meses</span>
         <div style={{display:'flex',gap:10}}><Leg c={T.green} l="Rec" line/><Leg c={T.red} l="Desp" line/><Leg c="rgba(255,255,255,0.4)" l="Saldo"/></div>
       </div>
       {!hasData?(
-        <div style={{height:50,display:'flex',alignItems:'center',justifyContent:'center'}}>
+        <div style={{height:66,display:'flex',alignItems:'center',justifyContent:'center'}}>
           <span style={{fontSize:11,color:'rgba(255,255,255,0.25)'}}>Sem dados neste período</span>
         </div>
       ):(
-        <div style={{position:'relative',height:62}}>
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={trend} margin={{top:4,right:32,bottom:0,left:10}}>
-              <XAxis dataKey="m" tick={{fontSize:9,fill:'rgba(255,255,255,0.2)'}} axisLine={false} tickLine={false} interval={0} height={16} padding={{left:0,right:0}}/>
-              <YAxis hide domain={[0,maxVal*1.05]} ticks={[midVal,maxVal]}/>
-              <ReferenceLine y={midVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
-              <ReferenceLine y={maxVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
-              <Tooltip
-                contentStyle={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,fontSize:11,padding:'6px 10px'}}
-                itemStyle={{padding:0}}
-                formatter={(v:any,k:string)=>{
-                  if(k==='net') return [<span style={{color:Number(v)>=0?T.green:T.red,fontWeight:600}}>{dec(v)}</span>,'Saldo']
-                  return [dec(v),k==='rec'?'Receitas':'Despesas']
-                }}
-                labelStyle={{color:T.text,fontWeight:600,fontSize:11,marginBottom:2}}
-                cursor={{fill:'rgba(255,255,255,0.04)'}}
-              />
-              <Bar dataKey="net" fill="rgba(255,255,255,0.18)" radius={[2,2,0,0]} maxBarSize={16}/>
-              <Line dataKey="rec" stroke={T.green} strokeWidth={1.75} dot={false}/>
-              <Line dataKey="desp" stroke={T.red} strokeWidth={1.75} dot={false}/>
-            </ComposedChart>
-          </ResponsiveContainer>
-          <div style={{position:'absolute',top:4,right:2,fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(maxVal)}</div>
-          <div style={{position:'absolute',top:'35%',right:2,transform:'translateY(-50%)',fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(midVal)}</div>
-        </div>
+        <ResponsiveContainer width="100%" height={66}>
+          <ComposedChart data={trend} margin={margin}>
+            {xAxis}{yAxis}
+            <ReferenceLine y={midVal} stroke="rgba(255,255,255,0.12)" strokeWidth={1} ifOverflow="visible"/>
+            <ReferenceLine y={maxVal} stroke="rgba(255,255,255,0.12)" strokeWidth={1} ifOverflow="visible"/>
+            <Tooltip
+              contentStyle={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,fontSize:11,padding:'6px 10px'}}
+              itemStyle={{padding:0}}
+              formatter={(v:any,k:string)=>{
+                if(k==='net') return [<span style={{color:Number(v)>=0?T.green:T.red,fontWeight:600}}>{dec(v)}</span>,'Saldo']
+                return [dec(v),k==='rec'?'Receitas':'Despesas']
+              }}
+              labelStyle={{color:T.text,fontWeight:600,fontSize:11,marginBottom:2}}
+              cursor={{fill:'rgba(255,255,255,0.04)'}}
+            />
+            <Bar dataKey="net" fill="rgba(255,255,255,0.18)" radius={[2,2,0,0]} maxBarSize={16}/>
+            <Line dataKey="rec" stroke={T.green} strokeWidth={1.75} dot={false}/>
+            <Line dataKey="desp" stroke={T.red} strokeWidth={1.75} dot={false}/>
+          </ComposedChart>
+        </ResponsiveContainer>
       )}
     </>
   )
@@ -359,7 +354,7 @@ const Toggle = ({val,set,accent}:{val:string,set:(v:string)=>void,accent:string}
 )
 const DynChart = ({data,type}:{data:{m:string,rec:number,desp:number}[],type:string}) => {
   const tip = <Tooltip contentStyle={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,fontSize:12}} formatter={(v:any,k:string)=>[dec(v),k==='rec'?'Receitas':'Despesas']} labelStyle={{color:T.text,fontWeight:600}} cursor={{fill:'rgba(255,255,255,0.03)'}}/>
-  const ax = <XAxis dataKey="m" tick={{fontSize:11,fill:T.textSec}} axisLine={false} tickLine={false} interval={0} padding={{left:8,right:8}}/>
+  const ax = <XAxis dataKey="m" tick={{fontSize:10,fill:T.textSec}} axisLine={false} tickLine={false} interval={0} padding={{left:8,right:8}}/>
   const margin = {top:8,right:6,bottom:0,left:10}
   const maxVal = Math.max(...data.map(d=>Math.max(d.rec,d.desp)), 0)
   const hasData = maxVal>0
