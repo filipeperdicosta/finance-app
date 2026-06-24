@@ -434,7 +434,7 @@ const Hero = ({pal,title,mainValue,mainColor,kpis,trend,period,mainSuffix,sparkM
     <div style={{display:'grid',gridTemplateColumns:`repeat(${kpis.length},1fr)`,gap:6,marginBottom:14}}>
       {kpis.map((k,i)=>(<div key={i} style={{background:'rgba(255,255,255,0.08)',borderRadius:10,padding:'9px 10px'}}><div style={{fontSize:9,color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:600,marginBottom:3}}>{k.l}</div><div style={{fontSize:kpis.length===4?11:12,fontWeight:700,color:k.c,fontFamily:T.mono}}>{k.v}</div></div>))}
     </div>
-    <div style={{borderTop:'1px solid rgba(255,255,255,0.07)',paddingTop:10}}><Spark trend={trend} mode={sparkMode??'budget'}/></div>
+    <div style={{borderTop:'1px solid rgba(255,255,255,0.07)',paddingTop:10,margin:'0 -18px',padding:'10px 0 0 0'}}><Spark trend={trend} mode={sparkMode??'budget'}/></div>
   </div>
 )
 
