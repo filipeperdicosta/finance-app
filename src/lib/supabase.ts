@@ -420,13 +420,13 @@ export async function startEnableBankingConnect(bank: string, country: string) {
   return `/api/auth/enablebanking?user_id=${user.id}&bank=${encodeURIComponent(bank)}&country=${country}`
 }
 
-export async function syncEnableBanking() {
+export async function syncEnableBanking(accountUid?: string) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Não autenticado' }
   const res = await fetch('/api/enablebanking/sync', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ user_id: user.id }),
+    body: JSON.stringify({ user_id: user.id, ...(accountUid ? { account_uid: accountUid } : {}) }),
   })
   return res.json()
 }

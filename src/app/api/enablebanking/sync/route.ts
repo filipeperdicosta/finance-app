@@ -9,23 +9,24 @@ export async function POST(req: NextRequest) {
   let body: any = {}
   try {
     body = await req.json()
-    const { user_id } = body
+    const { user_id, account_uid: filterUid } = body
     if (!user_id) return NextResponse.json({ error: 'user_id em falta' }, { status: 400 })
 
     const supabaseAdmin = getSupabaseAdmin()
     const today = new Date().toISOString().split('T')[0]
 
-    // Carrega regras aprendidas
     const { data: rulesData } = await supabaseAdmin
       .from('category_rules').select('*').eq('ativa', true).order('vezes_usada', { ascending: false })
     const rules = (rulesData ?? []) as { pattern: string; categoria: string; vezes_usada: number }[]
 
-    // Busca todas as contas Enable Banking com conta da app associada
-    const { data: ebAccounts } = await supabaseAdmin
+    // Se filterUid fornecido, sincroniza só essa conta; caso contrário, todas
+    let query = supabaseAdmin
       .from('enablebanking_accounts')
       .select('*, enablebanking_sessions(bank_name, bank_country, valid_until), accounts(nome)')
       .eq('user_id', user_id)
       .not('account_id', 'is', null)
+    if (filterUid) query = (query as any).eq('account_uid', filterUid)
+    const { data: ebAccounts } = await query
 
     if (!ebAccounts?.length) {
       return NextResponse.json({ ok: true, message: 'Sem contas Enable Banking configuradas', results: [] })

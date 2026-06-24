@@ -1018,7 +1018,7 @@ const RulesScreen = ({onClose,pal}:{onClose:()=>void,pal:{accent:string,soft:str
 const EnableBankingScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accounts:Account[],onRefresh:()=>void,pal:{accent:string,soft:string}}) => {
   const [status,setStatus] = useState<any>(null)
   const [loading,setLoading] = useState(true)
-  const [syncing,setSyncing] = useState(false)
+  const [syncing,setSyncing] = useState<string|null>(null)
   const [syncResult,setSyncResult] = useState<any>(null)
   const [linkingUid,setLinkingUid] = useState<string|null>(null)
 
@@ -1031,7 +1031,6 @@ const EnableBankingScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
 
   useEffect(()=>{ load() },[load])
 
-  // Trata o regresso do fluxo OAuth (?eb_connected=1 ou ?eb_error=...)
   useEffect(()=>{
     const params = new URLSearchParams(window.location.search)
     if(params.get('eb_connected')){ load(); window.history.replaceState({},'',' ') }
@@ -1042,11 +1041,11 @@ const EnableBankingScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
     if(url) window.location.href = url
   }
 
-  const sync = async () => {
-    setSyncing(true); setSyncResult(null)
-    const result = await syncEnableBanking()
+  const sync = async (accountUid?:string) => {
+    setSyncing(accountUid ?? 'all'); setSyncResult(null)
+    const result = await syncEnableBanking(accountUid)
     setSyncResult(result)
-    setSyncing(false)
+    setSyncing(null)
     await onRefresh()
   }
 
@@ -1058,7 +1057,7 @@ const EnableBankingScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
 
   const daysLeft = (validUntil:string) => {
     const days = Math.floor((new Date(validUntil).getTime()-Date.now())/(1000*60*60*24))
-    return days > 0 ? `${days} dias restantes` : 'Expirado'
+    return days > 0 ? `${days} dias` : 'Expirado'
   }
 
   return (
@@ -1070,109 +1069,73 @@ const EnableBankingScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
         </div>
         <div style={{padding:'16px 14px'}}>
           {loading&&<div style={{padding:32,textAlign:'center',color:T.textSec,fontSize:13}}>A verificar ligações…</div>}
-
           {!loading&&(
             <>
-              {/* Ligar novo banco */}
               <div style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase',marginBottom:8}}>Ligar banco</div>
               <Card style={{marginBottom:16}}>
-                {[
-                  {name:'Revolut', country:'PT', flag:'🔵'},
-                  {name:'Abanca', country:'PT', flag:'🏦'},
-                  {name:'Santander', country:'PT', flag:'🔴'},
-                  {name:'Millennium BCP', country:'PT', flag:'🏦'},
-                ].map((bank,i,arr)=>{
-                  const linked = (status?.sessions??[]).some((s:any)=>s.bank_name===bank.name&&!s.expired)
+                {[{name:'Revolut',country:'PT',flag:'🔵'},{name:'Abanca',country:'PT',flag:'🏦'},{name:'Millennium BCP',country:'PT',flag:'🏦'},{name:'Santander',country:'PT',flag:'🔴'}].map((bank,i,arr)=>{
+                  const linked=(status?.sessions??[]).some((s:any)=>s.bank_name===bank.name&&!s.expired)
                   return (
                     <div key={bank.name} style={{display:'flex',alignItems:'center',gap:12,padding:'12px 14px',borderBottom:i<arr.length-1?`1px solid ${T.border}`:'none'}}>
                       <span style={{fontSize:20}}>{bank.flag}</span>
-                      <div style={{flex:1}}>
-                        <div style={{fontSize:13,fontWeight:600,color:T.text}}>{bank.name}</div>
-                        {linked&&<div style={{fontSize:10,color:T.green,marginTop:1}}>Ligado</div>}
-                      </div>
-                      <button onClick={()=>connect(bank.name,bank.country)} style={{background:linked?T.surface2:pal.accent,color:linked?T.textSec:'#0B0B12',border:'none',borderRadius:8,padding:'6px 12px',fontSize:11,fontWeight:600,cursor:'pointer'}}>
-                        {linked?'Re-ligar':'Ligar'}
-                      </button>
+                      <div style={{flex:1}}><div style={{fontSize:13,fontWeight:600,color:T.text}}>{bank.name}</div>{linked&&<div style={{fontSize:10,color:T.green,marginTop:1}}>Ligado</div>}</div>
+                      <button onClick={()=>connect(bank.name,bank.country)} style={{background:linked?T.surface2:pal.accent,color:linked?T.textSec:'#0B0B12',border:'none',borderRadius:8,padding:'6px 12px',fontSize:11,fontWeight:600,cursor:'pointer'}}>{linked?'Re-ligar':'Ligar'}</button>
                     </div>
                   )
                 })}
               </Card>
-
-              {/* Sessões activas */}
               {(status?.sessions??[]).length>0&&(
                 <>
-                  <div style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase',marginBottom:8}}>Ligações activas</div>
-                  {(status.sessions).map((s:any,i:number)=>(
-                    <Card key={i} style={{padding:14,marginBottom:12}}>
-                      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}>
-                        <div style={{width:36,height:36,borderRadius:10,background:s.expired?'rgba(248,113,113,0.1)':'rgba(74,222,128,0.1)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18}}>🏦</div>
-                        <div style={{flex:1}}>
-                          <div style={{fontSize:13,fontWeight:600,color:T.text}}>{s.bank_name} ({s.bank_country})</div>
-                          <div style={{fontSize:11,color:s.expired?T.red:T.green,marginTop:1}}>{daysLeft(s.valid_until)}</div>
-                        </div>
+                  <div style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase',marginBottom:8}}>Contas ligadas</div>
+                  {(status.sessions).map((s:any,si:number)=>(
+                    <Card key={si} style={{marginBottom:12}}>
+                      <div style={{display:'flex',alignItems:'center',gap:10,padding:'12px 14px',borderBottom:`1px solid ${T.border}`}}>
+                        <div style={{width:32,height:32,borderRadius:8,background:s.expired?'rgba(248,113,113,0.1)':'rgba(74,222,128,0.1)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16}}>🏦</div>
+                        <div style={{flex:1}}><div style={{fontSize:13,fontWeight:600,color:T.text}}>{s.bank_name}</div><div style={{fontSize:10,color:s.expired?T.red:T.textTer}}>{daysLeft(s.valid_until)} restantes</div></div>
                       </div>
-                      {(s.accounts??[]).map((acc:any)=>(
-                        <div key={acc.account_uid} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 10px',background:T.surface2,borderRadius:8,marginBottom:6}}>
-                          <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontSize:11,color:T.text,fontWeight:500}}>{acc.name??acc.iban??acc.account_uid.slice(0,16)+'…'}</div>
-                            {acc.iban&&<div style={{fontSize:10,color:T.textTer}}>{acc.iban}</div>}
+                      {(s.accounts??[]).map((acc:any,ai:number)=>{
+                        const isSyncing=syncing===acc.account_uid
+                        return (
+                          <div key={acc.account_uid} style={{display:'flex',alignItems:'center',gap:8,padding:'10px 14px',borderBottom:ai<(s.accounts??[]).length-1?`1px solid ${T.border}`:'none'}}>
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{fontSize:12,color:T.text,fontWeight:500}}>{acc.name??acc.iban?.slice(-8)??acc.account_uid.slice(0,12)+'…'}</div>
+                              {acc.iban&&<div style={{fontSize:10,color:T.textTer}}>{acc.iban}</div>}
+                              {acc.account_id?<div style={{fontSize:10,color:T.green,marginTop:1}}>✓ Associada</div>:<div style={{fontSize:10,color:'#FBBF24',marginTop:1}}>⚠ Sem conta associada</div>}
+                            </div>
+                            <div style={{display:'flex',gap:6,flexShrink:0}}>
+                              {acc.account_id&&<button onClick={()=>!syncing&&sync(acc.account_uid)} disabled={!!syncing} style={{background:pal.soft,color:pal.accent,border:'none',borderRadius:8,padding:'5px 10px',fontSize:11,fontWeight:600,cursor:syncing?'default':'pointer',opacity:syncing?0.5:1,display:'flex',alignItems:'center',gap:4}}><RefreshCw size={11}/>{isSyncing?'…':'Sync'}</button>}
+                              <button onClick={()=>setLinkingUid(acc.account_uid)} style={{background:T.surface2,color:T.textSec,border:'none',borderRadius:8,padding:'5px 10px',fontSize:11,cursor:'pointer'}}>{acc.account_id?'Alterar':'Associar'}</button>
+                            </div>
                           </div>
-                          {acc.account_id?(
-                            <div style={{fontSize:10,color:T.green}}>✓ Associada</div>
-                          ):(
-                            <button onClick={()=>setLinkingUid(acc.account_uid)} style={{background:pal.accent,color:'#0B0B12',border:'none',borderRadius:6,padding:'4px 8px',fontSize:10,fontWeight:600,cursor:'pointer'}}>Associar</button>
-                          )}
-                        </div>
-                      ))}
+                        )
+                      })}
                     </Card>
                   ))}
-
-                  {/* Sincronização */}
-                  <Btn onClick={sync} variant="primary" accent={pal.accent} style={{width:'100%',marginBottom:8,opacity:syncing?0.5:1}}>
-                    {syncing?'A sincronizar…':'↻ Sincronizar agora'}
-                  </Btn>
                   {syncResult&&!syncing&&(
                     <Card style={{padding:'10px 14px',marginBottom:12}}>
-                      <div style={{fontSize:12,fontWeight:600,color:T.text,marginBottom:8}}>{syncResult.ok?'✓ Sincronizado':'✗ Erro'}</div>
+                      <div style={{fontSize:12,fontWeight:600,color:T.text,marginBottom:6}}>{syncResult.ok?'✓ Sincronizado':'✗ Erro'}</div>
                       {(syncResult.results??[]).map((r:any,i:number)=>(
                         <div key={i} style={{fontSize:11,padding:'4px 0',borderBottom:i<(syncResult.results??[]).length-1?`1px solid ${T.border}`:'none'}}>
-                          <span style={{fontWeight:600,color:T.text}}>{r.accountName ?? r.bank}</span>
-                          {r.error
-                            ? <span style={{color:T.red}}> — {r.error}</span>
-                            : <span style={{color:T.textSec}}> — €{r.balance?.toFixed(2)} · <span style={{color:r.newTxns>0?T.green:T.textTer}}>{r.newTxns} nova{r.newTxns!==1?'s':''}</span></span>
-                          }
+                          <span style={{fontWeight:600,color:T.text}}>{r.accountName??r.bank}</span>
+                          {r.error?<span style={{color:T.red}}> — {r.error}</span>:<span style={{color:T.textSec}}> — €{r.balance?.toFixed(2)} · <span style={{color:r.newTxns>0?T.green:T.textTer}}>{r.newTxns} nova{r.newTxns!==1?'s':''}</span></span>}
                         </div>
                       ))}
                     </Card>
                   )}
+                  <Btn onClick={()=>!syncing&&sync()} variant="primary" accent={pal.accent} style={{width:'100%',opacity:syncing?0.5:1}}>{syncing==='all'?'A sincronizar todas…':'↻ Sincronizar todas as contas'}</Btn>
                 </>
               )}
-
-              <div style={{fontSize:11,color:T.textTer,lineHeight:1.6,marginTop:4,padding:'0 4px'}}>
-                ℹ️ A autorização é válida por 180 dias. A sincronização automática corre de madrugada.
-              </div>
+              <div style={{fontSize:11,color:T.textTer,lineHeight:1.6,marginTop:12,padding:'0 4px'}}>ℹ️ A autorização é válida por 180 dias. A sincronização automática corre de madrugada.</div>
             </>
           )}
         </div>
       </div>
-
-      {/* Modal para associar conta EB a conta da app */}
       {linkingUid&&(
         <div onClick={()=>setLinkingUid(null)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:120,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
           <div onClick={e=>e.stopPropagation()} style={{background:T.surface,borderRadius:'20px 20px 0 0',width:'100%',maxWidth:440,padding:'20px 18px 32px'}}>
             <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:6}}>Associar a conta da app</div>
             <div style={{fontSize:11,color:T.textSec,marginBottom:14}}>Selecciona a conta onde queres escrever o saldo e transacções deste banco:</div>
-            <Card>
-              {accounts.map((a,i)=>(
-                <div key={a.id} onClick={()=>linkAccount(linkingUid,a.id)} style={{display:'flex',alignItems:'center',gap:10,padding:'12px 14px',borderBottom:i<accounts.length-1?`1px solid ${T.border}`:'none',cursor:'pointer'}}>
-                  <div style={{flex:1}}>
-                    <div style={{fontSize:13,fontWeight:600,color:T.text}}>{a.nome}</div>
-                    <div style={{fontSize:11,color:T.textSec}}>{a.banco} · {a.tipo}</div>
-                  </div>
-                  <ChevronRight size={14} color={T.textTer}/>
-                </div>
-              ))}
-            </Card>
+            <Card>{accounts.map((a,i)=>(<div key={a.id} onClick={()=>linkAccount(linkingUid,a.id)} style={{display:'flex',alignItems:'center',gap:10,padding:'12px 14px',borderBottom:i<accounts.length-1?`1px solid ${T.border}`:'none',cursor:'pointer'}}><div style={{flex:1}}><div style={{fontSize:13,fontWeight:600,color:T.text}}>{a.nome}</div><div style={{fontSize:11,color:T.textSec}}>{a.banco} · {a.tipo}</div></div><ChevronRight size={14} color={T.textTer}/></div>))}</Card>
           </div>
         </div>
       )}
@@ -1180,7 +1143,6 @@ const EnableBankingScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
   )
 }
 
-// ─────────────────────────────────────────────────────────────────
 const T212Screen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accounts:Account[],onRefresh:()=>void,pal:{accent:string,soft:string}}) => {
   const [status,setStatus] = useState<any>(null)
   const [loading,setLoading] = useState(true)
