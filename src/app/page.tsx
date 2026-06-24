@@ -22,7 +22,7 @@ import {
   loadNotifications, countUnreadNotifications, markNotificationsRead, deleteNotification,
   syncT212, getT212Status, loadT212Config, saveT212Config,
   getEnableBankingStatus, startEnableBankingConnect, syncEnableBanking, linkEnableBankingAccount,
-  type Account, type Transaction, type Imovel, type ImovelRenda, type ContaImovel, type CategoryRule,
+  type Account, type Transaction, type Imovel, type ContaImovel, type CategoryRule,
   type DriveToken, type DriveFile, type AppNotification, type T212Config,
 } from '@/lib/supabase'
 
@@ -2944,7 +2944,6 @@ export default function Page() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [allTxns, setAllTxns] = useState<Transaction[]>([])
   const [imoveis, setImoveis] = useState<Imovel[]>([])
-  const [rendas, setRendas] = useState<ImovelRenda[]>([])
   const [contaImovel, setContaImovel] = useState<ContaImovel[]>([])
   const [tab, setTab] = useState('familiar')
   const [showImport, setShowImport] = useState(false)
@@ -2961,7 +2960,7 @@ export default function Page() {
   const load = useCallback(async()=>{
     const data = await loadAllData()
     setAccounts(data.accounts); setTransactions(data.transactions)
-    setImoveis(data.imoveis); setRendas(data.rendas); setContaImovel(data.contaImovel); setLoading(false)
+    setImoveis(data.imoveis); setContaImovel(data.contaImovel); setLoading(false)
   },[])
   const loadFull = useCallback(async()=>{ const all = await loadAllTransactions(); setAllTxns(all) },[])
   const refreshAll = useCallback(async()=>{ await load(); await loadFull() },[load,loadFull])
