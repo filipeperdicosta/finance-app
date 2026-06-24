@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getValidAccessToken, getSupabaseAdmin, createNotification } from '@/lib/googleDrive'
 import { parseStatementWithGemini, detectMimeType, categorizeSingleTransaction } from '@/lib/geminiParse'
 import { getT212Configs, getT212Portfolio } from '@/lib/t212'
-import { getEnableBankingBalance, getEnableBankingTransactions, getMccCategory } from '@/lib/enableBanking'
+import { getEnableBankingBalance, getEnableBankingTransactions, getMccCategory, getKeywordCategory } from '@/lib/enableBanking'
 
 // Verificação automática diária: para CADA utilizador com Drive ligada,
 // percorre as suas contas com pasta associada, identifica ficheiros novos
@@ -293,11 +293,16 @@ export async function GET(req: NextRequest) {
                   ?? t.additional_information
                   ?? t.creditor_account?.iban ?? t.debtor_account?.iban
                   ?? 'Transação'
+                // Categorização: MCC → keyword → regras aprendidas → Gemini
                 let categoria: string
-                if (valor >= 0) { categoria = 'Receita' }
-                else {
+                if (valor >= 0) {
+                  categoria = 'Receita'
+                } else {
                   const mccCat = getMccCategory(t.merchant_category_code)
-                  categoria = mccCat ?? await categorizeSingleTransaction(descritivo, valor, rules)
+                  const kwCat = mccCat ? null : getKeywordCategory(descritivo, valor)
+                  if (mccCat) categoria = mccCat
+                  else if (kwCat) categoria = kwCat
+                  else categoria = await categorizeSingleTransaction(descritivo, valor, rules)
                 }
                 return {
                   account_id: ebAcc.account_id,

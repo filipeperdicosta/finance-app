@@ -130,23 +130,92 @@ export async function getEnableBankingBalance(accountUid: string) {
 
 // Busca transacções de uma conta
 // MCC (Merchant Category Code) → categoria da app
+// Fonte: ISO 18245 + categorias comuns do Revolut
 const MCC_MAP: Record<string, string> = {
-  '5411': 'Compras', '5412': 'Compras', '5441': 'Compras', '5451': 'Compras',
-  '5462': 'Compras', '5499': 'Compras', '5311': 'Compras', '5331': 'Compras',
-  '5912': 'Saúde', '8011': 'Saúde', '8021': 'Saúde', '8049': 'Saúde', '8099': 'Saúde',
+  // Restauração
   '5812': 'Restauração', '5813': 'Restauração', '5814': 'Restauração',
-  '5541': 'Transportes', '5542': 'Transportes', '4111': 'Transportes',
-  '4121': 'Transportes', '4131': 'Transportes', '7011': 'Viagens',
-  '4411': 'Viagens', '4511': 'Viagens', '7512': 'Viagens',
-  '7922': 'Lazer', '7832': 'Lazer', '7993': 'Lazer', '7999': 'Lazer',
-  '5945': 'Lazer', '5947': 'Lazer',
-  '4814': 'Utilities', '4899': 'Utilities', '4911': 'Utilities', '4941': 'Utilities',
-  '6011': 'Transferências', '6012': 'Transferências',
+  '5811': 'Restauração', '5441': 'Restauração', '5462': 'Restauração',
+  '5499': 'Restauração', '5921': 'Restauração',
+  // Compras / Supermercado
+  '5411': 'Compras', '5412': 'Compras', '5451': 'Compras',
+  '5311': 'Compras', '5331': 'Compras', '5999': 'Compras',
+  '5732': 'Compras', '5734': 'Compras', '5945': 'Compras',
+  '5200': 'Compras', '5251': 'Compras', '5261': 'Compras',
+  '5065': 'Compras', '5072': 'Compras', '5085': 'Compras',
+  '5940': 'Compras', '5941': 'Compras', '5942': 'Compras',
+  '5943': 'Compras', '5944': 'Compras', '5947': 'Compras',
+  '5948': 'Compras', '5949': 'Compras', '5977': 'Compras',
+  // Transportes
+  '5541': 'Transportes', '5542': 'Transportes',
+  '4111': 'Transportes', '4112': 'Transportes', '4121': 'Transportes',
+  '4131': 'Transportes', '4784': 'Transportes', '7523': 'Transportes',
+  '7511': 'Transportes', '4789': 'Transportes',
+  // Viagens
+  '7011': 'Viagens', '4411': 'Viagens', '4511': 'Viagens',
+  '7512': 'Viagens', '7513': 'Viagens', '4722': 'Viagens',
+  '4723': 'Viagens', '3000': 'Viagens', '3001': 'Viagens',
+  // Saúde
+  '5912': 'Saúde', '8011': 'Saúde', '8021': 'Saúde',
+  '8049': 'Saúde', '8099': 'Saúde', '8000': 'Saúde',
+  '8050': 'Saúde', '5047': 'Saúde', '5122': 'Saúde',
+  // Lazer / Entretenimento
+  '7922': 'Lazer', '7832': 'Lazer', '7993': 'Lazer',
+  '7999': 'Lazer', '7941': 'Lazer', '7991': 'Lazer',
+  '7996': 'Lazer', '7997': 'Lazer', '7998': 'Lazer',
+  '5815': 'Lazer', '5816': 'Lazer', '5817': 'Lazer', '5818': 'Lazer',
+  // Subscrições / Serviços digitais
+  '4899': 'Subscrições', '7372': 'Subscrições', '7374': 'Subscrições',
+  '7379': 'Subscrições', '5045': 'Subscrições',
+  // Utilities / Casa
+  '4814': 'Utilities', '4811': 'Utilities', '4900': 'Utilities',
+  '4911': 'Utilities', '4941': 'Utilities', '4952': 'Utilities',
+  '4961': 'Utilities', '4971': 'Utilities',
+  // Habitação
+  '6513': 'Habitação', '1520': 'Habitação', '1711': 'Habitação',
+  '1731': 'Habitação', '1750': 'Habitação', '1761': 'Habitação',
+  // Transferências / Serviços financeiros
+  '6011': 'Transferências', '6012': 'Transferências', '6051': 'Transferências',
+  '6211': 'Transferências', '6099': 'Transferências',
 }
+
+// Palavras-chave no descritivo → categoria (fallback quando MCC não está disponível)
+// Cobre os comerciantes mais comuns no Revolut Portugal
+const KEYWORD_MAP: { pattern: RegExp; cat: string }[] = [
+  // Subscrições digitais
+  { pattern: /spotify|netflix|apple\.com\/bill|apple\.com|itunes|google play|youtube|disney|hbo|prime video|amazon prime|deezer|tidal/i, cat: 'Subscrições' },
+  // Restauração
+  { pattern: /restaurant|restauran|cafe|café|coffee|pizza|burger|sushi|mcdonald|kfc|nando|subway|pastelaria|padaria|quiosque|tasca|taberna|cervejaria|snack|canteen|cantina|food|foods|kitchen|grill|brasserie|bistro|fortuny/i, cat: 'Restauração' },
+  // Transportes
+  { pattern: /uber|bolt|cabify|táxi|taxi|cp comboios|comboios|metro|carris|fertagus|via verde|rent a car|hertz|europcar|avis|sixt|parking|estacionamento/i, cat: 'Transportes' },
+  // Compras / Supermercado
+  { pattern: /continente|pingo doce|lidl|aldi|mercadona|jumbo|minipreço|intermarche|el corte|fnac|worten|leroy merlin|ikea|zara|h&m|primark|amazon|ebay/i, cat: 'Compras' },
+  // Saúde
+  { pattern: /farmácia|farmacia|pharmacy|clinica|clínica|hospital|médico|medico|dentista|dental|health|saúde/i, cat: 'Saúde' },
+  // Utilities
+  { pattern: /edp|galp|endesa|nos |meo |vodafone|nos fixo|internet|água|agua|gas |gás |electricidade|electric/i, cat: 'Utilities' },
+  // Habitação
+  { pattern: /renda|arrendamento|condominio|condomínio|imóvel|imovel|rent |aluguer/i, cat: 'Habitação' },
+  // Lazer
+  { pattern: /cinema|teatro|museu|museum|concert|concerto|ginásio|ginasio|gym|sport|fitness|clube|club|lazer/i, cat: 'Lazer' },
+  // Viagens
+  { pattern: /hotel|hostel|airbnb|booking\.com|expedia|ryanair|easyjet|tap |flixbus|comboio|train|flight|voo /i, cat: 'Viagens' },
+  // Deloitte → Receita/Salário (empregador conhecido)
+  { pattern: /deloitte|salary|salário|salario|vencimento|ordenado/i, cat: 'Receita' },
+]
 
 export function getMccCategory(mcc?: string): string | null {
   if (!mcc) return null
   return MCC_MAP[mcc] ?? null
+}
+
+// Tenta categorizar pelo descritivo usando palavras-chave conhecidas
+// Retorna null se não encontrar correspondência (passa ao Gemini)
+export function getKeywordCategory(descritivo: string, valor: number): string | null {
+  if (valor >= 0) return 'Receita'
+  for (const { pattern, cat } of KEYWORD_MAP) {
+    if (pattern.test(descritivo)) return cat
+  }
+  return null
 }
 
 // Busca transacções com paginação automática via continuation_key

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getEnableBankingBalance, getEnableBankingTransactions, getMccCategory } from '@/lib/enableBanking'
+import { getEnableBankingBalance, getEnableBankingTransactions, getMccCategory, getKeywordCategory } from '@/lib/enableBanking'
 import { getSupabaseAdmin, createNotification } from '@/lib/googleDrive'
 import { categorizeSingleTransaction } from '@/lib/geminiParse'
 
@@ -78,17 +78,16 @@ export async function POST(req: NextRequest) {
                 ?? t.creditor_account?.iban ?? t.debtor_account?.iban
                 ?? 'Transação'
 
-              // Categoria: MCC tem prioridade sobre regras e Gemini (mais preciso)
+              // Categorização: MCC → keyword → regras aprendidas → Gemini
               let categoria: string
               if (valor >= 0) {
                 categoria = 'Receita'
               } else {
                 const mccCat = getMccCategory(t.merchant_category_code)
-                if (mccCat) {
-                  categoria = mccCat
-                } else {
-                  categoria = await categorizeSingleTransaction(descritivo, valor, rules)
-                }
+                const kwCat = mccCat ? null : getKeywordCategory(descritivo, valor)
+                if (mccCat) categoria = mccCat
+                else if (kwCat) categoria = kwCat
+                else categoria = await categorizeSingleTransaction(descritivo, valor, rules)
               }
 
               return {
