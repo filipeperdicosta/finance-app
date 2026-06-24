@@ -266,7 +266,7 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
 
   // Shared axis config — identical structure to DynChart, 10px fonts
   const xAxis = <XAxis dataKey="m" tick={{fontSize:10,fill:'rgba(255,255,255,0.25)'}} axisLine={false} tickLine={false} interval={0} height={14} padding={{left:8,right:8}}/>
-  const margin = {top:4,right:4,bottom:0,left:0}
+  const margin = {top:8,right:6,bottom:0,left:10}
 
   if(mode==='patrimonio'){
     const netVals = trend.map(d=>d.net)
@@ -276,7 +276,7 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
     const domMin = netMin - pad
     const domMax = netMax + pad
     const midY = (domMin+domMax)/2
-    const yAxis = <YAxis orientation="right" axisLine={false} tickLine={false} domain={[domMin,domMax]} ticks={[midY,domMax]} tickFormatter={(v:number)=>compact(v)} tick={{fontSize:10,fill:'rgba(255,255,255,0.25)'}} width={36}/>
+    const yAxis = <YAxis orientation="right" axisLine={false} tickLine={false} domain={[domMin,domMax]} ticks={[midY,domMax]} tickFormatter={(v:number)=>compact(v)} tick={{fontSize:10,fill:'rgba(255,255,255,0.25)'}} width={32}/>
     return (
       <>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
@@ -311,7 +311,7 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
   // modo budget
   const maxVal = Math.max(...trend.map(d=>Math.max(d.rec,d.desp)), 0)
   const midVal = maxVal/2
-  const yAxis = <YAxis orientation="right" axisLine={false} tickLine={false} domain={[0,maxVal*1.05]} ticks={[midVal,maxVal]} tickFormatter={(v:number)=>compact(v)} tick={{fontSize:10,fill:'rgba(255,255,255,0.25)'}} width={36}/>
+  const yAxis = <YAxis orientation="right" axisLine={false} tickLine={false} domain={[0,maxVal*1.05]} ticks={[midVal,maxVal]} tickFormatter={(v:number)=>compact(v)} tick={{fontSize:10,fill:'rgba(255,255,255,0.25)'}} width={32}/>
   return (
     <>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
