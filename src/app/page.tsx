@@ -2449,8 +2449,8 @@ const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAllTxns,onRefre
   const view = computeView(accounts,transactions,tag,sel)
   const period = monthYearLabel(view.refMonth)
   const selName = tagAccs.find(a=>a.id===sel)?.nome.split(' ').slice(-1)[0]
-  const topCats = view.cats.slice(0,8)
-  const hasMore = view.cats.length>8
+  const topCats = view.cats.slice(0,9)
+  const hasMore = view.cats.length>9
 
   // Quando uma categoria está seleccionada, filtra gráfico + lista de transações abaixo
   const catTrend = useMemo(()=>{
@@ -2485,7 +2485,7 @@ const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAllTxns,onRefre
           <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase'}}>{sel?`Despesas — ${selName}`:'Despesas'}</span>
           <div style={{display:'flex',gap:10}}>
             {catSel&&<span onClick={()=>setCatSel(null)} style={{fontSize:12,color:pal.accent,fontWeight:600,cursor:'pointer'}}>✕ Ver tudo</span>}
-            {hasMore&&!catSel&&<span onClick={()=>setShowAllCats(true)} style={{fontSize:12,color:pal.accent,fontWeight:600,cursor:'pointer'}}>Ver todas →</span>}
+            {!catSel&&<span onClick={()=>setShowAllCats(true)} style={{fontSize:12,color:pal.accent,fontWeight:600,cursor:'pointer'}}>Ver todas →</span>}
           </div>
         </div>
         <Card>{topCats.length?topCats.map((c,i,a)=>{
