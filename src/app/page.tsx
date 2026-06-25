@@ -413,15 +413,12 @@ const Hero = ({pal,title,mainValue,mainColor,kpis,trend,period,mainSuffix,sparkM
           {mainSuffix&&<span style={{fontSize:12,color:'rgba(255,255,255,0.3)'}}>{mainSuffix}</span>}
         </div>
       </div>
-      {onPrev ? (
-        <div style={{display:'flex',alignItems:'center',gap:4,marginTop:2}}>
-          <button onClick={onPrev} style={{background:'none',border:'none',cursor:'pointer',color:'rgba(255,255,255,0.5)',fontSize:18,lineHeight:1,padding:'0 2px'}}>‹</button>
-          <span style={{fontSize:11,color:'rgba(255,255,255,0.45)',fontWeight:600,minWidth:52,textAlign:'center'}}>{period}</span>
-          <button onClick={onNext} disabled={!canNext} style={{background:'none',border:'none',cursor:canNext?'pointer':'default',color:canNext?'rgba(255,255,255,0.5)':'rgba(255,255,255,0.15)',fontSize:18,lineHeight:1,padding:'0 2px'}}>›</button>
-        </div>
-      ) : (
-        <div style={{fontSize:11,color:'rgba(255,255,255,0.45)',fontWeight:500,marginTop:4}}>{period}</div>
-      )}
+      {/* Período sempre alinhado ao topo com altura fixa igual ao título — com ou sem setas */}
+      <div style={{display:'flex',alignItems:'center',gap:4,height:16,marginTop:1}}>
+        {onPrev&&<button onClick={onPrev} style={{background:'none',border:'none',cursor:'pointer',color:'rgba(255,255,255,0.5)',fontSize:18,lineHeight:1,padding:'0 2px'}}>‹</button>}
+        <span style={{fontSize:11,color:'rgba(255,255,255,0.45)',fontWeight:600,minWidth:52,textAlign:'center'}}>{period}</span>
+        {onNext&&<button onClick={onNext} disabled={!canNext} style={{background:'none',border:'none',cursor:canNext?'pointer':'default',color:canNext?'rgba(255,255,255,0.5)':'rgba(255,255,255,0.15)',fontSize:18,lineHeight:1,padding:'0 2px'}}>›</button>}
+      </div>
     </div>
     <div style={{display:'grid',gridTemplateColumns:`repeat(${kpis.length},1fr)`,gap:6,marginBottom:14}}>
       {kpis.map((k,i)=>(<div key={i} style={{background:'rgba(255,255,255,0.08)',borderRadius:10,padding:'9px 10px'}}><div style={{fontSize:9,color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:600,marginBottom:3}}>{k.l}</div><div style={{fontSize:kpis.length===4?11:12,fontWeight:700,color:k.c,fontFamily:T.mono}}>{k.v}</div></div>))}
@@ -2763,7 +2760,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
   const imoveisKpis = [
     {l:'Rendas',v:dec(totRenda),c:'#4ADE80'},
     {l:'Custos',v:dec(totCusto),c:'#F87171'},
-    {l:'Resultado mês',v:sgn(totRes),c:totRes>=0?'#4ADE80':'#F87171'},
+    {l:'Saldo mês',v:sgn(totRes),c:totRes>=0?'#4ADE80':'#F87171'},
   ]
 
   // Fila por associar
@@ -2922,15 +2919,14 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
 
 const PatrimonioScreen = ({accounts,imoveis,transactions,pal}:{accounts:Account[],imoveis:Imovel[],transactions:Transaction[],pal:{grad:string,accent:string,soft:string}}) => {
   const [showValoriz,setShowValoriz] = useState(false)
-  // Soma saldos por tag (respeita sinal do cartão de crédito)
+  const [monthOffset,setMonthOffset] = useState(0)
+
   const sumTag = (tag:string) => accounts.filter(a=>a.budget_tag===tag).reduce((s,a)=>s+accountSaldo(a),0)
-  // Quota = soma de (saldo × ownership_pct) por conta
   const quotaTag = (tag:string) => accounts.filter(a=>a.budget_tag===tag).reduce((s,a)=>s+accountSaldo(a)*(a.ownership_pct/100),0)
 
   const pesSaldo=sumTag('pessoal'), famSaldo=sumTag('familiar'), invSaldo=sumTag('investimento')
   const pesQuota=quotaTag('pessoal'), famQuota=quotaTag('familiar'), invQuota=quotaTag('investimento')
 
-  // Valorização dos imóveis: bruto (100%) e quota (× ownership de cada imóvel)
   const valorizBruto = imoveis.reduce((s,im)=>s+(im.valorizacao||0),0)
   const valorizQuota = imoveis.reduce((s,im)=>s+(im.valorizacao||0)*(im.ownership_pct/100),0)
 
@@ -2945,13 +2941,21 @@ const PatrimonioScreen = ({accounts,imoveis,transactions,pal}:{accounts:Account[
   const totalBruto=pesSaldo+famSaldo+invSaldo+(showValoriz?valorizBruto:0)
   const minhaQuota=pesQuota+famQuota+invQuota+(showValoriz?valorizQuota:0)
   const now=new Date()
-  // Usa o mesmo mês de referência que as outras tabs (mês com dados mais recente)
-  // para que todos os gráficos mostrem o mesmo intervalo de meses
-  const refMonth = latestMonthWithData(transactions) ?? `${now.getFullYear()}-${String(now.getMonth()).padStart(2,'0')}`
+  const latestMonth = latestMonthWithData(transactions) ?? `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`
+
+  // Mês de referência ajustado pelo offset
+  const refMonth = (() => {
+    const [ly,lm] = latestMonth.split('-').map(Number)
+    const d = new Date(ly,lm-1,1); d.setMonth(d.getMonth()+monthOffset)
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
+  })()
+  const canGoForward = monthOffset < 0
+  const period = monthYearLabel(refMonth)
+
   const trend=Array.from({length:5},(_,i)=>({m:getMonthLabel(i-4,refMonth),rec:totalBruto*(0.9+i*.025),desp:0,net:totalBruto*(0.9+i*.025)}))
   return (
     <div>
-      <Hero pal={pal} title="Património — Saldos" period={`${MONTHS_FULL[now.getMonth()]} ${now.getFullYear()}`} mainValue={big(minhaQuota)} mainColor={minhaQuota<0?'#FCA5A5':'#FFF'} trend={trend} kpis={[{l:'Total bruto',v:big(totalBruto),c:'rgba(255,255,255,0.45)'},{l:'A tua quota',v:big(minhaQuota),c:'#FFF'},{l:'Contas',v:String(accounts.length),c:'rgba(255,255,255,0.7)'}]} sparkMode="patrimonio"/>
+      <Hero pal={pal} title="Património — Saldos" period={period} mainValue={big(minhaQuota)} mainColor={minhaQuota<0?'#FCA5A5':'#FFF'} trend={trend} kpis={[{l:'Total bruto',v:big(totalBruto),c:'rgba(255,255,255,0.45)'},{l:'A tua quota',v:big(minhaQuota),c:'#FFF'},{l:'Contas',v:String(accounts.length),c:'rgba(255,255,255,0.7)'}]} sparkMode="patrimonio" onPrev={()=>setMonthOffset(o=>o-1)} onNext={()=>{if(canGoForward)setMonthOffset(o=>o+1)}} canNext={canGoForward}/>
 
       {/* Toggle valorização */}
       {valorizBruto>0&&(
