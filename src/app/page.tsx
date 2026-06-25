@@ -265,11 +265,10 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
   const hasData = mode==='patrimonio' ? trend.some(d=>d.net!==0) : trend.some(d=>d.rec>0||d.desp>0)
 
   // Shared axis config — identical structure to DynChart, 10px fonts
-  const xAxis = <XAxis dataKey="m" tick={{fontSize:10,fill:'rgba(255,255,255,0.25)'}} axisLine={false} tickLine={false} interval={0} height={14} padding={{left:8,right:8}}/>
-  // budget mode uses left:10 (ComposedChart with Bar reserves its own space)
-  // patrimonio mode uses left:39 (LineChart pure — same as DynChart validated values)
+  const xAxis = <XAxis dataKey="m" tick={{fontSize:10,fill:'rgba(255,255,255,0.25)'}} axisLine={false} tickLine={false} interval={0} height={18} padding={{left:8,right:8}}/>
   const marginBudget = {top:8,right:6,bottom:0,left:10}
-  const marginLine   = {top:8,right:6,bottom:0,left:39}
+  const marginLine   = {top:8,right:6,bottom:0,left:0}
+  const xAxisLine = <XAxis dataKey="m" tick={{fontSize:10,fill:'rgba(255,255,255,0.25)'}} axisLine={false} tickLine={false} interval={0} height={18} padding={{left:39,right:8}}/>
 
   if(mode==='patrimonio'){
     const netVals = trend.map(d=>d.net)
@@ -293,7 +292,7 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
         ):(
           <ResponsiveContainer width="100%" height={66}>
             <LineChart data={trend} margin={marginLine}>
-              {xAxis}{yAxis}
+              {xAxisLine}{yAxis}
               <ReferenceLine y={midY} stroke="rgba(255,255,255,0.12)" strokeWidth={1} ifOverflow="visible"/>
               <ReferenceLine y={domMax} stroke="rgba(255,255,255,0.12)" strokeWidth={1} ifOverflow="visible"/>
               <Tooltip
@@ -357,8 +356,8 @@ const Toggle = ({val,set,accent}:{val:string,set:(v:string)=>void,accent:string}
 )
 const DynChart = ({data,type}:{data:{m:string,rec:number,desp:number}[],type:string}) => {
   const tip = <Tooltip contentStyle={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,fontSize:12}} formatter={(v:any,k:string)=>[dec(v),k==='rec'?'Receitas':'Despesas']} labelStyle={{color:T.text,fontWeight:600}} cursor={{fill:'rgba(255,255,255,0.03)'}}/>
-  const ax = <XAxis dataKey="m" tick={{fontSize:10,fill:T.textSec}} axisLine={false} tickLine={false} interval={0} padding={{left:8,right:8}}/>
-  const margin = {top:8,right:6,bottom:0,left:39}
+  const ax = <XAxis dataKey="m" tick={{fontSize:10,fill:T.textSec}} axisLine={false} tickLine={false} interval={0} padding={{left:39,right:8}}/>
+  const margin = {top:8,right:6,bottom:0,left:0}
   const maxVal = Math.max(...data.map(d=>Math.max(d.rec,d.desp)), 0)
   const hasData = maxVal>0
   const midVal = maxVal/2
@@ -2760,20 +2759,21 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
   const getImCusto = (id:string) => transactions.filter(t=>t.imovel_id===id&&matchAcc(t)&&t.data.startsWith(ym)&&t.valor<0).reduce((s,t)=>s+Math.abs(t.valor),0)
   const linkedAccounts = (imovelId:string) => new Set(contaImovel.filter(ci=>ci.imovel_id===imovelId).map(ci=>ci.account_id))
 
-  const totRenda=imoveis.reduce((s,im)=>s+getImRenda(im.id),0)
-  const totCusto=imoveis.reduce((s,im)=>s+getImCusto(im.id),0)
+  // KPIs: quando há imóvel seleccionado, mostra só esse; caso contrário, todos
+  const imovelList = selImovel ? imoveis.filter(im=>im.id===selImovel) : imoveis
+  const totRenda=imovelList.reduce((s,im)=>s+getImRenda(im.id),0)
+  const totCusto=imovelList.reduce((s,im)=>s+getImCusto(im.id),0)
   const totRes=totRenda-totCusto
   const ativos=imoveis.filter(im=>im.ativo).length
 
-  // Saldo da(s) conta(s) de investimento — é o valor principal do Hero, igual às outras tabs
-  // (a conta corrente carrega o histórico/"bagagem" anterior, não só o resultado do mês)
+  // Saldo da(s) conta(s) de investimento
   const saldoContas = (selAcc ? investAccounts.filter(a=>a.id===selAcc) : investAccounts).reduce((s,a)=>s+accountSaldo(a),0)
 
   // Valorização total (100%) e toggle
   const [showValoriz,setShowValoriz] = useState(false)
-  const totValoriz = imoveis.reduce((s,im)=>s+(im.valorizacao||0),0)
+  const totValoriz = imovelList.reduce((s,im)=>s+(im.valorizacao||0),0)
 
-  // KPIs do hero — 4º KPI muda conforme o toggle
+  // KPIs do hero
   const imoveisKpis = [
     {l:'Rendas',v:dec(totRenda),c:'#4ADE80'},
     {l:'Custos',v:dec(totCusto),c:'#F87171'},
@@ -2783,16 +2783,18 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
   // Fila por associar
   const porAssociar = transactions.filter(t=>investAccountIds.has(t.account_id) && !t.imovel_classificado)
 
-  // Transações recentes das contas de investimento (filtradas por conta selecionada)
+  // Transações recentes filtradas por conta e imóvel
   const recentTxns = transactions.filter(t=>investAccountIds.has(t.account_id) && matchAcc(t) && matchImovel(t)).slice(0,8)
 
+  // Sparkline: filtra por imóvel seleccionado quando aplicável
   const trend=imovelTxnsScope.length?Array.from({length:5},(_,i)=>{
     const offset=i-4
     const [ry,rm] = ym.split('-').map(Number)
     const d = new Date(ry,rm-1,1); d.setMonth(d.getMonth()+offset)
     const ym2=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
-    const mRec=transactions.filter(t=>t.imovel_id&&matchAcc(t)&&t.data.startsWith(ym2)&&t.valor>0).reduce((s,t)=>s+t.valor,0)
-    const mDesp=transactions.filter(t=>t.imovel_id&&matchAcc(t)&&t.data.startsWith(ym2)&&t.valor<0).reduce((s,t)=>s+Math.abs(t.valor),0)
+    const baseTxns = transactions.filter(t=>investAccountIds.has(t.account_id)&&matchAcc(t)&&matchImovel(t)&&t.data.startsWith(ym2))
+    const mRec=baseTxns.filter(t=>t.valor>0).reduce((s,t)=>s+t.valor,0)
+    const mDesp=baseTxns.filter(t=>t.valor<0).reduce((s,t)=>s+Math.abs(t.valor),0)
     return{m:getMonthLabel(offset,ym),rec:mRec,desp:mDesp,net:mRec-mDesp}
   }):[]
 
