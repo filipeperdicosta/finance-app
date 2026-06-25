@@ -333,7 +333,9 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
           <div style={{position:'absolute',top:'50%',right:0,transform:'translateY(-50%)',fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(midVal)}</div>
         </div>
       )}
-      <div style={{height:16}}/>
+      <div style={{display:'flex',justifyContent:'space-between',marginTop:4,paddingRight:28}}>
+        {trend.map((d,i)=><span key={i} style={{fontSize:9,color:'rgba(255,255,255,0.2)',flex:1,textAlign:'center'}}>{d.m}</span>)}
+      </div>
     </>
   )
 }
