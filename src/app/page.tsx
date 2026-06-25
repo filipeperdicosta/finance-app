@@ -289,7 +289,7 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={trend} margin={{top:4,right:28,bottom:0,left:0}}>
                 <YAxis hide domain={[domMin,domMax]}/>
-                <XAxis dataKey="m" tick={{fontSize:9,fill:'rgba(255,255,255,0.2)'}} axisLine={false} tickLine={false} interval={0} height={14}/>
+                <XAxis dataKey="m" tick={{fontSize:9,fill:'rgba(255,255,255,0.2)'}} axisLine={false} tickLine={false} interval={0} height={14} padding={{left:12,right:0}}/>
                 <ReferenceLine y={midY} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
                 <ReferenceLine y={domMax} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
                 <Tooltip contentStyle={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,fontSize:11,padding:'6px 10px'}} itemStyle={{padding:0}} formatter={(v:any)=>[dec(v),'Património']} labelStyle={{color:T.text,fontWeight:600,fontSize:11,marginBottom:2}} cursor={{stroke:'rgba(255,255,255,0.15)',strokeWidth:1}}/>
@@ -2789,12 +2789,6 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
   return (
     <div>
       <Hero pal={pal} title={selImovel ? `Imóvel — ${imoveis.find(i=>i.id===selImovel)?.nome??''}` : 'Conta Corrente Imóveis'} period={monthYearLabel(ym)} mainValue={big(saldoContas)} mainColor={saldoContas<0?'#FCA5A5':'#FFF'} trend={trend} kpis={imoveisKpis} onPrev={()=>setMonthOffset(o=>o-1)} onNext={()=>{if(canGoForward)setMonthOffset(o=>o+1)}} canNext={canGoForward}/>
-      {selImovel&&(
-        <div style={{display:'flex',justifyContent:'flex-end',marginTop:-10,marginBottom:10}}>
-          <button onClick={()=>setSelImovel(null)} style={{background:'none',border:'none',cursor:'pointer',fontSize:12,color:pal.accent,fontWeight:600}}>✕ Ver todos os imóveis</button>
-        </div>
-      )}
-
       {/* Toggle valorização */}
       <div onClick={()=>setShowValoriz(v=>!v)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 16px',background:showValoriz?pal.soft:T.surface,borderRadius:12,border:`1px solid ${showValoriz?pal.accent:T.border}`,marginBottom:16,cursor:'pointer',transition:'all 0.15s'}}>
         <div style={{flex:1}}>
@@ -2836,7 +2830,10 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
       {/* ── POR IMÓVEL ── */}
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'0 2px'}}>
         <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase'}}>Por imóvel</span>
-        <button onClick={()=>{setEditing(null);setFormOpen(true)}} style={{display:'flex',alignItems:'center',gap:4,background:pal.soft,border:'none',borderRadius:8,padding:'4px 10px',cursor:'pointer'}}><Plus size={12} color={pal.accent}/><span style={{fontSize:11,color:pal.accent,fontWeight:600}}>Adicionar</span></button>
+        <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          {selImovel&&<button onClick={()=>setSelImovel(null)} style={{background:'none',border:'none',cursor:'pointer',fontSize:11,color:pal.accent,fontWeight:600}}>✕ Ver todos</button>}
+          <button onClick={()=>{setEditing(null);setFormOpen(true)}} style={{display:'flex',alignItems:'center',gap:4,background:pal.soft,border:'none',borderRadius:8,padding:'4px 10px',cursor:'pointer'}}><Plus size={12} color={pal.accent}/><span style={{fontSize:11,color:pal.accent,fontWeight:600}}>Adicionar</span></button>
+        </div>
       </div>
       {imoveis.length===0&&<Card style={{marginBottom:20}}><div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem imóveis ainda. Toca em "Adicionar" para criar o primeiro.</div></Card>}
       {imoveis.map(im=>{
