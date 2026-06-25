@@ -281,15 +281,15 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
           <Leg c="rgba(255,255,255,0.7)" l="Património" line/>
         </div>
         {!hasData?(
-          <div style={{height:50,display:'flex',alignItems:'center',justifyContent:'center'}}>
+          <div style={{height:62,display:'flex',alignItems:'center',justifyContent:'center'}}>
             <span style={{fontSize:11,color:'rgba(255,255,255,0.25)'}}>Sem dados neste período</span>
           </div>
         ):(
-          <div style={{position:'relative',height:50}}>
+          <div style={{position:'relative',height:62}}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={trend} margin={{top:4,right:28,bottom:0,left:0}}>
                 <YAxis hide domain={[domMin,domMax]}/>
-                <XAxis dataKey="m" hide/>
+                <XAxis dataKey="m" tick={{fontSize:9,fill:'rgba(255,255,255,0.2)'}} axisLine={false} tickLine={false} interval={0} height={14}/>
                 <ReferenceLine y={midY} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
                 <ReferenceLine y={domMax} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
                 <Tooltip contentStyle={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,fontSize:11,padding:'6px 10px'}} itemStyle={{padding:0}} formatter={(v:any)=>[dec(v),'Património']} labelStyle={{color:T.text,fontWeight:600,fontSize:11,marginBottom:2}} cursor={{stroke:'rgba(255,255,255,0.15)',strokeWidth:1}}/>
@@ -300,9 +300,6 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
             <div style={{position:'absolute',top:'50%',right:0,transform:'translateY(-50%)',fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(midY)}</div>
           </div>
         )}
-        <div style={{display:'flex',justifyContent:'space-between',marginTop:4,paddingRight:28}}>
-          {trend.map((d,i)=><span key={i} style={{fontSize:9,color:'rgba(255,255,255,0.2)',flex:1,textAlign:'center'}}>{d.m}</span>)}
-        </div>
       </>
     )
   }
@@ -2847,7 +2844,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
         const nLinks=contaImovel.filter(ci=>ci.imovel_id===im.id).length
         const temValoriz=(im.valorizacao||0)>0
         return (
-          <div key={im.id} onClick={()=>setSelImovel(s=>s===im.id?null:im.id)} style={{background:pos?PROP_GRAD.pos:PROP_GRAD.neg,borderRadius:14,padding:'15px 16px',marginBottom:10,border:selImovel===im.id?`2px solid ${pal.accent}`:'1px solid rgba(255,255,255,0.06)',cursor:'pointer',transition:'border 0.15s'}}>
+          <div key={im.id} onClick={()=>setSelImovel(s=>s===im.id?null:im.id)} style={{background:pos?PROP_GRAD.pos:PROP_GRAD.neg,borderRadius:14,padding:'15px 16px',marginBottom:10,border:'1px solid rgba(255,255,255,0.06)',borderLeft:selImovel===im.id?`4px solid ${pal.accent}`:'1px solid rgba(255,255,255,0.06)',cursor:'pointer',transition:'border-left 0.15s'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12}}>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:14,fontWeight:700,color:'#FFF'}}>{im.nome}</div>
