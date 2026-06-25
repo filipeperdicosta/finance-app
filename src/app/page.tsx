@@ -281,11 +281,11 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
           <Leg c="rgba(255,255,255,0.7)" l="Património" line/>
         </div>
         {!hasData?(
-          <div style={{height:62,display:'flex',alignItems:'center',justifyContent:'center'}}>
+          <div style={{height:50,display:'flex',alignItems:'center',justifyContent:'center'}}>
             <span style={{fontSize:11,color:'rgba(255,255,255,0.25)'}}>Sem dados neste período</span>
           </div>
         ):(
-          <div style={{position:'relative',height:62}}>
+          <div style={{position:'relative',height:50}}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={trend} margin={{top:4,right:28,bottom:0,left:0}}>
                 <YAxis hide domain={[domMin,domMax]}/>
@@ -2919,7 +2919,6 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
 
 const PatrimonioScreen = ({accounts,imoveis,transactions,pal}:{accounts:Account[],imoveis:Imovel[],transactions:Transaction[],pal:{grad:string,accent:string,soft:string}}) => {
   const [showValoriz,setShowValoriz] = useState(false)
-  const [monthOffset,setMonthOffset] = useState(0)
 
   const sumTag = (tag:string) => accounts.filter(a=>a.budget_tag===tag).reduce((s,a)=>s+accountSaldo(a),0)
   const quotaTag = (tag:string) => accounts.filter(a=>a.budget_tag===tag).reduce((s,a)=>s+accountSaldo(a)*(a.ownership_pct/100),0)
@@ -2941,21 +2940,12 @@ const PatrimonioScreen = ({accounts,imoveis,transactions,pal}:{accounts:Account[
   const totalBruto=pesSaldo+famSaldo+invSaldo+(showValoriz?valorizBruto:0)
   const minhaQuota=pesQuota+famQuota+invQuota+(showValoriz?valorizQuota:0)
   const now=new Date()
-  const latestMonth = latestMonthWithData(transactions) ?? `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`
-
-  // Mês de referência ajustado pelo offset
-  const refMonth = (() => {
-    const [ly,lm] = latestMonth.split('-').map(Number)
-    const d = new Date(ly,lm-1,1); d.setMonth(d.getMonth()+monthOffset)
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
-  })()
-  const canGoForward = monthOffset < 0
+  const refMonth = latestMonthWithData(transactions) ?? `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`
   const period = monthYearLabel(refMonth)
-
   const trend=Array.from({length:5},(_,i)=>({m:getMonthLabel(i-4,refMonth),rec:totalBruto*(0.9+i*.025),desp:0,net:totalBruto*(0.9+i*.025)}))
   return (
     <div>
-      <Hero pal={pal} title="Património — Saldos" period={period} mainValue={big(minhaQuota)} mainColor={minhaQuota<0?'#FCA5A5':'#FFF'} trend={trend} kpis={[{l:'Total bruto',v:big(totalBruto),c:'rgba(255,255,255,0.45)'},{l:'A tua quota',v:big(minhaQuota),c:'#FFF'},{l:'Contas',v:String(accounts.length),c:'rgba(255,255,255,0.7)'}]} sparkMode="patrimonio" onPrev={()=>setMonthOffset(o=>o-1)} onNext={()=>{if(canGoForward)setMonthOffset(o=>o+1)}} canNext={canGoForward}/>
+      <Hero pal={pal} title="Património — Saldos" period={period} mainValue={big(minhaQuota)} mainColor={minhaQuota<0?'#FCA5A5':'#FFF'} trend={trend} kpis={[{l:'Total bruto',v:big(totalBruto),c:'rgba(255,255,255,0.45)'},{l:'A tua quota',v:big(minhaQuota),c:'#FFF'},{l:'Contas',v:String(accounts.length),c:'rgba(255,255,255,0.7)'}]} sparkMode="patrimonio"/>
 
       {/* Toggle valorização */}
       {valorizBruto>0&&(
