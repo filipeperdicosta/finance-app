@@ -281,11 +281,11 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
           <Leg c="rgba(255,255,255,0.7)" l="Património" line/>
         </div>
         {!hasData?(
-          <div style={{height:50,display:'flex',alignItems:'center',justifyContent:'center'}}>
+          <div style={{height:64,display:'flex',alignItems:'center',justifyContent:'center'}}>
             <span style={{fontSize:11,color:'rgba(255,255,255,0.25)'}}>Sem dados neste período</span>
           </div>
         ):(
-          <div style={{position:'relative',height:50}}>
+          <div style={{position:'relative',height:64}}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={trend} margin={{top:4,right:28,bottom:0,left:0}}>
                 <YAxis hide domain={[domMin,domMax]}/>
