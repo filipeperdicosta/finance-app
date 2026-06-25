@@ -403,7 +403,7 @@ const TrendTile = ({data,accent,catFilter}:{data:{m:string,rec:number,desp:numbe
         <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase',whiteSpace:'nowrap'}}>{catFilter?`Evolução — ${catFilter}`:'Evolução mensal'}</span>
         <Toggle val={type} set={setType} accent={accent}/>
       </div>
-      <Card style={{padding:'14px 14px 8px'}}><DynChart data={data} type={type}/></Card>
+      <Card style={{padding:'14px 14px 8px',background:'rgba(255,255,255,0.03)'}}><DynChart data={data} type={type}/></Card>
     </div>
   )
 }
@@ -1701,7 +1701,7 @@ const DriveFileSelectScreen = ({account,onClose,onRefresh,pal}:{account:Account,
   const reimportSelected = async () => {
     if(selectedForReimport.size===0) return
     if(!confirm(`Marcar ${selectedForReimport.size} ficheiro${selectedForReimport.size>1?'s':''} para reimportar? As transações já guardadas não são apagadas — apaga-as primeiro em "Ver todas" se necessário.`)) return
-    await Promise.all([...selectedForReimport].map(id=>resetDriveFileImport(account.id, id)))
+    await Promise.all(Array.from(selectedForReimport).map(id=>resetDriveFileImport(account.id, id)))
     setSelectedForReimport(new Set())
     setReimportMode(false)
     await load()
