@@ -2732,13 +2732,16 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
   const [showQueue,setShowQueue] = useState(false)
   const [editTxn,setEditTxn] = useState<Transaction|null>(null)
   const [selAcc,setSelAcc] = useState<string|null>(null)
+  const [selImovel,setSelImovel] = useState<string|null>(null)
   const [monthOffset,setMonthOffset] = useState(0)
 
   const investAccounts = accounts.filter(a=>a.budget_tag==='investimento')
   const investAccountIds = new Set(investAccounts.map(a=>a.id))
 
   const matchAcc = (t:Transaction) => selAcc ? t.account_id===selAcc : true
-  const imovelTxnsScope = transactions.filter(t=>investAccountIds.has(t.account_id)&&matchAcc(t))
+  // Filtra por imóvel seleccionado se houver
+  const matchImovel = (t:Transaction) => selImovel ? t.imovel_id===selImovel : true
+  const imovelTxnsScope = transactions.filter(t=>investAccountIds.has(t.account_id)&&matchAcc(t)&&matchImovel(t))
   const latestMonth = latestMonthWithData(imovelTxnsScope) ?? `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}`
 
   // Mês actual ajustado pelo offset de navegação
@@ -2749,7 +2752,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
   })()
   const canGoForward = monthOffset < 0
 
-  // Renda/custos por imóvel
+  // Renda/custos por imóvel (respeita filtro de imóvel seleccionado)
   const getImRenda = (id:string) => transactions.filter(t=>t.imovel_id===id&&matchAcc(t)&&t.data.startsWith(ym)&&t.valor>0).reduce((s,t)=>s+t.valor,0)
   const getImCusto = (id:string) => transactions.filter(t=>t.imovel_id===id&&matchAcc(t)&&t.data.startsWith(ym)&&t.valor<0).reduce((s,t)=>s+Math.abs(t.valor),0)
   const linkedAccounts = (imovelId:string) => new Set(contaImovel.filter(ci=>ci.imovel_id===imovelId).map(ci=>ci.account_id))
@@ -2778,7 +2781,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
   const porAssociar = transactions.filter(t=>investAccountIds.has(t.account_id) && !t.imovel_classificado)
 
   // Transações recentes das contas de investimento (filtradas por conta selecionada)
-  const recentTxns = transactions.filter(t=>investAccountIds.has(t.account_id) && matchAcc(t)).slice(0,8)
+  const recentTxns = transactions.filter(t=>investAccountIds.has(t.account_id) && matchAcc(t) && matchImovel(t)).slice(0,8)
 
   const trend=imovelTxnsScope.length?Array.from({length:5},(_,i)=>{
     const offset=i-4
@@ -2794,7 +2797,12 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
 
   return (
     <div>
-      <Hero pal={pal} title="Conta Corrente Imóveis" period={monthYearLabel(ym)} mainValue={big(saldoContas)} mainColor={saldoContas<0?'#FCA5A5':'#FFF'} trend={trend} kpis={imoveisKpis} onPrev={()=>setMonthOffset(o=>o-1)} onNext={()=>{if(canGoForward)setMonthOffset(o=>o+1)}} canNext={canGoForward}/>
+      <Hero pal={pal} title={selImovel ? `Imóvel — ${imoveis.find(i=>i.id===selImovel)?.nome??''}` : 'Conta Corrente Imóveis'} period={monthYearLabel(ym)} mainValue={big(saldoContas)} mainColor={saldoContas<0?'#FCA5A5':'#FFF'} trend={trend} kpis={imoveisKpis} onPrev={()=>setMonthOffset(o=>o-1)} onNext={()=>{if(canGoForward)setMonthOffset(o=>o+1)}} canNext={canGoForward}/>
+      {selImovel&&(
+        <div style={{display:'flex',justifyContent:'flex-end',marginTop:-10,marginBottom:10}}>
+          <button onClick={()=>setSelImovel(null)} style={{background:'none',border:'none',cursor:'pointer',fontSize:12,color:pal.accent,fontWeight:600}}>✕ Ver todos os imóveis</button>
+        </div>
+      )}
 
       {/* Toggle valorização */}
       <div onClick={()=>setShowValoriz(v=>!v)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 16px',background:showValoriz?pal.soft:T.surface,borderRadius:12,border:`1px solid ${showValoriz?pal.accent:T.border}`,marginBottom:16,cursor:'pointer',transition:'all 0.15s'}}>
@@ -2845,7 +2853,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
         const nLinks=contaImovel.filter(ci=>ci.imovel_id===im.id).length
         const temValoriz=(im.valorizacao||0)>0
         return (
-          <div key={im.id} style={{background:pos?PROP_GRAD.pos:PROP_GRAD.neg,borderRadius:14,padding:'15px 16px',marginBottom:10,border:'1px solid rgba(255,255,255,0.06)'}}>
+          <div key={im.id} onClick={()=>setSelImovel(s=>s===im.id?null:im.id)} style={{background:pos?PROP_GRAD.pos:PROP_GRAD.neg,borderRadius:14,padding:'15px 16px',marginBottom:10,border:selImovel===im.id?`2px solid ${pal.accent}`:'1px solid rgba(255,255,255,0.06)',cursor:'pointer',transition:'border 0.15s'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12}}>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:14,fontWeight:700,color:'#FFF'}}>{im.nome}</div>
@@ -2856,7 +2864,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
                   <div style={{fontSize:19,fontWeight:700,color:pos?T.green:T.red,fontFamily:T.mono}}>{pos?'+ ':'− '}{dec(Math.abs(res))}</div>
                   <div style={{fontSize:9,color:'rgba(255,255,255,0.28)',marginTop:1}}>resultado/mês</div>
                 </div>
-                <button onClick={()=>{setEditing(im);setFormOpen(true)}} style={{background:'rgba(255,255,255,0.1)',border:'none',borderRadius:8,padding:6,cursor:'pointer'}}><Edit2 size={13} color="#FFF"/></button>
+                <button onClick={e=>{e.stopPropagation();setEditing(im);setFormOpen(true)}} style={{background:'rgba(255,255,255,0.1)',border:'none',borderRadius:8,padding:6,cursor:'pointer'}}><Edit2 size={13} color="#FFF"/></button>
               </div>
             </div>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6,marginBottom:(showValoriz&&temValoriz)?10:0}}>
@@ -2897,9 +2905,9 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
 
       {/* ── TRANSAÇÕES ── */}
       <div style={{marginBottom:20}}>
-        <Lbl title={selAcc?`Transações — ${investAccounts.find(a=>a.id===selAcc)?.nome.split(' ').slice(-1)[0]}`:'Últimas transações'} action="Ver todas →" accent={pal.accent} onAction={onViewAll}/>
+        <Lbl title={selImovel?`Transações — ${imoveis.find(i=>i.id===selImovel)?.nome??''}`:(selAcc?`Transações — ${investAccounts.find(a=>a.id===selAcc)?.nome.split(' ').slice(-1)[0]}`:'Últimas transações')} action="Ver todas →" accent={pal.accent} onAction={onViewAll}/>
         <Card>
-          {recentTxns.length===0&&<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem transações. Importa um extracto de uma conta de investimento.</div>}
+          {recentTxns.length===0&&<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>{selImovel?'Sem transações para este imóvel neste mês.':'Sem transações. Importa um extracto de uma conta de investimento.'}</div>}
           {recentTxns.map((t,i)=>{
             const imN = imovelNome(t.imovel_id)
             return (
