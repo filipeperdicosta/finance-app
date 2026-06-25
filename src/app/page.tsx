@@ -826,10 +826,21 @@ const LoginScreen = ({onLogin}:{onLogin:()=>void}) => {
       <div style={{width:'100%',maxWidth:360}}>
         <div style={{textAlign:'center',marginBottom:40}}><div style={{fontSize:32,fontWeight:800,color:T.text,letterSpacing:'-0.03em'}}>Finance<span style={{color:PAL.familiar.accent}}>.</span></div><div style={{fontSize:14,color:T.textSec,marginTop:8}}>Controlo financeiro pessoal</div></div>
         <Card style={{padding:24}}>
-          <Inp label="Email" value={email} onChange={setEmail} placeholder="o-teu@email.com" type="email"/>
-          <Inp label="Password" value={pass} onChange={setPass} placeholder="••••••••" type="password"/>
-          {err&&<div style={{fontSize:12,color:T.red,marginBottom:12}}>{err}</div>}
-          <button onClick={login} disabled={loading} style={{width:'100%',background:PAL.familiar.accent,color:'#0B0B12',border:'none',borderRadius:10,padding:'12px',fontSize:14,fontWeight:700,cursor:'pointer'}}>{loading?'A entrar…':'Entrar'}</button>
+          {/* form real para que browsers/iOS/Android ofereçam guardar a password */}
+          <form onSubmit={e=>{e.preventDefault();login()}} autoComplete="on">
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:11,color:T.textSec,fontWeight:600,marginBottom:5,textTransform:'uppercase',letterSpacing:'0.06em'}}>Email</div>
+              <input name="email" type="email" autoComplete="username email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="o-teu@email.com"
+                style={{width:'100%',background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,padding:'10px 12px',color:T.text,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+            </div>
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:11,color:T.textSec,fontWeight:600,marginBottom:5,textTransform:'uppercase',letterSpacing:'0.06em'}}>Password</div>
+              <input name="password" type="password" autoComplete="current-password" value={pass} onChange={e=>setPass(e.target.value)} placeholder="••••••••"
+                style={{width:'100%',background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,padding:'10px 12px',color:T.text,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
+            </div>
+            {err&&<div style={{fontSize:12,color:T.red,marginBottom:12}}>{err}</div>}
+            <button type="submit" disabled={loading} style={{width:'100%',background:PAL.familiar.accent,color:'#0B0B12',border:'none',borderRadius:10,padding:'12px',fontSize:14,fontWeight:700,cursor:'pointer'}}>{loading?'A entrar…':'Entrar'}</button>
+          </form>
         </Card>
       </div>
     </div>
@@ -1639,6 +1650,8 @@ const DriveFileSelectScreen = ({account,onClose,onRefresh,pal}:{account:Account,
   const [files,setFiles] = useState<DriveFolderFile[]>([])
   const [importedIds,setImportedIds] = useState<Set<string>>(new Set())
   const [selected,setSelected] = useState<Set<string>>(new Set())
+  const [selectedForReimport,setSelectedForReimport] = useState<Set<string>>(new Set())
+  const [reimportMode,setReimportMode] = useState(false)
 
   // Estado do preview (passo intermédio antes de gravar)
   const [previewing,setPreviewing] = useState(false)
@@ -1673,9 +1686,24 @@ const DriveFileSelectScreen = ({account,onClose,onRefresh,pal}:{account:Account,
     setSelected(n)
   }
 
+  const toggleReimport = (id:string) => {
+    const n = new Set(selectedForReimport)
+    n.has(id) ? n.delete(id) : n.add(id)
+    setSelectedForReimport(n)
+  }
+
   const reimport = async (id:string) => {
     if(!confirm('Marcar este ficheiro para reimportar? As transações já guardadas não são apagadas automaticamente — se importaste por engano, apaga-as primeiro em "Ver todas".')) return
     await resetDriveFileImport(account.id, id)
+    await load()
+  }
+
+  const reimportSelected = async () => {
+    if(selectedForReimport.size===0) return
+    if(!confirm(`Marcar ${selectedForReimport.size} ficheiro${selectedForReimport.size>1?'s':''} para reimportar? As transações já guardadas não são apagadas — apaga-as primeiro em "Ver todas" se necessário.`)) return
+    await Promise.all([...selectedForReimport].map(id=>resetDriveFileImport(account.id, id)))
+    setSelectedForReimport(new Set())
+    setReimportMode(false)
     await load()
   }
 
@@ -1854,26 +1882,42 @@ const DriveFileSelectScreen = ({account,onClose,onRefresh,pal}:{account:Account,
               {loading&&<div style={{padding:32,textAlign:'center',color:T.textSec,fontSize:13}}>A carregar ficheiros…</div>}
               {!loading&&(
                 <>
-                  <div style={{fontSize:12,color:T.textSec,marginBottom:14}}>{files.length} ficheiros nesta pasta · {jaImportados} já importados</div>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+                    <div style={{fontSize:12,color:T.textSec}}>{files.length} ficheiros nesta pasta · {jaImportados} já importados</div>
+                    {jaImportados>0&&(
+                      <button onClick={()=>{setReimportMode(m=>!m);setSelectedForReimport(new Set())}} style={{background:reimportMode?pal.soft:'none',border:`1px solid ${reimportMode?pal.accent:T.border}`,borderRadius:8,padding:'4px 10px',fontSize:11,fontWeight:600,color:reimportMode?pal.accent:T.textSec,cursor:'pointer'}}>
+                        {reimportMode?'Cancelar':'↺ Reimport'}
+                      </button>
+                    )}
+                  </div>
                   <Card>
                     {files.map((f,i)=>{
                       const isDone = importedIds.has(f.id)
                       const isSel = selected.has(f.id)
+                      const isSelReimport = selectedForReimport.has(f.id)
                       return (
-                        <div key={f.id} style={{display:'flex',alignItems:'center',gap:10,padding:'12px 14px',borderBottom:i<files.length-1?`1px solid ${T.border}`:'none',background:isSel?pal.soft:'transparent'}}>
-                          <div onClick={()=>toggle(f.id)} style={{display:'flex',alignItems:'center',gap:10,flex:1,minWidth:0,cursor:isDone?'default':'pointer',opacity:isDone?0.55:1}}>
-                            {isDone?<Check size={16} color={T.green}/>:(isSel?<CheckSquare size={16} color={pal.accent}/>:<Square size={16} color={T.textTer}/>)}
+                        <div key={f.id} style={{display:'flex',alignItems:'center',gap:10,padding:'12px 14px',borderBottom:i<files.length-1?`1px solid ${T.border}`:'none',background:isSel||isSelReimport?pal.soft:'transparent'}}>
+                          {/* Modo reimport: checkbox nos já importados; modo normal: checkbox nos por importar */}
+                          {reimportMode && isDone ? (
+                            <div onClick={()=>toggleReimport(f.id)} style={{cursor:'pointer',flexShrink:0}}>
+                              {isSelReimport?<CheckSquare size={16} color={pal.accent}/>:<Square size={16} color={T.textTer}/>}
+                            </div>
+                          ) : (
+                            <div onClick={()=>toggle(f.id)} style={{flexShrink:0,cursor:isDone||reimportMode?'default':'pointer',opacity:isDone&&!reimportMode?0.55:1}}>
+                              {isDone&&!reimportMode?<Check size={16} color={T.green}/>:(isSel?<CheckSquare size={16} color={pal.accent}/>:<Square size={16} color={T.textTer}/>)}
+                            </div>
+                          )}
+                          <div style={{display:'flex',alignItems:'center',gap:10,flex:1,minWidth:0}}>
                             <FileText size={14} color={T.textSec}/>
                             <span style={{fontSize:12,color:T.text,flex:1,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{f.name}</span>
                           </div>
-                          {isDone?(
+                          {isDone&&!reimportMode&&(
                             <button onClick={()=>reimport(f.id)} style={{display:'flex',alignItems:'center',gap:3,background:'none',border:'none',cursor:'pointer',padding:'2px 4px',flexShrink:0}}>
                               <RefreshCw size={11} color={T.textTer}/>
-                              <span style={{fontSize:10,color:T.textTer,fontWeight:600}}>reimportar</span>
+                              <span style={{fontSize:10,color:T.textTer,fontWeight:600}}>1</span>
                             </button>
-                          ):(
-                            <span style={{fontSize:10,color:T.textTer,fontWeight:600,flexShrink:0}}>por importar</span>
                           )}
+                          {!isDone&&!reimportMode&&<span style={{fontSize:10,color:T.textTer,fontWeight:600,flexShrink:0}}>por importar</span>}
                         </div>
                       )
                     })}
@@ -1890,7 +1934,13 @@ const DriveFileSelectScreen = ({account,onClose,onRefresh,pal}:{account:Account,
       {/* Botão fixo no fundo — muda consoante o passo */}
       {!previewing&&!saving&&results.length===0&&!showingPreview&&(
         <div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:440,background:T.surface,borderTop:`1px solid ${T.border}`,padding:'12px 16px 20px'}}>
-          <Btn onClick={startPreview} variant="primary" accent={pal.accent} style={{width:'100%',opacity:selected.size?1:0.4}}>{selected.size?`Ler ${selected.size} ficheiro${selected.size>1?'s':''} →`:'Selecciona ficheiros para importar'}</Btn>
+          {reimportMode ? (
+            <Btn onClick={reimportSelected} variant="primary" accent={pal.accent} style={{width:'100%',opacity:selectedForReimport.size?1:0.4}}>
+              {selectedForReimport.size?`↺ Reimportar ${selectedForReimport.size} ficheiro${selectedForReimport.size>1?'s':''}`:'Selecciona ficheiros para reimportar'}
+            </Btn>
+          ) : (
+            <Btn onClick={startPreview} variant="primary" accent={pal.accent} style={{width:'100%',opacity:selected.size?1:0.4}}>{selected.size?`Ler ${selected.size} ficheiro${selected.size>1?'s':''} →`:'Selecciona ficheiros para importar'}</Btn>
+          )}
         </div>
       )}
       {!previewing&&!saving&&results.length===0&&showingPreview&&(
@@ -2682,14 +2732,22 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
   const [showQueue,setShowQueue] = useState(false)
   const [editTxn,setEditTxn] = useState<Transaction|null>(null)
   const [selAcc,setSelAcc] = useState<string|null>(null)
+  const [monthOffset,setMonthOffset] = useState(0)
 
   const investAccounts = accounts.filter(a=>a.budget_tag==='investimento')
   const investAccountIds = new Set(investAccounts.map(a=>a.id))
 
-  // Mês de referência = mês mais recente com transações de imóveis (filtra por conta seleccionada se houver)
   const matchAcc = (t:Transaction) => selAcc ? t.account_id===selAcc : true
   const imovelTxnsScope = transactions.filter(t=>investAccountIds.has(t.account_id)&&matchAcc(t))
-  const ym = latestMonthWithData(imovelTxnsScope) ?? `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}`
+  const latestMonth = latestMonthWithData(imovelTxnsScope) ?? `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}`
+
+  // Mês actual ajustado pelo offset de navegação
+  const ym = (() => {
+    const [ly,lm] = latestMonth.split('-').map(Number)
+    const d = new Date(ly,lm-1,1); d.setMonth(d.getMonth()+monthOffset)
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
+  })()
+  const canGoForward = monthOffset < 0
 
   // Renda/custos por imóvel
   const getImRenda = (id:string) => transactions.filter(t=>t.imovel_id===id&&matchAcc(t)&&t.data.startsWith(ym)&&t.valor>0).reduce((s,t)=>s+t.valor,0)
@@ -2714,9 +2772,6 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
     {l:'Rendas',v:dec(totRenda),c:'#4ADE80'},
     {l:'Custos',v:dec(totCusto),c:'#F87171'},
     {l:'Resultado mês',v:sgn(totRes),c:totRes>=0?'#4ADE80':'#F87171'},
-    showValoriz
-      ? {l:'Valorização',v:big(totValoriz),c:'#FFF'}
-      : {l:'Arrendados',v:`${ativos}/${imoveis.length}`,c:'#FFF'},
   ]
 
   // Fila por associar
@@ -2739,7 +2794,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
 
   return (
     <div>
-      <Hero pal={pal} title="Conta Corrente Imóveis" period={monthYearLabel(imovelTxnsScope.length?ym:null)} mainValue={big(saldoContas)} mainColor={saldoContas<0?'#FCA5A5':'#FFF'} trend={trend} kpis={imoveisKpis}/>
+      <Hero pal={pal} title="Conta Corrente Imóveis" period={monthYearLabel(ym)} mainValue={big(saldoContas)} mainColor={saldoContas<0?'#FCA5A5':'#FFF'} trend={trend} kpis={imoveisKpis} onPrev={()=>setMonthOffset(o=>o-1)} onNext={()=>{if(canGoForward)setMonthOffset(o=>o+1)}} canNext={canGoForward}/>
 
       {/* Toggle valorização */}
       <div onClick={()=>setShowValoriz(v=>!v)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 16px',background:showValoriz?pal.soft:T.surface,borderRadius:12,border:`1px solid ${showValoriz?pal.accent:T.border}`,marginBottom:16,cursor:'pointer',transition:'all 0.15s'}}>

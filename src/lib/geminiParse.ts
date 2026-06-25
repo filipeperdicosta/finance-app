@@ -168,6 +168,20 @@ export function detectMimeType(filename: string): string {
   return 'application/pdf'
 }
 
+// Hash determinístico para deduplicação cross-canal (PDF + PSD2).
+// Normaliza o descritivo para que "FORTUNY FOOD" e "Fortuny Food" sejam equivalentes.
+// Isto permite que a mesma transacção importada via PDF e via Enable Banking
+// seja reconhecida como duplicada e ignorada.
+export function txnHash(accountId: string, data: string, valor: number, descritivo: string): string {
+  const norm = descritivo
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[^a-z0-9 €.,\-]/g, '') // remove caracteres especiais mantendo separadores comuns
+    .slice(0, 40) // limita tamanho
+  return `${accountId}-${data}-${valor}-${norm}`
+}
+
 // Categoriza uma única transacção usando regras aprendidas como prioridade,
 // e Gemini só como fallback quando não há regra. Valor positivo → sempre "Receita".
 // Usada pelo Enable Banking e outros imports automáticos sem PDF.

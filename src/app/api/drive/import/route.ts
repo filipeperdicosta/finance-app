@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getValidAccessToken, getSupabaseAdmin, createNotification } from '@/lib/googleDrive'
-import { parseStatementWithGemini, detectMimeType } from '@/lib/geminiParse'
+import { parseStatementWithGemini, detectMimeType, txnHash } from '@/lib/geminiParse'
 
 type ConfirmedTxn = { data: string; descritivo: string; valor: number; categoria: string }
 
@@ -68,24 +68,29 @@ export async function POST(req: NextRequest) {
       finalMeta = result.meta
     }
 
-    // Hash único por transação
+    // Hash determinístico — permite deduplicar com transacções já importadas via Enable Banking
     const txnsToInsert = finalTransactions.map((t, i) => ({
       account_id, data: t.data, descritivo: t.descritivo, valor: t.valor,
       categoria: t.categoria, categoria_confirmada: false, ai_confianca: null,
       excluir_analise: false, imovel_classificado: false, ordem_extrato: i,
-      hash: `${account_id}-${t.data}-${t.descritivo.slice(0,20)}-${t.valor}-${Date.now()}-${i}`,
+      hash: txnHash(account_id, t.data, t.valor, t.descritivo),
       import_batch_id: null, imovel_id: null, notas: null, subcategoria: null, descritivo_norm: null,
     }))
 
-    if (txnsToInsert.length) {
-      const { error: insertError } = await supabaseAdmin.from('transactions').upsert(txnsToInsert, { onConflict: 'hash', ignoreDuplicates: true })
+    // Filtra as que já existem na BD (por hash) antes de inserir
+    const { data: existing } = await supabaseAdmin.from('transactions').select('hash').eq('account_id', account_id)
+    const existingHashes = new Set((existing ?? []).map((t: any) => t.hash))
+    const newTxns = txnsToInsert.filter(t => !existingHashes.has(t.hash))
+
+    if (newTxns.length) {
+      const { error: insertError } = await supabaseAdmin.from('transactions').upsert(newTxns, { onConflict: 'hash', ignoreDuplicates: true })
       if (insertError) console.error('Erro ao inserir transações:', insertError)
     }
 
     // Cria o import_batch para rastreio/notificações
     const { data: batch } = await supabaseAdmin.from('import_batches').insert({
       account_id, filename, source: 'google_drive', google_file_id,
-      periodo_fim: finalMeta.periodo_fim, total_txn: txnsToInsert.length,
+      periodo_fim: finalMeta.periodo_fim, total_txn: newTxns.length,
       status: 'complete', trigger_type: trigger_type ?? (confirmedTxns ? 'manual' : 'cron'),
     }).select().single()
 
@@ -120,14 +125,14 @@ export async function POST(req: NextRequest) {
       userId: user_id,
       type: isManual ? 'manual_import' : 'import_success',
       title: isManual ? `Import manual — ${filename}` : `Import automático — ${filename}`,
-      body: `${txnsToInsert.length} transações importadas`,
-      meta: { account_id, filename, txn_count: txnsToInsert.length, total_rec: totalRec, total_desp: totalDesp, batch_id: batch?.id ?? null },
+      body: `${newTxns.length} transações importadas (${txnsToInsert.length - newTxns.length} já existiam)`,
+      meta: { account_id, filename, txn_count: newTxns.length, total_parsed: txnsToInsert.length, total_rec: totalRec, total_desp: totalDesp, batch_id: batch?.id ?? null },
     })
 
     return NextResponse.json({
       ok: true,
       batch_id: batch?.id ?? null,
-      transactions_count: txnsToInsert.length,
+      transactions_count: newTxns.length, total_parsed: txnsToInsert.length,
       total_receitas: totalRec,
       total_despesas: totalDesp,
     })

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getValidAccessToken, getSupabaseAdmin, createNotification } from '@/lib/googleDrive'
-import { parseStatementWithGemini, detectMimeType, categorizeSingleTransaction } from '@/lib/geminiParse'
+import { parseStatementWithGemini, detectMimeType, categorizeSingleTransaction, txnHash } from '@/lib/geminiParse'
 import { getT212Configs, getT212Portfolio } from '@/lib/t212'
 import { getEnableBankingBalance, getEnableBankingTransactions, getMccCategory, getKeywordCategory } from '@/lib/enableBanking'
 
@@ -133,17 +133,22 @@ export async function GET(req: NextRequest) {
                 account_id: account.id, data: t.data, descritivo: t.descritivo, valor: t.valor,
                 categoria: t.categoria, categoria_confirmada: false, ai_confianca: null,
                 excluir_analise: false, imovel_classificado: false, ordem_extrato: i,
-                hash: `${account.id}-${t.data}-${t.descritivo.slice(0,20)}-${t.valor}-${Date.now()}-${i}`,
+                hash: txnHash(account.id, t.data, t.valor, t.descritivo),
                 import_batch_id: null, imovel_id: null, notas: null, subcategoria: null, descritivo_norm: null,
               }))
 
-              if (txnsToInsert.length) {
-                await supabaseAdmin.from('transactions').upsert(txnsToInsert, { onConflict: 'hash', ignoreDuplicates: true })
+              // Filtra as que já existem (pode ter chegado via Enable Banking)
+              const { data: existingHashes } = await supabaseAdmin.from('transactions').select('hash').eq('account_id', account.id)
+              const existingSet = new Set((existingHashes ?? []).map((t: any) => t.hash))
+              const newTxns = txnsToInsert.filter((t: any) => !existingSet.has(t.hash))
+
+              if (newTxns.length) {
+                await supabaseAdmin.from('transactions').upsert(newTxns, { onConflict: 'hash', ignoreDuplicates: true })
               }
 
               const { data: batch } = await supabaseAdmin.from('import_batches').insert({
                 account_id: account.id, filename: file.name, source: 'google_drive', google_file_id: file.id,
-                periodo_fim: result.meta.periodo_fim, total_txn: txnsToInsert.length,
+                periodo_fim: result.meta.periodo_fim, total_txn: newTxns.length,
                 status: 'complete', trigger_type: 'cron',
               }).select().single()
 
