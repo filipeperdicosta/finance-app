@@ -266,7 +266,10 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
 
   // Shared axis config — identical structure to DynChart, 10px fonts
   const xAxis = <XAxis dataKey="m" tick={{fontSize:10,fill:'rgba(255,255,255,0.25)'}} axisLine={false} tickLine={false} interval={0} height={14} padding={{left:8,right:8}}/>
-  const margin = {top:8,right:6,bottom:0,left:10}
+  // budget mode uses left:10 (ComposedChart with Bar reserves its own space)
+  // patrimonio mode uses left:39 (LineChart pure — same as DynChart validated values)
+  const marginBudget = {top:8,right:6,bottom:0,left:10}
+  const marginLine   = {top:8,right:6,bottom:0,left:39}
 
   if(mode==='patrimonio'){
     const netVals = trend.map(d=>d.net)
@@ -276,7 +279,7 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
     const domMin = netMin - pad
     const domMax = netMax + pad
     const midY = (domMin+domMax)/2
-    const yAxis = <YAxis orientation="right" axisLine={false} tickLine={false} domain={[domMin,domMax]} ticks={[midY,domMax]} tickFormatter={(v:number)=>compact(v)} tick={{fontSize:10,fill:'rgba(255,255,255,0.25)'}} width={32}/>
+    const yAxis = <YAxis orientation="right" axisLine={false} tickLine={false} domain={[domMin,domMax]} ticks={[midY,domMax]} tickFormatter={(v:number)=>compact(v)} tick={{fontSize:10,fill:'rgba(255,255,255,0.25)'}} width={35}/>
     return (
       <>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
@@ -289,7 +292,7 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
           </div>
         ):(
           <ResponsiveContainer width="100%" height={66}>
-            <LineChart data={trend} margin={margin}>
+            <LineChart data={trend} margin={marginLine}>
               {xAxis}{yAxis}
               <ReferenceLine y={midY} stroke="rgba(255,255,255,0.12)" strokeWidth={1} ifOverflow="visible"/>
               <ReferenceLine y={domMax} stroke="rgba(255,255,255,0.12)" strokeWidth={1} ifOverflow="visible"/>
@@ -308,7 +311,7 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
     )
   }
 
-  // modo budget
+  // modo budget — ComposedChart (Bar + Lines): margin left:10 é correcto
   const maxVal = Math.max(...trend.map(d=>Math.max(d.rec,d.desp)), 0)
   const midVal = maxVal/2
   const yAxis = <YAxis orientation="right" axisLine={false} tickLine={false} domain={[0,maxVal*1.05]} ticks={[midVal,maxVal]} tickFormatter={(v:number)=>compact(v)} tick={{fontSize:10,fill:'rgba(255,255,255,0.25)'}} width={32}/>
@@ -324,7 +327,7 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
         </div>
       ):(
         <ResponsiveContainer width="100%" height={66}>
-          <ComposedChart data={trend} margin={margin}>
+          <ComposedChart data={trend} margin={marginBudget}>
             {xAxis}{yAxis}
             <ReferenceLine y={midVal} stroke="rgba(255,255,255,0.12)" strokeWidth={1} ifOverflow="visible"/>
             <ReferenceLine y={maxVal} stroke="rgba(255,255,255,0.12)" strokeWidth={1} ifOverflow="visible"/>
@@ -355,11 +358,11 @@ const Toggle = ({val,set,accent}:{val:string,set:(v:string)=>void,accent:string}
 const DynChart = ({data,type}:{data:{m:string,rec:number,desp:number}[],type:string}) => {
   const tip = <Tooltip contentStyle={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,fontSize:12}} formatter={(v:any,k:string)=>[dec(v),k==='rec'?'Receitas':'Despesas']} labelStyle={{color:T.text,fontWeight:600}} cursor={{fill:'rgba(255,255,255,0.03)'}}/>
   const ax = <XAxis dataKey="m" tick={{fontSize:10,fill:T.textSec}} axisLine={false} tickLine={false} interval={0} padding={{left:8,right:8}}/>
-  const margin = {top:8,right:6,bottom:0,left:10}
+  const margin = {top:8,right:6,bottom:0,left:39}
   const maxVal = Math.max(...data.map(d=>Math.max(d.rec,d.desp)), 0)
   const hasData = maxVal>0
   const midVal = maxVal/2
-  const yAxis = <YAxis orientation="right" axisLine={false} tickLine={false} domain={[0,maxVal*1.05]} ticks={[midVal,maxVal]} tickFormatter={(v:number)=>compact(v)} tick={{fontSize:10,fill:T.textTer}} width={32}/>
+  const yAxis = <YAxis orientation="right" axisLine={false} tickLine={false} domain={[0,maxVal*1.05]} ticks={[midVal,maxVal]} tickFormatter={(v:number)=>compact(v)} tick={{fontSize:10,fill:T.textTer}} width={35}/>
   if(!hasData) return (
     <div style={{height:120,display:'flex',alignItems:'center',justifyContent:'center'}}>
       <span style={{fontSize:12,color:T.textTer}}>Sem dados para mostrar</span>
