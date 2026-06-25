@@ -312,15 +312,15 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
         <div style={{display:'flex',gap:10}}><Leg c={T.green} l="Rec" line/><Leg c={T.red} l="Desp" line/><Leg c="rgba(255,255,255,0.4)" l="Saldo"/></div>
       </div>
       {!hasData?(
-        <div style={{height:50,display:'flex',alignItems:'center',justifyContent:'center'}}>
+        <div style={{height:64,display:'flex',alignItems:'center',justifyContent:'center'}}>
           <span style={{fontSize:11,color:'rgba(255,255,255,0.25)'}}>Sem dados neste período</span>
         </div>
       ):(
-        <div style={{position:'relative',height:50}}>
+        <div style={{position:'relative',height:64}}>
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={trend} margin={{top:4,right:28,bottom:0,left:0}}>
               <YAxis hide domain={[0,maxVal*1.05]}/>
-              <XAxis dataKey="m" hide/>
+              <XAxis dataKey="m" tick={{fontSize:9,fill:'rgba(255,255,255,0.2)'}} axisLine={false} tickLine={false} interval={0} height={14} padding={{left:12,right:0}}/>
               <ReferenceLine y={midVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
               <ReferenceLine y={maxVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
               <Tooltip contentStyle={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,fontSize:11,padding:'6px 10px'}} itemStyle={{padding:0}} formatter={(v:any,k:string)=>{if(k==='net') return [<span style={{color:Number(v)>=0?T.green:T.red,fontWeight:600}}>{dec(v)}</span>,'Saldo']; return [dec(v),k==='rec'?'Receitas':'Despesas']}} labelStyle={{color:T.text,fontWeight:600,fontSize:11,marginBottom:2}} cursor={{fill:'rgba(255,255,255,0.04)'}}/>
@@ -333,9 +333,6 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
           <div style={{position:'absolute',top:'50%',right:0,transform:'translateY(-50%)',fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(midVal)}</div>
         </div>
       )}
-      <div style={{display:'flex',justifyContent:'space-between',marginTop:4,paddingRight:28}}>
-        {trend.map((d,i)=><span key={i} style={{fontSize:9,color:'rgba(255,255,255,0.2)',flex:1,textAlign:'center'}}>{d.m}</span>)}
-      </div>
     </>
   )
 }
