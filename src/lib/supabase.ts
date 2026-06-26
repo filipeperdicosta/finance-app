@@ -13,7 +13,8 @@ export type Account = {
   tipo: 'corrente' | 'poupança' | 'cartão' | 'corretora' | 'outro'
   budget_tag: 'familiar' | 'pessoal' | 'investimento'
   titular: string
-  ownership_pct: number
+  ownership_pct: number               // legado — mantido para compat
+  my_ownership_pct?: number           // % do user actual (de account_users)
   saldo_atual: number
   saldo_data: string | null
   moeda: string
@@ -23,6 +24,35 @@ export type Account = {
   numero_conta: string | null
   drive_folder_id: string | null
   drive_folder_name: string | null
+  created_at: string
+}
+
+export type Profile = {
+  id: string
+  nome: string
+  email: string | null
+  role: string | null
+  avatar_url: string | null
+}
+
+export type AccountMember = {
+  id: string
+  account_id: string
+  user_id: string
+  ownership_pct: number
+  status: 'active' | 'pending'
+  nome: string
+  email: string | null
+}
+
+export type AccountInvite = {
+  id: string
+  account_id: string
+  account_nome: string
+  invited_by: string
+  invited_by_nome: string
+  invited_user_id: string
+  status: 'pending' | 'accepted' | 'rejected'
   created_at: string
 }
 
@@ -58,6 +88,7 @@ export type Imovel = {
   ownership_pct: number
   valorizacao: number
   valorizacao_data: string | null
+  owner_user_id: string | null
 }
 
 export type ContaImovel = {
@@ -70,7 +101,9 @@ export type ContaImovel = {
 // ── Data helpers ───────────────────────────────────────────────
 export async function loadAllData() {
   const TAG_ORDER: Record<string,number> = { familiar:0, pessoal:1, investimento:2, patrimonio:3 }
-  const [accounts, transactions, imoveis, contaImovel] = await Promise.all([
+  const { data: { user } } = await supabase.auth.getUser()
+
+  const [accounts, transactions, imoveis, contaImovel, accountUsers] = await Promise.all([
     supabase.from('accounts').select('*').eq('ativa', true).order('nome'),
     supabase.from('transactions').select('*')
       .eq('excluir_analise', false)
@@ -79,8 +112,19 @@ export async function loadAllData() {
       .order('ordem_extrato', { ascending: true }),
     supabase.from('imoveis').select('*').order('ordem'),
     supabase.from('conta_imovel').select('*'),
+    user ? supabase.from('account_users').select('account_id, ownership_pct').eq('user_id', user.id).eq('status', 'active') : Promise.resolve({ data: [] }),
   ])
-  const sortedAccounts = ((accounts.data ?? []) as Account[]).sort((a,b)=>{
+
+  // Map account_id → my_ownership_pct do user actual
+  const myPctMap = new Map<string, number>()
+  for (const au of (accountUsers.data ?? [])) myPctMap.set(au.account_id, Number(au.ownership_pct))
+
+  const enrichedAccounts: Account[] = ((accounts.data ?? []) as Account[]).map(a => ({
+    ...a,
+    my_ownership_pct: myPctMap.get(a.id) ?? a.ownership_pct,
+  }))
+
+  const sortedAccounts = enrichedAccounts.sort((a,b)=>{
     const ta = TAG_ORDER[a.budget_tag??''] ?? 9
     const tb = TAG_ORDER[b.budget_tag??''] ?? 9
     if(ta!==tb) return ta-tb
@@ -95,8 +139,10 @@ export async function loadAllData() {
 }
 
 // ── Imóveis CRUD ───────────────────────────────────────────────
-export async function saveImovel(imovel: Omit<Imovel, 'id'>) {
-  return supabase.from('imoveis').insert(imovel).select().single()
+export async function saveImovel(imovel: Omit<Imovel, 'id' | 'owner_user_id'>) {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { data: null, error: { message: 'Não autenticado' } as any }
+  return supabase.from('imoveis').insert({ ...imovel, owner_user_id: user.id }).select().single()
 }
 export async function updateImovel(id: string, fields: Partial<Omit<Imovel, 'id'>>) {
   return supabase.from('imoveis').update(fields).eq('id', id).select().single()
@@ -128,8 +174,19 @@ export async function assignTransactionsToImovel(txnIds: string[], imovelId: str
   }).in('id', txnIds)
 }
 
-export async function saveAccount(account: Omit<Account, 'id' | 'created_at'>) {
-  return supabase.from('accounts').insert(account).select().single()
+export async function saveAccount(account: Omit<Account, 'id' | 'created_at' | 'my_ownership_pct'>) {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { data: null, error: { message: 'Não autenticado' } as any }
+  const res = await supabase.from('accounts').insert(account).select().single()
+  if (res.data && !res.error) {
+    await supabase.from('account_users').insert({
+      account_id: res.data.id,
+      user_id: user.id,
+      ownership_pct: account.ownership_pct ?? 100,
+      status: 'active',
+    })
+  }
+  return res
 }
 
 // Carrega TODAS as transações (para o ecrã Ver Todas, com histórico completo)
@@ -465,4 +522,101 @@ export async function syncT212(accountId: string, label = 'Invest') {
 export async function getT212Status() {
   const res = await fetch('/api/t212/status')
   return res.json()
+}
+
+// ── Multi-user: perfil + partilha de contas + convites ────────────
+export async function getCurrentProfile(): Promise<Profile | null> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
+  const { data } = await supabase.from('profiles').select('id, nome, email, role, avatar_url').eq('id', user.id).maybeSingle()
+  if (data) return data as Profile
+  // Cria perfil em falta com email do auth como fallback de nome
+  const fallback = (user.email ?? '').split('@')[0] || 'Utilizador'
+  await supabase.from('profiles').insert({ id: user.id, nome: fallback, email: user.email })
+  return { id: user.id, nome: fallback, email: user.email ?? null, role: null, avatar_url: null }
+}
+
+export async function updateMyProfile(fields: { nome?: string }) {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: { message: 'Não autenticado' } as any }
+  return supabase.from('profiles').update(fields).eq('id', user.id)
+}
+
+// Lista membros de uma conta (com nome e email vindos de profiles)
+export async function loadAccountMembers(accountId: string): Promise<AccountMember[]> {
+  const { data } = await supabase.from('account_users')
+    .select('id, account_id, user_id, ownership_pct, status, profiles!inner(nome, email)')
+    .eq('account_id', accountId)
+  return ((data ?? []) as any[]).map(r => ({
+    id: r.id, account_id: r.account_id, user_id: r.user_id,
+    ownership_pct: Number(r.ownership_pct), status: r.status,
+    nome: r.profiles?.nome ?? '', email: r.profiles?.email ?? null,
+  }))
+}
+
+export async function updateMemberOwnership(membershipId: string, ownership_pct: number) {
+  return supabase.from('account_users').update({ ownership_pct }).eq('id', membershipId)
+}
+
+export async function removeMember(membershipId: string) {
+  return supabase.from('account_users').delete().eq('id', membershipId)
+}
+
+// Procura user por email (usa RPC find_user_by_email definida no SQL Fase 1)
+export async function findUserByEmail(email: string): Promise<{ id: string; email: string } | null> {
+  const { data } = await supabase.rpc('find_user_by_email', { p_email: email })
+  const row = Array.isArray(data) ? data[0] : data
+  return row ? { id: row.id, email: row.email } : null
+}
+
+// Convidar user para conta — cria/actualiza convite pendente
+export async function inviteUserToAccount(accountId: string, invitedUserId: string) {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: { message: 'Não autenticado' } as any }
+  return supabase.from('account_invites').upsert({
+    account_id: accountId, invited_by: user.id, invited_user_id: invitedUserId, status: 'pending',
+  }, { onConflict: 'account_id,invited_user_id' })
+}
+
+// Convites pendentes recebidos pelo user actual
+export async function loadPendingInvites(): Promise<AccountInvite[]> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
+  const { data } = await supabase.from('account_invites')
+    .select('id, account_id, invited_by, invited_user_id, status, created_at, accounts!inner(nome), profiles!account_invites_invited_by_fkey(nome)')
+    .eq('invited_user_id', user.id).eq('status', 'pending')
+  return ((data ?? []) as any[]).map(r => ({
+    id: r.id, account_id: r.account_id,
+    account_nome: r.accounts?.nome ?? '',
+    invited_by: r.invited_by,
+    invited_by_nome: r.profiles?.nome ?? '',
+    invited_user_id: r.invited_user_id,
+    status: r.status, created_at: r.created_at,
+  }))
+}
+
+// Aceitar convite: cria account_users + marca convite como accepted
+// Default: 1/N de ownership entre os membros activos da conta após entrar.
+export async function acceptInvite(inviteId: string) {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: { message: 'Não autenticado' } as any }
+  const { data: invite } = await supabase.from('account_invites').select('account_id, invited_user_id, status').eq('id', inviteId).maybeSingle()
+  if (!invite || invite.invited_user_id !== user.id || invite.status !== 'pending') {
+    return { error: { message: 'Convite inválido' } as any }
+  }
+  // Conta nº de membros já activos
+  const { count } = await supabase.from('account_users').select('id', { count: 'exact', head: true }).eq('account_id', invite.account_id).eq('status', 'active')
+  const total = (count ?? 0) + 1
+  const newPct = Math.floor(100 / total)
+  // Insere a minha associação
+  await supabase.from('account_users').insert({
+    account_id: invite.account_id, user_id: user.id, ownership_pct: newPct, status: 'active',
+  })
+  // Redistribui equitativamente entre os existentes
+  await supabase.from('account_users').update({ ownership_pct: newPct }).eq('account_id', invite.account_id).neq('user_id', user.id)
+  return supabase.from('account_invites').update({ status: 'accepted', responded_at: new Date().toISOString() }).eq('id', inviteId)
+}
+
+export async function rejectInvite(inviteId: string) {
+  return supabase.from('account_invites').update({ status: 'rejected', responded_at: new Date().toISOString() }).eq('id', inviteId)
 }

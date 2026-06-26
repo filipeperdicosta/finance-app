@@ -10,6 +10,7 @@ import {
   ArrowLeft, Trash2, FileText, HardDrive, Zap, RefreshCw, Edit2, CreditCard,
   Filter, CheckSquare, Square, Tag, Calendar, SlidersHorizontal, Link2, Inbox,
   Sparkles, Target, BrainCircuit, Folder, ChevronRight, AlertTriangle, Bell,
+  Users, UserPlus, Mail,
 } from 'lucide-react'
 import {
   supabase, loadAllData, loadAllTransactions, saveAccount, deleteAccount, updateAccount,
@@ -22,8 +23,11 @@ import {
   loadNotifications, countUnreadNotifications, markNotificationsRead, deleteNotification,
   syncT212, getT212Status, loadT212Config, saveT212Config,
   getEnableBankingStatus, startEnableBankingConnect, syncEnableBanking, linkEnableBankingAccount,
+  getCurrentProfile, updateMyProfile, loadAccountMembers, updateMemberOwnership, removeMember,
+  findUserByEmail, inviteUserToAccount, loadPendingInvites, acceptInvite, rejectInvite,
   type Account, type Transaction, type Imovel, type ContaImovel, type CategoryRule,
   type DriveToken, type DriveFile, type AppNotification, type T212Config,
+  type Profile, type AccountMember, type AccountInvite,
 } from '@/lib/supabase'
 
 // ─────────────────────────────────────────────────────────────────
@@ -2110,13 +2114,21 @@ const DriveSettingsScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
 // ─────────────────────────────────────────────────────────────────
 // SETTINGS
 // ─────────────────────────────────────────────────────────────────
-const SettingsPanel = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accounts:Account[],onRefresh:()=>void,pal:{accent:string,soft:string}}) => {
+const SettingsPanel = ({onClose,accounts,onRefresh,pal,me,onMembers,onShowInvites,pendingInvitesCount,onProfileUpdated}:{onClose:()=>void,accounts:Account[],onRefresh:()=>void,pal:{accent:string,soft:string},me:Profile|null,onMembers:(accountId:string)=>void,onShowInvites:()=>void,pendingInvitesCount:number,onProfileUpdated:()=>void}) => {
   const [formOpen,setFormOpen] = useState(false)
   const [editing,setEditing] = useState<Account|null>(null)
   const [showRules,setShowRules] = useState(false)
   const [showDrive,setShowDrive] = useState(false)
   const [showT212,setShowT212] = useState(false)
   const [showEnableBanking,setShowEnableBanking] = useState(false)
+  const [editingName,setEditingName] = useState(false)
+  const [nameValue,setNameValue] = useState(me?.nome ?? '')
+  const saveName = async () => {
+    const v = nameValue.trim(); if(!v) return
+    await updateMyProfile({ nome: v })
+    setEditingName(false)
+    onProfileUpdated()
+  }
   const openNew = () => { setEditing(null); setFormOpen(true) }
   const openEdit = (a:Account) => { setEditing(a); setFormOpen(true) }
   const del = async (id:string) => { if(!confirm('Apagar esta conta? As transações associadas também serão removidas.')) return; await deleteAccount(id); await onRefresh() }
@@ -2139,6 +2151,40 @@ const SettingsPanel = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accoun
           <button onClick={onRefresh} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><RefreshCw size={16} color={T.textSec}/></button>
         </div>
         <div style={{padding:'16px 14px'}}>
+          {/* PERFIL */}
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'0 2px'}}>
+            <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase'}}>Perfil</span>
+          </div>
+          <Card style={{marginBottom:14,padding:'14px 16px'}}>
+            <div style={{display:'flex',alignItems:'center',gap:10}}>
+              <div style={{width:36,height:36,borderRadius:'50%',background:pal.soft,display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,fontWeight:700,color:pal.accent,flexShrink:0}}>{(me?.nome?.[0]??'?').toUpperCase()}</div>
+              <div style={{flex:1,minWidth:0}}>
+                {editingName ? (
+                  <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                    <input value={nameValue} onChange={e=>setNameValue(e.target.value)} autoFocus style={{flex:1,background:T.surface2,border:`1px solid ${T.border}`,borderRadius:8,padding:'6px 10px',fontSize:13,color:T.text}}/>
+                    <button onClick={saveName} style={{background:pal.accent,color:'#0B0B12',border:'none',borderRadius:8,padding:'6px 10px',fontSize:11,fontWeight:700,cursor:'pointer'}}>Guardar</button>
+                    <button onClick={()=>{setEditingName(false);setNameValue(me?.nome??'')}} style={{background:'none',border:'none',padding:4,cursor:'pointer'}}><X size={14} color={T.textSec}/></button>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{fontSize:13,fontWeight:600,color:T.text}}>{me?.nome ?? '—'}</div>
+                    <div style={{fontSize:11,color:T.textSec,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{me?.email ?? ''}</div>
+                  </>
+                )}
+              </div>
+              {!editingName && <button onClick={()=>{setNameValue(me?.nome??'');setEditingName(true)}} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><Edit2 size={14} color={pal.accent}/></button>}
+            </div>
+          </Card>
+
+          {/* CONVITES PENDENTES */}
+          {pendingInvitesCount > 0 && (
+            <button onClick={onShowInvites} style={{width:'100%',display:'flex',alignItems:'center',gap:10,background:pal.soft,border:'none',borderRadius:10,padding:'12px 14px',cursor:'pointer',marginBottom:14}}>
+              <Bell size={16} color={pal.accent}/>
+              <span style={{flex:1,textAlign:'left',fontSize:13,fontWeight:600,color:pal.accent}}>Convites pendentes</span>
+              <span style={{background:pal.accent,color:'#0B0B12',borderRadius:10,padding:'2px 8px',fontSize:11,fontWeight:700}}>{pendingInvitesCount}</span>
+            </button>
+          )}
+
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10,padding:'0 2px'}}>
             <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase'}}>Contas ({accounts.length})</span>
             <button onClick={openNew} style={{display:'flex',alignItems:'center',gap:4,background:pal.soft,border:'none',borderRadius:8,padding:'4px 10px',cursor:'pointer'}}><Plus size={12} color={pal.accent}/><span style={{fontSize:11,color:pal.accent,fontWeight:600}}>Adicionar</span></button>
@@ -2150,6 +2196,7 @@ const SettingsPanel = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accoun
                 <div key={a.id} style={{display:'flex',alignItems:'center',gap:10,padding:'12px 16px',borderBottom:i<accounts.length-1?`1px solid ${T.border}`:'none'}}>
                   <div style={{width:10,height:10,borderRadius:'50%',background:p.accent,flexShrink:0}}/>
                   <div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:600,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{a.nome}</div><div style={{fontSize:11,color:T.textSec}}>{a.banco} · {dec(accountSaldo(a))}{a.saldo_data?` · ${fmtDate(a.saldo_data)}`:''}</div></div>
+                  <button onClick={()=>onMembers(a.id)} title="Membros" style={{background:'none',border:'none',cursor:'pointer',padding:4}}><Users size={14} color={pal.accent}/></button>
                   <button onClick={()=>resetSaldo(a)} title="Zerar saldo" style={{background:'none',border:'none',cursor:'pointer',padding:4}}><RefreshCw size={13} color={T.textTer}/></button>
                   <button onClick={()=>openEdit(a)} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><Edit2 size={14} color={pal.accent}/></button>
                   <button onClick={()=>del(a.id)} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><Trash2 size={14} color={T.textTer}/></button>
@@ -2921,7 +2968,7 @@ const PatrimonioScreen = ({accounts,imoveis,transactions,pal}:{accounts:Account[
   const [showValoriz,setShowValoriz] = useState(false)
 
   const sumTag = (tag:string) => accounts.filter(a=>a.budget_tag===tag).reduce((s,a)=>s+accountSaldo(a),0)
-  const quotaTag = (tag:string) => accounts.filter(a=>a.budget_tag===tag).reduce((s,a)=>s+accountSaldo(a)*(a.ownership_pct/100),0)
+  const quotaTag = (tag:string) => accounts.filter(a=>a.budget_tag===tag).reduce((s,a)=>s+accountSaldo(a)*((a.my_ownership_pct??a.ownership_pct)/100),0)
 
   const pesSaldo=sumTag('pessoal'), famSaldo=sumTag('familiar'), invSaldo=sumTag('investimento')
   const pesQuota=quotaTag('pessoal'), famQuota=quotaTag('familiar'), invQuota=quotaTag('investimento')
@@ -2972,6 +3019,126 @@ const PatrimonioScreen = ({accounts,imoveis,transactions,pal}:{accounts:Account[
 }
 
 // ─────────────────────────────────────────────────────────────────
+// MEMBROS DE CONTA
+// ─────────────────────────────────────────────────────────────────
+const MembersScreen = ({accountId,accounts,onClose,pal,onChanged}:{accountId:string,accounts:Account[],onClose:()=>void,pal:{accent:string,soft:string},onChanged:()=>void}) => {
+  const account = accounts.find(a=>a.id===accountId)
+  const [members,setMembers] = useState<AccountMember[]>([])
+  const [loading,setLoading] = useState(true)
+  const [inviteEmail,setInviteEmail] = useState('')
+  const [inviteMsg,setInviteMsg] = useState<{txt:string,err:boolean}|null>(null)
+  const [busy,setBusy] = useState(false)
+  const refresh = useCallback(async()=>{ setLoading(true); setMembers(await loadAccountMembers(accountId)); setLoading(false) },[accountId])
+  useEffect(()=>{ refresh() },[refresh])
+
+  const totalPct = members.reduce((s,m)=>s+m.ownership_pct,0)
+
+  const doInvite = async () => {
+    const email = inviteEmail.trim()
+    if(!email) return
+    setBusy(true); setInviteMsg(null)
+    const u = await findUserByEmail(email)
+    if(!u){ setInviteMsg({txt:'Não existe utilizador com esse email',err:true}); setBusy(false); return }
+    if(members.some(m=>m.user_id===u.id)){ setInviteMsg({txt:'Este utilizador já é membro',err:true}); setBusy(false); return }
+    const res = await inviteUserToAccount(accountId, u.id)
+    if(res.error){ setInviteMsg({txt:'Erro: '+res.error.message,err:true}); setBusy(false); return }
+    setInviteMsg({txt:'✓ Convite enviado',err:false})
+    setInviteEmail('')
+    setBusy(false)
+  }
+  const changePct = async (m:AccountMember, v:string) => {
+    const n = Math.max(0, Math.min(100, Number(v)||0))
+    await updateMemberOwnership(m.id, n); await refresh(); onChanged()
+  }
+  const doRemove = async (m:AccountMember) => {
+    if(!confirm(`Remover ${m.nome} desta conta?`)) return
+    await removeMember(m.id); await refresh(); onChanged()
+  }
+
+  return (
+    <div style={{position:'fixed',inset:0,background:T.bg,zIndex:95,overflowY:'auto'}}>
+      <div style={{maxWidth:440,margin:'0 auto'}}>
+        <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',background:T.surface,borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,zIndex:10}}>
+          <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ArrowLeft size={18} color={T.textSec}/></button>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:15,fontWeight:700,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>Membros</div>
+            <div style={{fontSize:11,color:T.textSec,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{account?.nome ?? ''}</div>
+          </div>
+        </div>
+        <div style={{padding:'16px 14px'}}>
+          <Card style={{marginBottom:14}}>
+            {loading ? (
+              <div style={{padding:20,textAlign:'center',fontSize:12,color:T.textSec}}>A carregar…</div>
+            ) : members.length===0 ? (
+              <div style={{padding:20,textAlign:'center',fontSize:12,color:T.textSec}}>Sem membros</div>
+            ) : members.map((m,i)=>(
+              <div key={m.id} style={{display:'flex',alignItems:'center',gap:10,padding:'12px 16px',borderBottom:i<members.length-1?`1px solid ${T.border}`:'none'}}>
+                <div style={{width:32,height:32,borderRadius:'50%',background:pal.soft,display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,fontWeight:700,color:pal.accent,flexShrink:0}}>{(m.nome?.[0]??'?').toUpperCase()}</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:600,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{m.nome}</div>
+                  <div style={{fontSize:11,color:T.textSec,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{m.email ?? ''}{m.status==='pending'?' · pendente':''}</div>
+                </div>
+                <input type="number" min={0} max={100} defaultValue={m.ownership_pct} onBlur={e=>changePct(m, e.target.value)} style={{width:54,background:T.surface2,border:`1px solid ${T.border}`,borderRadius:6,padding:'4px 6px',fontSize:12,color:T.text,textAlign:'right'}}/>
+                <span style={{fontSize:11,color:T.textSec}}>%</span>
+                {members.length>1 && <button onClick={()=>doRemove(m)} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><Trash2 size={14} color={T.textTer}/></button>}
+              </div>
+            ))}
+          </Card>
+          <div style={{fontSize:11,color:totalPct===100?T.textSec:'#F87171',marginBottom:14,padding:'0 4px'}}>Soma das %: {totalPct}%{totalPct!==100?' (deve totalizar 100%)':''}</div>
+
+          {/* CONVIDAR */}
+          <div style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase',marginBottom:8,padding:'0 2px'}}>Convidar utilizador</div>
+          <Card style={{padding:'12px 14px',marginBottom:8}}>
+            <div style={{display:'flex',gap:6}}>
+              <input value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} placeholder="email@exemplo.com" type="email" style={{flex:1,background:T.surface2,border:`1px solid ${T.border}`,borderRadius:8,padding:'8px 10px',fontSize:13,color:T.text}}/>
+              <button onClick={doInvite} disabled={busy||!inviteEmail.trim()} style={{background:pal.accent,color:'#0B0B12',border:'none',borderRadius:8,padding:'8px 14px',fontSize:12,fontWeight:700,cursor:'pointer',opacity:(busy||!inviteEmail.trim())?0.5:1}}><UserPlus size={13}/></button>
+            </div>
+            {inviteMsg && <div style={{fontSize:11,color:inviteMsg.err?'#F87171':'#4ADE80',marginTop:8}}>{inviteMsg.txt}</div>}
+          </Card>
+          <div style={{fontSize:10,color:T.textTer,padding:'0 4px',lineHeight:1.5}}>O utilizador convidado precisa de já ter conta na plataforma. Ele recebe o convite e pode aceitar ou rejeitar.</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────
+// CONVITES PENDENTES
+// ─────────────────────────────────────────────────────────────────
+const InvitesScreen = ({invites,onClose,pal,onChanged}:{invites:AccountInvite[],onClose:()=>void,pal:{accent:string,soft:string},onChanged:()=>void}) => {
+  const [busy,setBusy] = useState<string|null>(null)
+  const doAccept = async (id:string) => { setBusy(id); await acceptInvite(id); await onChanged(); setBusy(null) }
+  const doReject = async (id:string) => { setBusy(id); await rejectInvite(id); await onChanged(); setBusy(null) }
+  return (
+    <div style={{position:'fixed',inset:0,background:T.bg,zIndex:95,overflowY:'auto'}}>
+      <div style={{maxWidth:440,margin:'0 auto'}}>
+        <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',background:T.surface,borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,zIndex:10}}>
+          <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ArrowLeft size={18} color={T.textSec}/></button>
+          <div style={{fontSize:16,fontWeight:700,color:T.text,flex:1}}>Convites pendentes</div>
+        </div>
+        <div style={{padding:'16px 14px'}}>
+          {invites.length===0 ? (
+            <div style={{padding:40,textAlign:'center',fontSize:13,color:T.textSec}}>
+              <Mail size={32} color={T.textTer} style={{marginBottom:12}}/>
+              <div>Sem convites pendentes</div>
+            </div>
+          ) : invites.map(inv => (
+            <Card key={inv.id} style={{padding:'14px 16px',marginBottom:10}}>
+              <div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:4}}>{inv.account_nome}</div>
+              <div style={{fontSize:11,color:T.textSec,marginBottom:12}}>Convite de <strong style={{color:T.text}}>{inv.invited_by_nome}</strong></div>
+              <div style={{display:'flex',gap:8}}>
+                <button onClick={()=>doAccept(inv.id)} disabled={busy===inv.id} style={{flex:1,background:pal.accent,color:'#0B0B12',border:'none',borderRadius:8,padding:'8px 12px',fontSize:12,fontWeight:700,cursor:'pointer',opacity:busy===inv.id?0.5:1}}>Aceitar</button>
+                <button onClick={()=>doReject(inv.id)} disabled={busy===inv.id} style={{flex:1,background:T.surface2,color:T.textSec,border:`1px solid ${T.border}`,borderRadius:8,padding:'8px 12px',fontSize:12,fontWeight:600,cursor:'pointer',opacity:busy===inv.id?0.5:1}}>Rejeitar</button>
+              </div>
+            </Card>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────
 // ROOT
 // ─────────────────────────────────────────────────────────────────
 const TABS = [
@@ -2995,6 +3162,10 @@ export default function Page() {
   const [showAllTxns, setShowAllTxns] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
+  const [me, setMe] = useState<Profile|null>(null)
+  const [invites, setInvites] = useState<AccountInvite[]>([])
+  const [showInvites, setShowInvites] = useState(false)
+  const [membersAccountId, setMembersAccountId] = useState<string|null>(null)
   const [viewAllCategoria, setViewAllCategoria] = useState<string|undefined>(undefined)
   const [viewAllContaId, setViewAllContaId] = useState<string|undefined>(undefined)
   const [toast, setToast] = useState<string|null>(null)
@@ -3009,15 +3180,18 @@ export default function Page() {
   const loadFull = useCallback(async()=>{ const all = await loadAllTransactions(); setAllTxns(all) },[])
   const refreshAll = useCallback(async()=>{ await load(); await loadFull() },[load,loadFull])
 
+  const refreshInvites = useCallback(async()=>{ setInvites(await loadPendingInvites()) },[])
+  const refreshMe = useCallback(async()=>{ setMe(await getCurrentProfile()) },[])
+
   useEffect(()=>{
-    supabase.auth.getSession().then(({data:{session}})=>{ setSession(session); if(session){load();loadFull()} else setLoading(false) })
+    supabase.auth.getSession().then(({data:{session}})=>{ setSession(session); if(session){load();loadFull();refreshMe();refreshInvites()} else setLoading(false) })
     const {data:{subscription}} = supabase.auth.onAuthStateChange((_,session)=>{
       setSession(session)
-      if(session){ load(); loadFull(); countUnreadNotifications().then(setUnreadCount) }
-      else { setLoading(false); setSession(null) }
+      if(session){ load(); loadFull(); refreshMe(); refreshInvites(); countUnreadNotifications().then(setUnreadCount) }
+      else { setLoading(false); setSession(null); setMe(null); setInvites([]) }
     })
     return ()=>subscription.unsubscribe()
-  },[load,loadFull])
+  },[load,loadFull,refreshMe,refreshInvites])
 
   // Trata o regresso do fluxo OAuth da Google (?drive_connected=1 ou ?drive_error=...)
   useEffect(()=>{
@@ -3073,7 +3247,9 @@ export default function Page() {
         {TABS.map(({id,label,Icon})=>{const active=tab===id,c=active?PAL[id].accent:T.textTer;return (<button key={id} onClick={()=>setTab(id)} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:3,background:'none',border:'none',cursor:'pointer',padding:'4px 0'}}><Icon size={20} color={c} strokeWidth={active?2.5:1.5}/><span style={{fontSize:10,fontWeight:active?700:400,color:c}}>{label}</span>{active&&<div style={{width:4,height:4,borderRadius:'50%',background:c}}/>}</button>)})}
       </div>
       {showImport&&<ImportWizard onClose={()=>setShowImport(false)} accounts={accounts} pal={pal} onDone={async()=>{await refreshAll();showToast('✓ Importação concluída')}} onRefreshAccounts={refreshAll}/>}
-      {showSettings&&<SettingsPanel onClose={()=>setShowSettings(false)} accounts={accounts} onRefresh={async()=>{await refreshAll();showToast('✓ Dados actualizados')}} pal={pal}/>}
+      {showSettings&&<SettingsPanel onClose={()=>setShowSettings(false)} accounts={accounts} onRefresh={async()=>{await refreshAll();showToast('✓ Dados actualizados')}} pal={pal} me={me} onMembers={(id)=>setMembersAccountId(id)} onShowInvites={()=>setShowInvites(true)} pendingInvitesCount={invites.length} onProfileUpdated={refreshMe}/>}
+      {membersAccountId&&<MembersScreen accountId={membersAccountId} accounts={accounts} onClose={()=>setMembersAccountId(null)} pal={pal} onChanged={refreshAll}/>}
+      {showInvites&&<InvitesScreen invites={invites} onClose={()=>setShowInvites(false)} pal={pal} onChanged={async()=>{await refreshInvites();await refreshAll()}}/>}
       {showAllTxns&&<AllTransactionsScreen allTxns={allTxns} accounts={accounts} tag={tab==='imoveis'?'investimento':tab} pal={pal} onClose={()=>{setShowAllTxns(false);setViewAllCategoria(undefined);setViewAllContaId(undefined)}} onRefresh={async()=>{await refreshAll();showToast('✓ Transações actualizadas')}} imoveis={tab==='imoveis'?imoveis:undefined} initialCategoria={viewAllCategoria} initialContaId={viewAllContaId}/>}
       {showNotifications&&<NotificationsScreen onClose={()=>setShowNotifications(false)} pal={pal}/>}
       {toast&&<div style={{position:'fixed',bottom:90,left:'50%',transform:'translateX(-50%)',background:T.surface,border:`1px solid ${pal.accent}`,borderRadius:12,padding:'10px 16px',display:'flex',alignItems:'flex-start',gap:8,zIndex:200,boxShadow:'0 8px 24px rgba(0,0,0,0.4)',width:'calc(100% - 32px)',maxWidth:400,boxSizing:'border-box'}}><Check size={15} color={pal.accent} style={{flexShrink:0,marginTop:1}}/><span style={{fontSize:13,fontWeight:600,color:T.text,wordBreak:'break-word'}}>{toast}</span></div>}
