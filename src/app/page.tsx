@@ -432,7 +432,7 @@ const Hero = ({pal,title,mainValue,mainColor,kpis,trend,period,mainSuffix,sparkM
 // ─────────────────────────────────────────────────────────────────
 const AccountList = ({accounts,sel,onSel,pal}:{accounts:Account[],sel:string|null,onSel:(id:string|null)=>void,pal:{accent:string,soft:string}}) => (
   <div style={{marginBottom:20}}>
-    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'0 2px'}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'0 2px',minHeight:26}}>
       <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase'}}>Contas</span>
       {sel&&<button onClick={()=>onSel(null)} style={{display:'flex',alignItems:'center',gap:4,background:pal.soft,border:'none',borderRadius:8,padding:'3px 8px',cursor:'pointer'}}><span style={{fontSize:11,color:pal.accent,fontWeight:600}}>Ver tudo</span><X size={11} color={pal.accent}/></button>}
     </div>
@@ -2569,7 +2569,7 @@ const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAllTxns,onRefre
       <Hero pal={pal} title={title} period={period} mainValue={big(view.saldo)} mainColor={view.saldo<0?'#FCA5A5':'#FFF'} trend={view.trend} kpis={[{l:'Receitas',v:dec(view.rec),c:'#4ADE80'},{l:'Despesas',v:dec(view.desp),c:'#F87171'},{l:'Saldo mês',v:sgn(view.net),c:view.net>=0?'#4ADE80':'#F87171'}]} onPrev={()=>{setMonthOffset(o=>o-1);setCatSel(null)}} onNext={()=>{if(canGoForward){setMonthOffset(o=>o+1);setCatSel(null)}}} canNext={canGoForward}/>
       <AccountList accounts={tagAccs} sel={sel} onSel={setSel} pal={pal}/>
       <div style={{marginBottom:20}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'0 2px'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'0 2px',minHeight:26}}>
           <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase'}}>{sel?`Despesas — ${selName}`:'Despesas'}</span>
           <div style={{display:'flex',gap:8}}>
             {catSel&&<button onClick={()=>setCatSel(null)} style={{display:'flex',alignItems:'center',gap:4,background:pal.soft,border:'none',borderRadius:8,padding:'3px 8px',cursor:'pointer'}}><span style={{fontSize:12,color:pal.accent,fontWeight:600}}>×</span><span style={{fontSize:11,color:pal.accent,fontWeight:600}}>Ver tudo</span></button>}
@@ -2825,7 +2825,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
       )}
 
       {/* ── POR IMÓVEL ── */}
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'0 2px'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'0 2px',minHeight:26}}>
         <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase'}}>Por imóvel</span>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
           {selImovel&&<button onClick={()=>setSelImovel(null)} style={{display:'flex',alignItems:'center',gap:4,background:pal.soft,border:'none',borderRadius:8,padding:'3px 8px',cursor:'pointer'}}><span style={{fontSize:12,color:pal.accent,fontWeight:600}}>×</span><span style={{fontSize:11,color:pal.accent,fontWeight:600}}>Ver todos</span></button>}
@@ -2868,7 +2868,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
 
       {/* ── CONTAS ── */}
       <div style={{marginTop:20,marginBottom:20}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'0 2px'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'0 2px',minHeight:26}}>
           <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase'}}>Contas</span>
           {selAcc&&<button onClick={()=>setSelAcc(null)} style={{display:'flex',alignItems:'center',gap:4,background:pal.soft,border:'none',borderRadius:8,padding:'3px 8px',cursor:'pointer'}}><span style={{fontSize:11,color:pal.accent,fontWeight:600}}>Ver tudo</span><X size={11} color={pal.accent}/></button>}
         </div>
