@@ -25,6 +25,7 @@ import {
   getEnableBankingStatus, startEnableBankingConnect, syncEnableBanking, linkEnableBankingAccount,
   getCurrentProfile, updateMyProfile, loadAccountMembers, updateMemberOwnership, removeMember,
   findUserByEmail, inviteUserToAccount, loadPendingInvites, acceptInvite, rejectInvite,
+  loadAccountPendingInvites, cancelInvite,
   type Account, type Transaction, type Imovel, type ContaImovel, type CategoryRule,
   type DriveToken, type DriveFile, type AppNotification, type T212Config,
   type Profile, type AccountMember, type AccountInvite,
@@ -3024,11 +3025,18 @@ const PatrimonioScreen = ({accounts,imoveis,transactions,pal}:{accounts:Account[
 const MembersScreen = ({accountId,accounts,onClose,pal,onChanged}:{accountId:string,accounts:Account[],onClose:()=>void,pal:{accent:string,soft:string},onChanged:()=>void}) => {
   const account = accounts.find(a=>a.id===accountId)
   const [members,setMembers] = useState<AccountMember[]>([])
+  const [pending,setPending] = useState<Array<{id:string,invited_nome:string,invited_email:string|null,created_at:string}>>([])
   const [loading,setLoading] = useState(true)
   const [inviteEmail,setInviteEmail] = useState('')
   const [inviteMsg,setInviteMsg] = useState<{txt:string,err:boolean}|null>(null)
   const [busy,setBusy] = useState(false)
-  const refresh = useCallback(async()=>{ setLoading(true); setMembers(await loadAccountMembers(accountId)); setLoading(false) },[accountId])
+  const refresh = useCallback(async()=>{
+    setLoading(true)
+    const [m, p] = await Promise.all([loadAccountMembers(accountId), loadAccountPendingInvites(accountId)])
+    setMembers(m)
+    setPending(p.map(x=>({id:x.id, invited_nome:x.invited_nome, invited_email:x.invited_email, created_at:x.created_at})))
+    setLoading(false)
+  },[accountId])
   useEffect(()=>{ refresh() },[refresh])
 
   const totalPct = members.reduce((s,m)=>s+m.ownership_pct,0)
@@ -3045,14 +3053,20 @@ const MembersScreen = ({accountId,accounts,onClose,pal,onChanged}:{accountId:str
     setInviteMsg({txt:'✓ Convite enviado',err:false})
     setInviteEmail('')
     setBusy(false)
+    await refresh()
   }
   const changePct = async (m:AccountMember, v:string) => {
     const n = Math.max(0, Math.min(100, Number(v)||0))
+    if (n === m.ownership_pct) return
     await updateMemberOwnership(m.id, n); await refresh(); onChanged()
   }
   const doRemove = async (m:AccountMember) => {
     if(!confirm(`Remover ${m.nome} desta conta?`)) return
     await removeMember(m.id); await refresh(); onChanged()
+  }
+  const doCancelInvite = async (id:string) => {
+    if(!confirm('Cancelar este convite pendente?')) return
+    await cancelInvite(id); await refresh()
   }
 
   return (
@@ -3064,6 +3078,7 @@ const MembersScreen = ({accountId,accounts,onClose,pal,onChanged}:{accountId:str
             <div style={{fontSize:15,fontWeight:700,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>Membros</div>
             <div style={{fontSize:11,color:T.textSec,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{account?.nome ?? ''}</div>
           </div>
+          <button onClick={refresh} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><RefreshCw size={14} color={T.textSec}/></button>
         </div>
         <div style={{padding:'16px 14px'}}>
           <Card style={{marginBottom:14}}>
@@ -3078,13 +3093,32 @@ const MembersScreen = ({accountId,accounts,onClose,pal,onChanged}:{accountId:str
                   <div style={{fontSize:13,fontWeight:600,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{m.nome}</div>
                   <div style={{fontSize:11,color:T.textSec,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{m.email ?? ''}{m.status==='pending'?' · pendente':''}</div>
                 </div>
-                <input type="number" min={0} max={100} defaultValue={m.ownership_pct} onBlur={e=>changePct(m, e.target.value)} style={{width:54,background:T.surface2,border:`1px solid ${T.border}`,borderRadius:6,padding:'4px 6px',fontSize:12,color:T.text,textAlign:'right'}}/>
+                <input type="number" min={0} max={100} key={`${m.id}-${m.ownership_pct}`} defaultValue={m.ownership_pct} onBlur={e=>changePct(m, e.target.value)} style={{width:54,background:T.surface2,border:`1px solid ${T.border}`,borderRadius:6,padding:'4px 6px',fontSize:12,color:T.text,textAlign:'right'}}/>
                 <span style={{fontSize:11,color:T.textSec}}>%</span>
                 {members.length>1 && <button onClick={()=>doRemove(m)} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><Trash2 size={14} color={T.textTer}/></button>}
               </div>
             ))}
           </Card>
           <div style={{fontSize:11,color:totalPct===100?T.textSec:'#F87171',marginBottom:14,padding:'0 4px'}}>Soma das %: {totalPct}%{totalPct!==100?' (deve totalizar 100%)':''}</div>
+
+          {/* CONVITES PENDENTES */}
+          {pending.length > 0 && (
+            <>
+              <div style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase',marginBottom:8,padding:'0 2px'}}>Convites pendentes</div>
+              <Card style={{marginBottom:14}}>
+                {pending.map((inv,i)=>(
+                  <div key={inv.id} style={{display:'flex',alignItems:'center',gap:10,padding:'12px 16px',borderBottom:i<pending.length-1?`1px solid ${T.border}`:'none'}}>
+                    <div style={{width:32,height:32,borderRadius:'50%',background:T.surface2,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><Mail size={14} color={T.textSec}/></div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:600,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{inv.invited_nome || inv.invited_email}</div>
+                      <div style={{fontSize:11,color:T.textSec}}>Aguarda aceitação</div>
+                    </div>
+                    <button onClick={()=>doCancelInvite(inv.id)} title="Cancelar convite" style={{background:'none',border:'none',cursor:'pointer',padding:4}}><X size={14} color={T.textTer}/></button>
+                  </div>
+                ))}
+              </Card>
+            </>
+          )}
 
           {/* CONVIDAR */}
           <div style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase',marginBottom:8,padding:'0 2px'}}>Convidar utilizador</div>
@@ -3239,7 +3273,7 @@ export default function Page() {
             <Bell size={14} color={unreadCount>0?pal.accent:T.textSec}/>
             {unreadCount>0&&<span style={{position:'absolute',top:4,right:4,width:8,height:8,borderRadius:'50%',background:pal.accent,border:`2px solid ${T.surface2}`}}/>}
           </button>
-          <button onClick={()=>setShowSettings(true)} style={{background:T.surface2,border:'none',borderRadius:10,padding:'7px 10px',cursor:'pointer'}}><Settings size={14} color={T.textSec}/></button>
+          <button onClick={()=>{setShowSettings(true);refreshInvites()}} style={{background:T.surface2,border:'none',borderRadius:10,padding:'7px 10px',cursor:'pointer'}}><Settings size={14} color={T.textSec}/></button>
         </div>
       </div>
       <div style={{flex:1,overflowY:'auto',padding:'14px 12px 0'}}>{screens[tab]}<div style={{height:16}}/></div>

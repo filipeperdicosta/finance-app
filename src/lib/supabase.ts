@@ -554,8 +554,26 @@ export async function loadAccountMembers(accountId: string): Promise<AccountMemb
   }))
 }
 
+// Actualiza % de um membro com redistribuição proporcional pelos outros
+// (B2: a soma fica sempre 100%)
 export async function updateMemberOwnership(membershipId: string, ownership_pct: number) {
-  return supabase.from('account_users').update({ ownership_pct }).eq('id', membershipId)
+  return supabase.rpc('update_member_ownership', { p_membership_id: membershipId, p_new_pct: ownership_pct })
+}
+
+// Convites pendentes de uma conta específica (para o ecrã Membros)
+export async function loadAccountPendingInvites(accountId: string) {
+  const { data, error } = await supabase.rpc('get_account_pending_invites', { p_account_id: accountId })
+  if (error) { console.error('loadAccountPendingInvites', error); return [] }
+  return (data ?? []) as Array<{
+    id: string; account_id: string; invited_by: string; invited_by_nome: string;
+    invited_user_id: string; invited_nome: string; invited_email: string|null;
+    status: string; created_at: string;
+  }>
+}
+
+// Cancela um convite pendente
+export async function cancelInvite(inviteId: string) {
+  return supabase.rpc('cancel_invite', { p_invite_id: inviteId })
 }
 
 export async function removeMember(membershipId: string) {
@@ -595,26 +613,10 @@ export async function loadPendingInvites(): Promise<AccountInvite[]> {
   }))
 }
 
-// Aceitar convite: cria account_users + marca convite como accepted
-// Default: 1/N de ownership entre os membros activos da conta após entrar.
+// Aceitar convite via RPC SECURITY DEFINER (distribui 1/N server-side,
+// imune ao RLS de account_users)
 export async function acceptInvite(inviteId: string) {
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: { message: 'Não autenticado' } as any }
-  const { data: invite } = await supabase.from('account_invites').select('account_id, invited_user_id, status').eq('id', inviteId).maybeSingle()
-  if (!invite || invite.invited_user_id !== user.id || invite.status !== 'pending') {
-    return { error: { message: 'Convite inválido' } as any }
-  }
-  // Conta nº de membros já activos
-  const { count } = await supabase.from('account_users').select('id', { count: 'exact', head: true }).eq('account_id', invite.account_id).eq('status', 'active')
-  const total = (count ?? 0) + 1
-  const newPct = Math.floor(100 / total)
-  // Insere a minha associação
-  await supabase.from('account_users').insert({
-    account_id: invite.account_id, user_id: user.id, ownership_pct: newPct, status: 'active',
-  })
-  // Redistribui equitativamente entre os existentes
-  await supabase.from('account_users').update({ ownership_pct: newPct }).eq('account_id', invite.account_id).neq('user_id', user.id)
-  return supabase.from('account_invites').update({ status: 'accepted', responded_at: new Date().toISOString() }).eq('id', inviteId)
+  return supabase.rpc('accept_invite', { p_invite_id: inviteId })
 }
 
 export async function rejectInvite(inviteId: string) {
