@@ -176,10 +176,10 @@ function computeView(accounts:Account[], transactions:Transaction[], tag:string,
 const Card = ({children,style}:{children:React.ReactNode,style?:React.CSSProperties}) => (
   <div style={{background:T.surface,borderRadius:14,border:`1px solid ${T.border}`,overflow:'hidden',...style}}>{children}</div>
 )
-const Lbl = ({title,action,accent,onAction}:{title:string,action?:string,accent?:string,onAction?:()=>void}) => (
+const Lbl = ({title,action,accent,onAction,soft}:{title:string,action?:string,accent?:string,onAction?:()=>void,soft?:string}) => (
   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'0 2px'}}>
     <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase'}}>{title}</span>
-    {action&&<span onClick={onAction} style={{fontSize:12,color:accent,fontWeight:600,cursor:'pointer'}}>{action}</span>}
+    {action&&<button onClick={onAction} style={{display:'flex',alignItems:'center',gap:4,background:soft||'rgba(255,255,255,0.08)',border:'none',borderRadius:8,padding:'3px 8px',cursor:'pointer'}}><span style={{fontSize:11,color:accent,fontWeight:600}}>{action}</span></button>}
   </div>
 )
 const Btn = ({children,onClick,variant='primary',accent,style={}}:{children:React.ReactNode,onClick?:()=>void,variant?:string,accent?:string,style?:React.CSSProperties}) => {
@@ -2571,9 +2571,9 @@ const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAllTxns,onRefre
       <div style={{marginBottom:20}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'0 2px'}}>
           <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase'}}>{sel?`Despesas — ${selName}`:'Despesas'}</span>
-          <div style={{display:'flex',gap:10}}>
-            {catSel&&<span onClick={()=>setCatSel(null)} style={{fontSize:12,color:pal.accent,fontWeight:600,cursor:'pointer'}}>✕ Ver tudo</span>}
-            {!catSel&&<span onClick={()=>setShowAllCats(true)} style={{fontSize:12,color:pal.accent,fontWeight:600,cursor:'pointer'}}>Ver todas →</span>}
+          <div style={{display:'flex',gap:8}}>
+            {catSel&&<button onClick={()=>setCatSel(null)} style={{display:'flex',alignItems:'center',gap:4,background:pal.soft,border:'none',borderRadius:8,padding:'3px 8px',cursor:'pointer'}}><span style={{fontSize:11,color:pal.accent,fontWeight:600}}>Ver tudo</span><X size={11} color={pal.accent}/></button>}
+            {!catSel&&<button onClick={()=>setShowAllCats(true)} style={{display:'flex',alignItems:'center',gap:4,background:pal.soft,border:'none',borderRadius:8,padding:'3px 8px',cursor:'pointer'}}><span style={{fontSize:11,color:pal.accent,fontWeight:600}}>Ver todas</span></button>}
           </div>
         </div>
         <Card>{topCats.length?topCats.map((c,i,a)=>{
@@ -2587,7 +2587,7 @@ const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAllTxns,onRefre
       </div>
       <TrendTile data={catTrend} accent={pal.accent} catFilter={catSel}/>
       <div style={{marginBottom:20}}>
-        <Lbl title={catSel?`Transações — ${catSel}`:'Últimas transações'} action="Ver todas →" accent={pal.accent} onAction={()=>onViewAllTxns(catSel??undefined, sel??undefined)}/>
+        <Lbl title={catSel?`Transações — ${catSel}`:'Últimas transações'} action="Ver todas" accent={pal.accent} soft={pal.soft} onAction={()=>onViewAllTxns(catSel??undefined, sel??undefined)}/>
         <Card>{catTxns.length?catTxns.map((t,i)=><TxnRow key={t.id} t={t} last={i===catTxns.length-1} onClick={()=>setEditTxn(t)} accounts={tagAccs}/>):<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem transações. Importa o teu primeiro extracto.</div>}</Card>
       </div>
       {editTxn&&<TxnEditForm txn={editTxn} onClose={()=>setEditTxn(null)} onSaved={onRefresh} pal={pal} accounts={accounts}/>}
@@ -2828,7 +2828,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'0 2px'}}>
         <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase'}}>Por imóvel</span>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
-          {selImovel&&<button onClick={()=>setSelImovel(null)} style={{background:'none',border:'none',cursor:'pointer',fontSize:11,color:pal.accent,fontWeight:600}}>✕ Ver todos</button>}
+          {selImovel&&<button onClick={()=>setSelImovel(null)} style={{display:'flex',alignItems:'center',gap:4,background:pal.soft,border:'none',borderRadius:8,padding:'3px 8px',cursor:'pointer'}}><span style={{fontSize:11,color:pal.accent,fontWeight:600}}>Ver todos</span><X size={11} color={pal.accent}/></button>}
           <button onClick={()=>{setEditing(null);setFormOpen(true)}} style={{display:'flex',alignItems:'center',gap:4,background:pal.soft,border:'none',borderRadius:8,padding:'4px 10px',cursor:'pointer'}}><Plus size={12} color={pal.accent}/><span style={{fontSize:11,color:pal.accent,fontWeight:600}}>Adicionar</span></button>
         </div>
       </div>
@@ -2890,7 +2890,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
 
       {/* ── TRANSAÇÕES ── */}
       <div style={{marginBottom:20}}>
-        <Lbl title={selImovel?`Transações — ${imoveis.find(i=>i.id===selImovel)?.nome??''}`:(selAcc?`Transações — ${investAccounts.find(a=>a.id===selAcc)?.nome.split(' ').slice(-1)[0]}`:'Últimas transações')} action="Ver todas →" accent={pal.accent} onAction={onViewAll}/>
+        <Lbl title={selImovel?`Transações — ${imoveis.find(i=>i.id===selImovel)?.nome??''}`:(selAcc?`Transações — ${investAccounts.find(a=>a.id===selAcc)?.nome.split(' ').slice(-1)[0]}`:'Últimas transações')} action="Ver todas" accent={pal.accent} soft={pal.soft} onAction={onViewAll}/>
         <Card>
           {recentTxns.length===0&&<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>{selImovel?'Sem transações para este imóvel neste mês.':'Sem transações. Importa um extracto de uma conta de investimento.'}</div>}
           {recentTxns.map((t,i)=>{
