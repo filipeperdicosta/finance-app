@@ -542,15 +542,15 @@ export async function updateMyProfile(fields: { nome?: string }) {
   return supabase.from('profiles').update(fields).eq('id', user.id)
 }
 
-// Lista membros de uma conta (com nome e email vindos de profiles)
+// Lista membros de uma conta — usa RPC SECURITY DEFINER (bypass controlado
+// do RLS; valida internamente que o caller é membro activo da conta)
 export async function loadAccountMembers(accountId: string): Promise<AccountMember[]> {
-  const { data } = await supabase.from('account_users')
-    .select('id, account_id, user_id, ownership_pct, status, profiles!inner(nome, email)')
-    .eq('account_id', accountId)
+  const { data, error } = await supabase.rpc('get_account_members', { p_account_id: accountId })
+  if (error) { console.error('loadAccountMembers', error); return [] }
   return ((data ?? []) as any[]).map(r => ({
     id: r.id, account_id: r.account_id, user_id: r.user_id,
     ownership_pct: Number(r.ownership_pct), status: r.status,
-    nome: r.profiles?.nome ?? '', email: r.profiles?.email ?? null,
+    nome: r.nome ?? '', email: r.email ?? null,
   }))
 }
 
