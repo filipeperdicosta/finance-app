@@ -3022,6 +3022,24 @@ const PatrimonioScreen = ({accounts,imoveis,transactions,pal}:{accounts:Account[
 // ─────────────────────────────────────────────────────────────────
 // MEMBROS DE CONTA
 // ─────────────────────────────────────────────────────────────────
+const PctInput = ({value,onCommit,disabled}:{value:number,onCommit:(n:number)=>void,disabled?:boolean}) => {
+  const [v,setV] = useState(String(value))
+  // Sincronizar com o valor externo sempre que mudar (ex: após refresh do servidor)
+  useEffect(()=>{ setV(String(value)) },[value])
+  const commit = () => {
+    const n = Math.max(0, Math.min(100, Number(v)||0))
+    if (n !== value) onCommit(n)
+    else setV(String(value)) // reset visual se inválido
+  }
+  return (
+    <input type="number" min={0} max={100} value={v} disabled={disabled}
+      onChange={e=>setV(e.target.value)}
+      onBlur={commit}
+      onKeyDown={e=>{if(e.key==='Enter')(e.target as HTMLInputElement).blur()}}
+      style={{width:54,background:T.surface2,border:`1px solid ${T.border}`,borderRadius:6,padding:'4px 6px',fontSize:12,color:T.text,textAlign:'right'}}/>
+  )
+}
+
 const MembersScreen = ({accountId,accounts,onClose,pal,onChanged}:{accountId:string,accounts:Account[],onClose:()=>void,pal:{accent:string,soft:string},onChanged:()=>void}) => {
   const account = accounts.find(a=>a.id===accountId)
   const [members,setMembers] = useState<AccountMember[]>([])
@@ -3093,7 +3111,7 @@ const MembersScreen = ({accountId,accounts,onClose,pal,onChanged}:{accountId:str
                   <div style={{fontSize:13,fontWeight:600,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{m.nome}</div>
                   <div style={{fontSize:11,color:T.textSec,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{m.email ?? ''}{m.status==='pending'?' · pendente':''}</div>
                 </div>
-                <input type="number" min={0} max={100} key={`${m.id}-${m.ownership_pct}`} defaultValue={m.ownership_pct} onBlur={e=>changePct(m, e.target.value)} onKeyDown={e=>{if(e.key==='Enter')(e.target as HTMLInputElement).blur()}} style={{width:54,background:T.surface2,border:`1px solid ${T.border}`,borderRadius:6,padding:'4px 6px',fontSize:12,color:T.text,textAlign:'right'}}/>
+                <PctInput value={m.ownership_pct} onCommit={(n)=>changePct(m, String(n))}/>
                 <span style={{fontSize:11,color:T.textSec}}>%</span>
                 {members.length>1 && <button onClick={()=>doRemove(m)} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><Trash2 size={14} color={T.textTer}/></button>}
               </div>
