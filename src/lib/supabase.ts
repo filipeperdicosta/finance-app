@@ -578,20 +578,20 @@ export async function inviteUserToAccount(accountId: string, invitedUserId: stri
   }, { onConflict: 'account_id,invited_user_id' })
 }
 
-// Convites pendentes recebidos pelo user actual
+// Convites pendentes recebidos pelo user actual — via RPC SECURITY DEFINER
+// (evita joins client-side com profiles, que falham com o RLS actual)
 export async function loadPendingInvites(): Promise<AccountInvite[]> {
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return []
-  const { data } = await supabase.from('account_invites')
-    .select('id, account_id, invited_by, invited_user_id, status, created_at, accounts!inner(nome), profiles!account_invites_invited_by_fkey(nome)')
-    .eq('invited_user_id', user.id).eq('status', 'pending')
+  const { data, error } = await supabase.rpc('get_my_pending_invites')
+  if (error) { console.error('loadPendingInvites', error); return [] }
   return ((data ?? []) as any[]).map(r => ({
-    id: r.id, account_id: r.account_id,
-    account_nome: r.accounts?.nome ?? '',
+    id: r.id,
+    account_id: r.account_id,
+    account_nome: r.account_nome ?? '',
     invited_by: r.invited_by,
-    invited_by_nome: r.profiles?.nome ?? '',
+    invited_by_nome: r.invited_by_nome ?? '',
     invited_user_id: r.invited_user_id,
-    status: r.status, created_at: r.created_at,
+    status: r.status,
+    created_at: r.created_at,
   }))
 }
 
