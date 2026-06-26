@@ -3093,7 +3093,7 @@ const MembersScreen = ({accountId,accounts,onClose,pal,onChanged}:{accountId:str
                   <div style={{fontSize:13,fontWeight:600,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{m.nome}</div>
                   <div style={{fontSize:11,color:T.textSec,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{m.email ?? ''}{m.status==='pending'?' · pendente':''}</div>
                 </div>
-                <input type="number" min={0} max={100} key={`${m.id}-${m.ownership_pct}`} defaultValue={m.ownership_pct} onBlur={e=>changePct(m, e.target.value)} style={{width:54,background:T.surface2,border:`1px solid ${T.border}`,borderRadius:6,padding:'4px 6px',fontSize:12,color:T.text,textAlign:'right'}}/>
+                <input type="number" min={0} max={100} key={`${m.id}-${m.ownership_pct}`} defaultValue={m.ownership_pct} onBlur={e=>changePct(m, e.target.value)} onKeyDown={e=>{if(e.key==='Enter')(e.target as HTMLInputElement).blur()}} style={{width:54,background:T.surface2,border:`1px solid ${T.border}`,borderRadius:6,padding:'4px 6px',fontSize:12,color:T.text,textAlign:'right'}}/>
                 <span style={{fontSize:11,color:T.textSec}}>%</span>
                 {members.length>1 && <button onClick={()=>doRemove(m)} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><Trash2 size={14} color={T.textTer}/></button>}
               </div>
