@@ -175,18 +175,29 @@ export async function assignTransactionsToImovel(txnIds: string[], imovelId: str
 }
 
 export async function saveAccount(account: Omit<Account, 'id' | 'created_at' | 'my_ownership_pct'>) {
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { data: null, error: { message: 'Não autenticado' } as any }
-  const res = await supabase.from('accounts').insert(account).select().single()
-  if (res.data && !res.error) {
-    await supabase.from('account_users').insert({
-      account_id: res.data.id,
-      user_id: user.id,
-      ownership_pct: account.ownership_pct ?? 100,
-      status: 'active',
-    })
-  }
-  return res
+  // Usa RPC SECURITY DEFINER que faz INSERT em accounts + account_users atomicamente,
+  // evitando o problema de RLS "chicken and egg" (RETURNING falha porque account_users
+  // ainda não tem entrada para o novo account_id)
+  const { data: newId, error } = await supabase.rpc('create_account', {
+    p_nome: account.nome,
+    p_banco: account.banco,
+    p_tipo: account.tipo,
+    p_budget_tag: account.budget_tag,
+    p_titular: account.titular ?? '',
+    p_ownership_pct: account.ownership_pct ?? 100,
+    p_saldo_atual: account.saldo_atual ?? 0,
+    p_moeda: account.moeda ?? 'EUR',
+    p_ativa: account.ativa ?? true,
+    p_ordem: account.ordem ?? 0,
+    p_iban: account.iban ?? null,
+    p_numero_conta: account.numero_conta ?? null,
+    p_saldo_data: account.saldo_data ?? null,
+    p_drive_folder_id: account.drive_folder_id ?? null,
+    p_drive_folder_name: account.drive_folder_name ?? null,
+  })
+  if (error) return { data: null, error }
+  // Após criar, faz SELECT à conta (agora account_users já tem a entrada)
+  return supabase.from('accounts').select('*').eq('id', newId).single()
 }
 
 // Carrega TODAS as transações (para o ecrã Ver Todas, com histórico completo)
