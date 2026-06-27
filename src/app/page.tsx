@@ -568,10 +568,10 @@ const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis,accounts}:{txn:Transaction
 // ─────────────────────────────────────────────────────────────────
 // FILTER SHEET
 // ─────────────────────────────────────────────────────────────────
-type Filters = { dateFrom:string, dateTo:string, tipo:string, valMin:string, valMax:string, categoria:string, conta:string }
-const emptyFilters:Filters = { dateFrom:'', dateTo:'', tipo:'todos', valMin:'', valMax:'', categoria:'todas', conta:'todas' }
+type Filters = { dateFrom:string, dateTo:string, tipo:string, valMin:string, valMax:string, categoria:string, conta:string, imovel:string }
+const emptyFilters:Filters = { dateFrom:'', dateTo:'', tipo:'todos', valMin:'', valMax:'', categoria:'todas', conta:'todas', imovel:'todos' }
 
-const FilterSheet = ({filters,onApply,onClose,pal,tagAccounts}:{filters:Filters,onApply:(f:Filters)=>void,onClose:()=>void,pal:{accent:string,soft:string},tagAccounts?:{id:string,nome:string}[]}) => {
+const FilterSheet = ({filters,onApply,onClose,pal,tagAccounts,imoveis}:{filters:Filters,onApply:(f:Filters)=>void,onClose:()=>void,pal:{accent:string,soft:string},tagAccounts?:{id:string,nome:string}[],imoveis?:{id:string,nome:string}[]}) => {
   const [f,setF] = useState<Filters>(filters)
   const upd = (k:keyof Filters)=>(v:string)=>setF({...f,[k]:v})
   return (
@@ -584,6 +584,9 @@ const FilterSheet = ({filters,onApply,onClose,pal,tagAccounts}:{filters:Filters,
         <div style={{padding:'20px 18px'}}>
           {tagAccounts&&tagAccounts.length>1&&(
             <Sel label="Conta" value={f.conta} onChange={upd('conta')} options={[{value:'todas',label:'Todas as contas'},...tagAccounts.map(a=>({value:a.id,label:a.nome}))]}/>
+          )}
+          {imoveis&&imoveis.length>1&&(
+            <Sel label="Imóvel" value={f.imovel} onChange={upd('imovel')} options={[{value:'todos',label:'Todos os imóveis'},...imoveis.map(i=>({value:i.id,label:i.nome}))]}/>
           )}
           <div style={{fontSize:11,color:T.textTer,fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:10}}>Intervalo de datas</div>
           <div style={{display:'flex',gap:10}}>
@@ -631,11 +634,12 @@ const RecategorizeSheet = ({count,onApply,onClose,pal}:{count:number,onApply:(ca
 // ─────────────────────────────────────────────────────────────────
 // ALL TRANSACTIONS SCREEN
 // ─────────────────────────────────────────────────────────────────
-const AllTransactionsScreen = ({allTxns,accounts,tag,pal,onClose,onRefresh,imoveis,initialCategoria,initialContaId}:{allTxns:Transaction[],accounts:Account[],tag:string,pal:{grad:string,accent:string,soft:string},onClose:()=>void,onRefresh:()=>void,imoveis?:Imovel[],initialCategoria?:string,initialContaId?:string}) => {
+const AllTransactionsScreen = ({allTxns,accounts,tag,pal,onClose,onRefresh,imoveis,initialCategoria,initialContaId,initialImovelId}:{allTxns:Transaction[],accounts:Account[],tag:string,pal:{grad:string,accent:string,soft:string},onClose:()=>void,onRefresh:()=>void,imoveis?:Imovel[],initialCategoria?:string,initialContaId?:string,initialImovelId?:string}) => {
   const [filters,setFilters] = useState<Filters>({
     ...emptyFilters,
     ...(initialCategoria ? {categoria:initialCategoria} : {}),
     ...(initialContaId ? {conta:initialContaId} : {}),
+    ...(initialImovelId ? {imovel:initialImovelId} : {}),
   })
   const [showFilters,setShowFilters] = useState(false)
   const [selectMode,setSelectMode] = useState(false)
@@ -657,6 +661,7 @@ const AllTransactionsScreen = ({allTxns,accounts,tag,pal,onClose,onRefresh,imove
       if(filters.tipo==='receita' && t.valor<0) return false
       if(filters.tipo==='despesa' && t.valor>=0) return false
       if(filters.categoria!=='todas' && t.categoria!==filters.categoria) return false
+      if(filters.imovel!=='todos' && t.imovel_id!==filters.imovel) return false
       const abs = Math.abs(t.valor)
       if(filters.valMin && abs < Number(filters.valMin)) return false
       if(filters.valMax && abs > Number(filters.valMax)) return false
@@ -773,7 +778,7 @@ const AllTransactionsScreen = ({allTxns,accounts,tag,pal,onClose,onRefresh,imove
         )}
       </div>
 
-      {showFilters&&<FilterSheet filters={filters} onApply={setFilters} onClose={()=>setShowFilters(false)} pal={pal} tagAccounts={tagAccounts}/>}
+      {showFilters&&<FilterSheet filters={filters} onApply={setFilters} onClose={()=>setShowFilters(false)} pal={pal} tagAccounts={tagAccounts} imoveis={imoveis?.map(i=>({id:i.id,nome:i.nome}))}/>}
       {editTxn&&<TxnEditForm txn={editTxn} onClose={()=>setEditTxn(null)} onSaved={onRefresh} pal={pal} imoveis={imoveis} accounts={accounts}/>}
       {showRecat&&<RecategorizeSheet count={selected.size} onApply={doRecat} onClose={()=>setShowRecat(false)} pal={pal}/>}
     </div>
@@ -857,10 +862,12 @@ const AccountForm = ({initial,onClose,onSaved,pal,accountsLen}:{initial:Account|
     const payload = { nome:form.nome, banco:form.banco, tipo:form.tipo as any, budget_tag:form.budget_tag as any, titular:form.titular, ownership_pct:Number(form.ownership_pct), saldo_atual:parseNum(form.saldo_atual), iban:form.iban||null, numero_conta:form.numero_conta||null }
     if(isEdit) {
       const updatePayload: any = { ...payload }
-      // Para contas poupança, o saldo é editado manualmente — actualizar saldo_data para hoje
       if(form.tipo === 'poupança') updatePayload.saldo_data = new Date().toISOString().split('T')[0]
       await updateAccount(initial!.id, updatePayload)
-    } else await saveAccount({...payload, saldo_data:null, drive_folder_id:null, drive_folder_name:null, moeda:'EUR', ativa:true, ordem:accountsLen})
+    } else {
+      const res = await saveAccount({...payload, saldo_data:null, drive_folder_id:null, drive_folder_name:null, moeda:'EUR', ativa:true, ordem:accountsLen})
+      if(res.error) { console.error('saveAccount error:', res.error); setSaving(false); alert('Erro ao criar conta: ' + res.error.message); return }
+    }
     await onSaved(); setSaving(false); onClose()
   }
   return (
@@ -2759,7 +2766,7 @@ const AssignQueue = ({txns,imoveis,onClose,onRefresh,pal}:{txns:Transaction[],im
 // ─────────────────────────────────────────────────────────────────
 // IMÓVEIS SCREEN — full management
 // ─────────────────────────────────────────────────────────────────
-const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,onViewAll}:{imoveis:Imovel[],transactions:Transaction[],accounts:Account[],contaImovel:ContaImovel[],pal:{grad:string,accent:string,soft:string},onRefresh:()=>void,onViewAll:()=>void}) => {
+const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,onViewAll}:{imoveis:Imovel[],transactions:Transaction[],accounts:Account[],contaImovel:ContaImovel[],pal:{grad:string,accent:string,soft:string},onRefresh:()=>void,onViewAll:(imovelId?:string)=>void}) => {
   const [formOpen,setFormOpen] = useState(false)
   const [editing,setEditing] = useState<Imovel|null>(null)
   const [showQueue,setShowQueue] = useState(false)
@@ -2938,7 +2945,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
 
       {/* ── TRANSAÇÕES ── */}
       <div style={{marginBottom:20}}>
-        <Lbl title={selImovel?`Transações — ${imoveis.find(i=>i.id===selImovel)?.nome??''}`:(selAcc?`Transações — ${investAccounts.find(a=>a.id===selAcc)?.nome.split(' ').slice(-1)[0]}`:'Últimas transações')} action="Ver todas →" accent={pal.accent} onAction={onViewAll}/>
+        <Lbl title={selImovel?`Transações — ${imoveis.find(i=>i.id===selImovel)?.nome??''}`:(selAcc?`Transações — ${investAccounts.find(a=>a.id===selAcc)?.nome.split(' ').slice(-1)[0]}`:'Últimas transações')} action="Ver todas →" accent={pal.accent} onAction={()=>onViewAll(selImovel??undefined)}/>
         <Card>
           {recentTxns.length===0&&<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>{selImovel?'Sem transações para este imóvel neste mês.':'Sem transações. Importa um extracto de uma conta de investimento.'}</div>}
           {recentTxns.map((t,i)=>{
@@ -3219,6 +3226,7 @@ export default function Page() {
   const [showInvites, setShowInvites] = useState(false)
   const [membersAccountId, setMembersAccountId] = useState<string|null>(null)
   const [viewAllCategoria, setViewAllCategoria] = useState<string|undefined>(undefined)
+  const [viewAllImovelId, setViewAllImovelId] = useState<string|undefined>(undefined)
   const [viewAllContaId, setViewAllContaId] = useState<string|undefined>(undefined)
   const [toast, setToast] = useState<string|null>(null)
 
@@ -3277,7 +3285,7 @@ export default function Page() {
   const screens:Record<string,React.ReactNode> = {
     familiar:   <BudgetScreen accounts={accounts} transactions={transactions} tag="familiar" pal={PAL.familiar} title="Conta Corrente Familiar" onViewAllTxns={openAllTxns} onRefresh={async()=>{await refreshAll();showToast('✓ Transação actualizada')}}/>,
     pessoal:    <BudgetScreen accounts={accounts} transactions={transactions} tag="pessoal"  pal={PAL.pessoal}  title="Conta Corrente Pessoal" onViewAllTxns={openAllTxns} onRefresh={async()=>{await refreshAll();showToast('✓ Transação actualizada')}}/>,
-    imoveis:    <ImoveisScreen imoveis={imoveis} transactions={transactions} accounts={accounts} contaImovel={contaImovel} pal={PAL.imoveis} onRefresh={async()=>{await refreshAll();showToast('✓ Imóveis actualizados')}} onViewAll={()=>openAllTxns()}/>,
+    imoveis:    <ImoveisScreen imoveis={imoveis} transactions={transactions} accounts={accounts} contaImovel={contaImovel} pal={PAL.imoveis} onRefresh={async()=>{await refreshAll();showToast('✓ Imóveis actualizados')}} onViewAll={(imovelId)=>{setViewAllImovelId(imovelId);openAllTxns()}}/>,
     patrimonio: <PatrimonioScreen accounts={accounts} imoveis={imoveis} transactions={transactions} pal={PAL.patrimonio}/>,
   }
 
@@ -3302,7 +3310,7 @@ export default function Page() {
       {showSettings&&<SettingsPanel onClose={()=>setShowSettings(false)} accounts={accounts} onRefresh={async()=>{await refreshAll();showToast('✓ Dados actualizados')}} pal={pal} me={me} onMembers={(id)=>setMembersAccountId(id)} onShowInvites={()=>setShowInvites(true)} pendingInvitesCount={invites.length} onProfileUpdated={refreshMe}/>}
       {membersAccountId&&<MembersScreen accountId={membersAccountId} accounts={accounts} onClose={()=>setMembersAccountId(null)} pal={pal} onChanged={refreshAll}/>}
       {showInvites&&<InvitesScreen invites={invites} onClose={()=>setShowInvites(false)} pal={pal} onChanged={async()=>{await refreshInvites();await refreshAll()}}/>}
-      {showAllTxns&&<AllTransactionsScreen allTxns={allTxns} accounts={accounts} tag={tab==='imoveis'?'investimento':tab} pal={pal} onClose={()=>{setShowAllTxns(false);setViewAllCategoria(undefined);setViewAllContaId(undefined)}} onRefresh={async()=>{await refreshAll();showToast('✓ Transações actualizadas')}} imoveis={tab==='imoveis'?imoveis:undefined} initialCategoria={viewAllCategoria} initialContaId={viewAllContaId}/>}
+      {showAllTxns&&<AllTransactionsScreen allTxns={allTxns} accounts={accounts} tag={tab==='imoveis'?'investimento':tab} pal={pal} onClose={()=>{setShowAllTxns(false);setViewAllCategoria(undefined);setViewAllContaId(undefined);setViewAllImovelId(undefined)}} onRefresh={async()=>{await refreshAll();showToast('✓ Transações actualizadas')}} imoveis={tab==='imoveis'?imoveis:undefined} initialCategoria={viewAllCategoria} initialContaId={viewAllContaId} initialImovelId={viewAllImovelId}/>}
       {showNotifications&&<NotificationsScreen onClose={()=>setShowNotifications(false)} pal={pal}/>}
       {toast&&<div style={{position:'fixed',bottom:90,left:'50%',transform:'translateX(-50%)',background:T.surface,border:`1px solid ${pal.accent}`,borderRadius:12,padding:'10px 16px',display:'flex',alignItems:'flex-start',gap:8,zIndex:200,boxShadow:'0 8px 24px rgba(0,0,0,0.4)',width:'calc(100% - 32px)',maxWidth:400,boxSizing:'border-box'}}><Check size={15} color={pal.accent} style={{flexShrink:0,marginTop:1}}/><span style={{fontSize:13,fontWeight:600,color:T.text,wordBreak:'break-word'}}>{toast}</span></div>}
     </div>
