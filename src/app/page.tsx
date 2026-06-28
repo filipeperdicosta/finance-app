@@ -22,7 +22,7 @@ import {
   listDriveFolderFiles, importDriveFile, resetDriveFileImport, previewDriveFile,
   loadNotifications, countUnreadNotifications, markNotificationsRead, deleteNotification,
   syncT212, getT212Status, loadT212Config, saveT212Config,
-  getEnableBankingStatus, startEnableBankingConnect, syncEnableBanking, linkEnableBankingAccount,
+  getEnableBankingStatus, startEnableBankingConnect, syncEnableBanking, linkEnableBankingAccount, unlinkEnableBankingAccount,
   getCurrentProfile, updateMyProfile, loadAccountMembers, updateMemberOwnership, removeMember,
   findUserByEmail, inviteUserToAccount, loadPendingInvites, acceptInvite, rejectInvite,
   loadAccountPendingInvites, cancelInvite,
@@ -1119,10 +1119,10 @@ const EnableBankingScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
     await onRefresh()
   }
 
-  const linkAccount = async (accountUid:string, appAccountId:string) => {
-    await linkEnableBankingAccount(accountUid, appAccountId)
+  const unlinkAccount = async (accountUid:string) => {
+    if(!confirm('Desassociar esta conta? O histórico de transações é mantido.')) return
+    await unlinkEnableBankingAccount(accountUid)
     await load()
-    setLinkingUid(null)
   }
 
   const daysLeft = (validUntil:string) => {
@@ -1179,6 +1179,7 @@ const EnableBankingScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
                             <div style={{display:'flex',gap:6,flexShrink:0}}>
                               {acc.account_id&&<button onClick={()=>!syncing&&sync(acc.account_uid)} disabled={!!syncing} style={{background:pal.soft,color:pal.accent,border:'none',borderRadius:8,padding:'5px 10px',fontSize:11,fontWeight:600,cursor:syncing?'default':'pointer',opacity:syncing?0.5:1,display:'flex',alignItems:'center',gap:4}}><RefreshCw size={11}/>{isSyncing?'…':'Sync'}</button>}
                               <button onClick={()=>setLinkingUid(acc.account_uid)} style={{background:T.surface2,color:T.textSec,border:'none',borderRadius:8,padding:'5px 10px',fontSize:11,cursor:'pointer'}}>{acc.account_id?'Alterar':'Associar'}</button>
+                              {acc.account_id&&<button onClick={()=>unlinkAccount(acc.account_uid)} title="Desassociar" style={{background:'rgba(248,113,113,0.1)',color:T.red,border:'none',borderRadius:8,padding:'5px 8px',fontSize:11,cursor:'pointer'}}><X size={11}/></button>}
                             </div>
                           </div>
                         )

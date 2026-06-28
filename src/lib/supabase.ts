@@ -155,7 +155,9 @@ export async function deleteImovel(id: string) {
 export async function linkContaImovel(account_id: string, imovel_id: string) {
   return supabase.from('conta_imovel').insert({ account_id, imovel_id })
 }
-export async function unlinkContaImovel(account_id: string, imovel_id: string) {
+export async function unlinkEnableBankingAccount(accountUid: string) {
+  return supabase.from('enablebanking_accounts').update({ account_id: null }).eq('account_uid', accountUid)
+}
   return supabase.from('conta_imovel').delete().eq('account_id', account_id).eq('imovel_id', imovel_id)
 }
 
