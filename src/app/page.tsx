@@ -1147,47 +1147,56 @@ const EnableBankingScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
           {loading&&<div style={{padding:32,textAlign:'center',color:T.textSec,fontSize:13}}>A verificar ligações…</div>}
           {!loading&&(
             <>
-              <div style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase',marginBottom:8}}>Ligar banco</div>
-              <Card style={{marginBottom:16}}>
-                {[
-                  {name:'Revolut',country:'PT',label:'Revolut',domain:'revolut.com',color:'#000000'},
-                  {name:'Abanca',country:'PT',label:'Abanca',domain:'abanca.pt',color:'#5B87DA'},
-                  {name:'Millennium BCP',country:'PT',label:'Millennium BCP',domain:'millenniumbcp.pt',color:'#CC0066'},
-                  {name:'Santander Totta',country:'PT',label:'Santander',domain:'santander.pt',color:'#EC0000'},
-                  {name:'Caixa Geral de Depósitos',country:'PT',label:'CGD',domain:'cgd.pt',color:'#0072C6'},
-                ].map((bank,i,arr)=>{
-                  const linked=(status?.sessions??[]).some((s:any)=>s.bank_name===bank.name&&!s.expired)
-                  return (
-                    <div key={bank.name} style={{display:'flex',alignItems:'center',gap:12,padding:'12px 14px',borderBottom:i<arr.length-1?`1px solid ${T.border}`:'none'}}>
-                      <div style={{width:32,height:32,borderRadius:8,background:T.surface2,border:`0.5px solid ${T.border}`,display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden',flexShrink:0}}>
-                        <img
-                          src={`https://www.google.com/s2/favicons?domain=${bank.domain}&sz=64`}
-                          width={20} height={20}
-                          alt={bank.label}
-                          onError={(e)=>{
-                            const t = e.currentTarget
-                            t.style.display='none'
-                            const fb = t.nextElementSibling as HTMLElement
-                            if(fb) fb.style.display='block'
-                          }}
-                          style={{display:'block'}}
-                        />
-                        <div style={{display:'none',width:20,height:20,borderRadius:'50%',background:bank.color,flexShrink:0}}/>
-                      </div>
-                      <div style={{flex:1}}><div style={{fontSize:13,fontWeight:600,color:T.text}}>{bank.label}</div>{linked&&<div style={{fontSize:10,color:T.green,marginTop:1}}>Ligado</div>}</div>
-                      <button onClick={()=>connect(bank.name,bank.country)} style={{background:linked?T.surface2:pal.accent,color:linked?T.textSec:'#0B0B12',border:'none',borderRadius:8,padding:'6px 12px',fontSize:11,fontWeight:600,cursor:'pointer'}}>{linked?'Re-ligar':'Ligar'}</button>
-                    </div>
-                  )
-                })}
-              </Card>
-              {(status?.sessions??[]).length>0&&(
-                <>
-                  <div style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase',marginBottom:8}}>Contas ligadas</div>
-                  {(status.sessions).map((s:any,si:number)=>(
+              {(()=>{
+                const ALL_BANKS = [
+                  {name:'Revolut',            country:'PT', label:'Revolut',        domain:'revolut.com',       color:'#000000', dbBanco:'Revolut'},
+                  {name:'Abanca',             country:'PT', label:'Abanca',         domain:'abanca.pt',         color:'#5B87DA', dbBanco:'Abanca'},
+                  {name:'Millennium BCP',     country:'PT', label:'Millennium BCP', domain:'millenniumbcp.pt',  color:'#CC0066', dbBanco:'MBCP'},
+                  {name:'Santander Totta',    country:'PT', label:'Santander',      domain:'santander.pt',      color:'#EC0000', dbBanco:'Santander'},
+                  {name:'Caixa Geral de Depósitos', country:'PT', label:'CGD',     domain:'cgd.pt',            color:'#0072C6', dbBanco:'CGD'},
+                ]
+                // Só bancos onde o utilizador tem pelo menos 1 conta na BD
+                const dbBancos = new Set(accounts.map((a:Account)=>a.banco))
+                const myBanks = ALL_BANKS.filter(b=>dbBancos.has(b.dbBanco))
+                const sessions = status?.sessions ?? []
+                const linked   = myBanks.filter(b=>sessions.some((s:any)=>s.bank_name===b.name&&!s.expired))
+                const unlinked = myBanks.filter(b=>!sessions.some((s:any)=>s.bank_name===b.name&&!s.expired))
+
+                const LogoCell = ({bank}:{bank:typeof ALL_BANKS[0]}) => (
+                  <div style={{width:32,height:32,borderRadius:8,background:T.surface2,border:`0.5px solid ${T.border}`,display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden',flexShrink:0}}>
+                    <img src={`https://www.google.com/s2/favicons?domain=${bank.domain}&sz=64`} width={20} height={20} alt={bank.label}
+                      onError={(e)=>{ const t=e.currentTarget; t.style.display='none'; const fb=t.nextElementSibling as HTMLElement; if(fb) fb.style.display='block' }}
+                      style={{display:'block'}}/>
+                    <div style={{display:'none',width:20,height:20,borderRadius:'50%',background:bank.color,flexShrink:0}}/>
+                  </div>
+                )
+                return (
+                  <>
+                    {unlinked.length>0&&(
+                      <>
+                        <div style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase',marginBottom:8}}>Por ligar</div>
+                        <Card style={{marginBottom:16}}>
+                          {unlinked.map((bank,i)=>(
+                            <div key={bank.name} style={{display:'flex',alignItems:'center',gap:12,padding:'12px 14px',borderBottom:i<unlinked.length-1?`1px solid ${T.border}`:'none'}}>
+                              <LogoCell bank={bank}/>
+                              <div style={{flex:1}}><div style={{fontSize:13,fontWeight:600,color:T.text}}>{bank.label}</div></div>
+                              <button onClick={()=>connect(bank.name,bank.country)} style={{background:pal.accent,color:'#0B0B12',border:'none',borderRadius:8,padding:'6px 12px',fontSize:11,fontWeight:600,cursor:'pointer'}}>Ligar</button>
+                            </div>
+                          ))}
+                        </Card>
+                      </>
+                    )}
+                    {linked.length>0&&<div style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase',marginBottom:8}}>Ligados</div>}
+                  {(status.sessions).map((s:any,si:number)=>{
+                    const sb=ALL_BANKS.find((x:any)=>x.name===s.bank_name)
+                    return (
                     <Card key={si} style={{marginBottom:12}}>
                       <div style={{display:'flex',alignItems:'center',gap:10,padding:'12px 14px',borderBottom:`1px solid ${T.border}`}}>
-                        <div style={{width:32,height:32,borderRadius:8,background:s.expired?'rgba(248,113,113,0.1)':'rgba(74,222,128,0.1)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16}}>🏦</div>
-                        <div style={{flex:1}}><div style={{fontSize:13,fontWeight:600,color:T.text}}>{s.bank_name}</div><div style={{fontSize:10,color:s.expired?T.red:T.textTer}}>{daysLeft(s.valid_until)} restantes</div></div>
+                        <div style={{width:32,height:32,borderRadius:8,background:T.surface2,border:`0.5px solid ${T.border}`,display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden',flexShrink:0}}>
+                          {sb?<><img src={`https://www.google.com/s2/favicons?domain=${sb.domain}&sz=64`} width={20} height={20} alt={sb.label} onError={(e)=>{const t=e.currentTarget;t.style.display='none';const fb=t.nextElementSibling as HTMLElement;if(fb)fb.style.display='block'}} style={{display:'block'}}/><div style={{display:'none',width:20,height:20,borderRadius:'50%',background:sb.color,flexShrink:0}}/></>:<span style={{fontSize:13}}>🏦</span>}
+                        </div>
+                        <div style={{flex:1}}><div style={{fontSize:13,fontWeight:600,color:T.text}}>{sb?sb.label:s.bank_name}</div><div style={{fontSize:10,color:s.expired?T.red:T.textTer}}>{daysLeft(s.valid_until)} restantes</div></div>
+                        <button onClick={()=>connect(s.bank_name,s.bank_country??'PT')} style={{background:T.surface2,color:T.textSec,border:'none',borderRadius:8,padding:'5px 10px',fontSize:11,cursor:'pointer'}}>Re-ligar</button>
                       </div>
                       {(s.accounts??[]).map((acc:any,ai:number)=>{
                         const isSyncing=syncing===acc.account_uid
@@ -1211,7 +1220,7 @@ const EnableBankingScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
                         )
                       })}
                     </Card>
-                  ))}
+                  )})}
                   {syncResult&&!syncing&&(
                     <Card style={{padding:'10px 14px',marginBottom:12}}>
                       <div style={{fontSize:12,fontWeight:600,color:T.text,marginBottom:6}}>{syncResult.ok?'✓ Sincronizado':'✗ Erro'}</div>
@@ -1227,6 +1236,9 @@ const EnableBankingScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
                 </>
               )}
               <div style={{fontSize:11,color:T.textTer,lineHeight:1.6,marginTop:12,padding:'0 4px'}}>ℹ️ A autorização é válida por 180 dias. A sincronização automática corre de madrugada.</div>
+                  </>
+                )
+              })()}
             </>
           )}
         </div>
