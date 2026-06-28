@@ -1233,12 +1233,10 @@ const EnableBankingScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
                     </Card>
                   )}
                   <Btn onClick={()=>!syncing&&sync()} variant="primary" accent={pal.accent} style={{width:'100%',opacity:syncing?0.5:1}}>{syncing==='all'?'A sincronizar todas…':'↻ Sincronizar todas as contas'}</Btn>
+                  <div style={{fontSize:11,color:T.textTer,lineHeight:1.6,marginTop:12,padding:'0 4px'}}>ℹ️ A autorização é válida por 180 dias. A sincronização automática corre de madrugada.</div>
                 </>
-              )}
-              <div style={{fontSize:11,color:T.textTer,lineHeight:1.6,marginTop:12,padding:'0 4px'}}>ℹ️ A autorização é válida por 180 dias. A sincronização automática corre de madrugada.</div>
-                  </>
-                )
-              })()}
+              )
+            })()}
             </>
           )}
         </div>
