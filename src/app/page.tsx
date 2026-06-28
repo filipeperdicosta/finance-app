@@ -1149,12 +1149,12 @@ const EnableBankingScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
             <>
               <div style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase',marginBottom:8}}>Ligar banco</div>
               <Card style={{marginBottom:16}}>
-                {[{name:'Revolut',country:'PT',flag:'🔵'},{name:'Abanca',country:'PT',flag:'🏦'},{name:'Millennium BCP',country:'PT',flag:'🏦'},{name:'Santander',country:'PT',flag:'🔴'}].map((bank,i,arr)=>{
+                {[{name:'Revolut',country:'PT',flag:'🔵',label:'Revolut'},{name:'Abanca',country:'PT',flag:'🏦',label:'Abanca'},{name:'Millennium BCP',country:'PT',flag:'🏦',label:'Millennium BCP'},{name:'Santander',country:'PT',flag:'🔴',label:'Santander'},{name:'Caixa Geral de Depósitos',country:'PT',flag:'🏦',label:'CGD'}].map((bank,i,arr)=>{
                   const linked=(status?.sessions??[]).some((s:any)=>s.bank_name===bank.name&&!s.expired)
                   return (
                     <div key={bank.name} style={{display:'flex',alignItems:'center',gap:12,padding:'12px 14px',borderBottom:i<arr.length-1?`1px solid ${T.border}`:'none'}}>
                       <span style={{fontSize:20}}>{bank.flag}</span>
-                      <div style={{flex:1}}><div style={{fontSize:13,fontWeight:600,color:T.text}}>{bank.name}</div>{linked&&<div style={{fontSize:10,color:T.green,marginTop:1}}>Ligado</div>}</div>
+                      <div style={{flex:1}}><div style={{fontSize:13,fontWeight:600,color:T.text}}>{bank.label}</div>{linked&&<div style={{fontSize:10,color:T.green,marginTop:1}}>Ligado</div>}</div>
                       <button onClick={()=>connect(bank.name,bank.country)} style={{background:linked?T.surface2:pal.accent,color:linked?T.textSec:'#0B0B12',border:'none',borderRadius:8,padding:'6px 12px',fontSize:11,fontWeight:600,cursor:'pointer'}}>{linked?'Re-ligar':'Ligar'}</button>
                     </div>
                   )
