@@ -1119,6 +1119,12 @@ const EnableBankingScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
     await onRefresh()
   }
 
+  const linkAccount = async (accountUid:string, appAccountId:string) => {
+    await linkEnableBankingAccount(accountUid, appAccountId)
+    await load()
+    setLinkingUid(null)
+  }
+
   const unlinkAccount = async (accountUid:string) => {
     if(!confirm('Desassociar esta conta? O histórico de transações é mantido.')) return
     await unlinkEnableBankingAccount(accountUid)
