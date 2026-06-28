@@ -1153,7 +1153,7 @@ const EnableBankingScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
                   {name:'Revolut',country:'PT',label:'Revolut',domain:'revolut.com',color:'#000000'},
                   {name:'Abanca',country:'PT',label:'Abanca',domain:'abanca.pt',color:'#5B87DA'},
                   {name:'Millennium BCP',country:'PT',label:'Millennium BCP',domain:'millenniumbcp.pt',color:'#CC0066'},
-                  {name:'Santander',country:'PT',label:'Santander',domain:'santander.pt',color:'#EC0000'},
+                  {name:'Santander Totta',country:'PT',label:'Santander',domain:'santander.pt',color:'#EC0000'},
                   {name:'Caixa Geral de Depósitos',country:'PT',label:'CGD',domain:'cgd.pt',color:'#0072C6'},
                 ].map((bank,i,arr)=>{
                   const linked=(status?.sessions??[]).some((s:any)=>s.bank_name===bank.name&&!s.expired)
