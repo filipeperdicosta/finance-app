@@ -1149,11 +1149,31 @@ const EnableBankingScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
             <>
               <div style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase',marginBottom:8}}>Ligar banco</div>
               <Card style={{marginBottom:16}}>
-                {[{name:'Revolut',country:'PT',flag:'🔵',label:'Revolut'},{name:'Abanca',country:'PT',flag:'🏦',label:'Abanca'},{name:'Millennium BCP',country:'PT',flag:'🏦',label:'Millennium BCP'},{name:'Santander',country:'PT',flag:'🔴',label:'Santander'},{name:'Caixa Geral de Depósitos',country:'PT',flag:'🏦',label:'CGD'}].map((bank,i,arr)=>{
+                {[
+                  {name:'Revolut',country:'PT',label:'Revolut',domain:'revolut.com',color:'#000000'},
+                  {name:'Abanca',country:'PT',label:'Abanca',domain:'abanca.pt',color:'#5B87DA'},
+                  {name:'Millennium BCP',country:'PT',label:'Millennium BCP',domain:'millenniumbcp.pt',color:'#CC0066'},
+                  {name:'Santander',country:'PT',label:'Santander',domain:'santander.pt',color:'#EC0000'},
+                  {name:'Caixa Geral de Depósitos',country:'PT',label:'CGD',domain:'cgd.pt',color:'#0072C6'},
+                ].map((bank,i,arr)=>{
                   const linked=(status?.sessions??[]).some((s:any)=>s.bank_name===bank.name&&!s.expired)
                   return (
                     <div key={bank.name} style={{display:'flex',alignItems:'center',gap:12,padding:'12px 14px',borderBottom:i<arr.length-1?`1px solid ${T.border}`:'none'}}>
-                      <span style={{fontSize:20}}>{bank.flag}</span>
+                      <div style={{width:32,height:32,borderRadius:8,background:T.surface2,border:`0.5px solid ${T.border}`,display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden',flexShrink:0}}>
+                        <img
+                          src={`https://www.google.com/s2/favicons?domain=${bank.domain}&sz=64`}
+                          width={20} height={20}
+                          alt={bank.label}
+                          onError={(e)=>{
+                            const t = e.currentTarget
+                            t.style.display='none'
+                            const fb = t.nextElementSibling as HTMLElement
+                            if(fb) fb.style.display='block'
+                          }}
+                          style={{display:'block'}}
+                        />
+                        <div style={{display:'none',width:20,height:20,borderRadius:'50%',background:bank.color,flexShrink:0}}/>
+                      </div>
                       <div style={{flex:1}}><div style={{fontSize:13,fontWeight:600,color:T.text}}>{bank.label}</div>{linked&&<div style={{fontSize:10,color:T.green,marginTop:1}}>Ligado</div>}</div>
                       <button onClick={()=>connect(bank.name,bank.country)} style={{background:linked?T.surface2:pal.accent,color:linked?T.textSec:'#0B0B12',border:'none',borderRadius:8,padding:'6px 12px',fontSize:11,fontWeight:600,cursor:'pointer'}}>{linked?'Re-ligar':'Ligar'}</button>
                     </div>
