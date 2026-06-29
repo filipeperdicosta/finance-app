@@ -1588,7 +1588,7 @@ const DriveFolderPicker = ({account,onClose,onSaved,pal}:{account:Account,onClos
 
   const currentFolder = path[path.length-1]
 
-  const loadFolders = useCallback(async(parentId:string)=>{\
+  const loadFolders = useCallback(async(parentId:string)=>{
     setLoading(true)
     const { data:{user} } = await supabase.auth.getUser()
     if(!user) return
