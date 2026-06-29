@@ -662,7 +662,7 @@ export async function loadSuspiciousDuplicates(): Promise<SuspiciousPair[]> {
 
   if (!susp?.length) return []
 
-  const accountIds = [...new Set(susp.map((s: any) => s.account_id))]
+  const accountIds = Array.from(new Set(susp.map((s: any) => s.account_id)))
   const { data: accs } = await supabase.from('accounts').select('id, nome').in('id', accountIds)
   const accountNames: Record<string, string> = {}
   ;(accs ?? []).forEach((a: any) => { accountNames[a.id] = a.nome })
