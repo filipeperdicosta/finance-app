@@ -3239,10 +3239,11 @@ const InvitesScreen = ({invites,onClose,pal,onChanged}:{invites:AccountInvite[],
 // ─────────────────────────────────────────────────────────────────
 // WIZARD DE DUPLICADOS SUSPEITOS
 // ─────────────────────────────────────────────────────────────────
-const DuplicatesWizard = ({onClose,pal,onResolved}:{onClose:()=>void,pal:{accent:string,soft:string},onResolved:()=>void}) => {
+const DuplicatesWizard = ({onClose,pal,onResolved,imoveis,accounts}:{onClose:()=>void,pal:{accent:string,soft:string},onResolved:()=>void,imoveis:Imovel[],accounts:Account[]}) => {
   const [pairs, setPairs] = useState<SuspiciousPair[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string|null>(null)
+  const [editTxn, setEditTxn] = useState<Transaction|null>(null)
 
   const load = useCallback(async()=>{ setLoading(true); setPairs(await loadSuspiciousDuplicates()); setLoading(false) },[])
   useEffect(()=>{ load() },[load])
@@ -3259,8 +3260,11 @@ const DuplicatesWizard = ({onClose,pal,onResolved}:{onClose:()=>void,pal:{accent
   }
 
   const TxnCard = ({txn,label,accent}:{txn:Transaction,label:string,accent?:string}) => (
-    <div style={{flex:1,background:T.surface2,borderRadius:10,padding:'10px 12px',minWidth:0}}>
-      <div style={{fontSize:9,fontWeight:700,color:accent??T.textTer,textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:6}}>{label}</div>
+    <div onClick={()=>setEditTxn(txn)} style={{flex:1,background:T.surface2,borderRadius:10,padding:'10px 12px',minWidth:0,cursor:'pointer'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+        <div style={{fontSize:9,fontWeight:700,color:accent??T.textTer,textTransform:'uppercase',letterSpacing:'0.08em'}}>{label}</div>
+        <ChevronRight size={11} color={T.textTer}/>
+      </div>
       <div style={{fontSize:11,fontWeight:600,color:T.text,marginBottom:3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{txn.descritivo}</div>
       <div style={{fontSize:10,color:T.textSec,marginBottom:6}}>{txn.data}</div>
       <div style={{fontSize:14,fontWeight:700,color:Number(txn.valor)>=0?T.green:T.red}}>{dec(txn.valor)}</div>
@@ -3323,6 +3327,7 @@ const DuplicatesWizard = ({onClose,pal,onResolved}:{onClose:()=>void,pal:{accent
         </div>
       </div>
     </div>
+    {editTxn&&<TxnEditForm txn={editTxn} onClose={()=>setEditTxn(null)} onSaved={load} pal={pal} imoveis={imoveis} accounts={accounts}/>}
   )
 }
 
@@ -3444,7 +3449,7 @@ export default function Page() {
       </div>
       {showImport&&<ImportWizard onClose={()=>setShowImport(false)} accounts={accounts} pal={pal} onDone={async()=>{await refreshAll();showToast('✓ Importação concluída')}} onRefreshAccounts={refreshAll}/>}
       {showSettings&&<SettingsPanel onClose={()=>setShowSettings(false)} accounts={accounts} onRefresh={async()=>{await refreshAll();showToast('✓ Dados actualizados')}} pal={pal} me={me} onMembers={(id)=>setMembersAccountId(id)} onShowInvites={()=>setShowInvites(true)} pendingInvitesCount={invites.length} onProfileUpdated={refreshMe}/>}
-      {showDuplicates&&<DuplicatesWizard onClose={()=>setShowDuplicates(false)} pal={pal} onResolved={async()=>{ setSuspeitasCount(await countSuspiciousDuplicates()) }}/>}
+      {showDuplicates&&<DuplicatesWizard onClose={()=>setShowDuplicates(false)} pal={pal} onResolved={async()=>{ setSuspeitasCount(await countSuspiciousDuplicates()) }} imoveis={imoveis} accounts={accounts}/>}
       {membersAccountId&&<MembersScreen accountId={membersAccountId} accounts={accounts} onClose={()=>setMembersAccountId(null)} pal={pal} onChanged={refreshAll}/>}
       {showInvites&&<InvitesScreen invites={invites} onClose={()=>setShowInvites(false)} pal={pal} onChanged={async()=>{await refreshInvites();await refreshAll()}}/>}
       {showAllTxns&&<AllTransactionsScreen allTxns={allTxns} accounts={accounts} tag={tab==='imoveis'?'investimento':tab} pal={pal} onClose={()=>{setShowAllTxns(false);setViewAllCategoria(undefined);setViewAllContaId(undefined);setViewAllImovelId(undefined)}} onRefresh={async()=>{await refreshAll();showToast('✓ Transações actualizadas')}} imoveis={tab==='imoveis'?imoveis:undefined} initialCategoria={viewAllCategoria} initialContaId={viewAllContaId} initialImovelId={viewAllImovelId}/>}
