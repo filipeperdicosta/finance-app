@@ -2,22 +2,23 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getValidAccessToken } from '@/lib/googleDrive'
 
 // Lista subpastas dentro de uma pasta da Drive (ou da raiz, se parentId não for dado).
-// Inclui também ATALHOS (shortcuts) que apontam para pastas — comum quando alguém
-// partilha uma pasta contigo e a adicionas à tua Drive como atalho em vez de cópia.
-// GET /api/drive/folders?user_id=...&parent=root
+// Suporta também pesquisa por nome quando parent=search&q=termo
+// GET /api/drive/folders?user_id=...&parent=root|search&q=termo
 export async function GET(req: NextRequest) {
   const userId = req.nextUrl.searchParams.get('user_id')
   const parent = req.nextUrl.searchParams.get('parent') || 'root'
+  const searchQ = req.nextUrl.searchParams.get('q') || ''
 
   if (!userId) return NextResponse.json({ error: 'user_id em falta' }, { status: 400 })
 
   const accessToken = await getValidAccessToken(userId)
   if (!accessToken) return NextResponse.json({ error: 'Drive não ligada ou token inválido' }, { status: 401 })
 
-  // Pastas reais + atalhos (shortcuts) — resolvemos os atalhos a seguir
-  const q = encodeURIComponent(
-    `'${parent}' in parents and (mimeType = 'application/vnd.google-apps.folder' or mimeType = 'application/vnd.google-apps.shortcut') and trashed = false`
-  )
+  // Modo pesquisa: procura pastas por nome em toda a Drive (sem restrição de pai)
+  const q = parent === 'search' && searchQ
+    ? encodeURIComponent(`name contains '${searchQ.replace(/'/g,"\\'")}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`)
+    : encodeURIComponent(`'${parent}' in parents and (mimeType = 'application/vnd.google-apps.folder' or mimeType = 'application/vnd.google-apps.shortcut') and trashed = false`)
+
   const fields = encodeURIComponent('files(id,name,mimeType,shortcutDetails)')
 
   try {
