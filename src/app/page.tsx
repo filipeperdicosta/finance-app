@@ -26,9 +26,10 @@ import {
   getCurrentProfile, updateMyProfile, loadAccountMembers, updateMemberOwnership, removeMember,
   findUserByEmail, inviteUserToAccount, loadPendingInvites, acceptInvite, rejectInvite,
   loadAccountPendingInvites, cancelInvite,
+  countSuspiciousDuplicates, loadSuspiciousDuplicates, resolveDuplicate, keepBothTransactions,
   type Account, type Transaction, type Imovel, type ContaImovel, type CategoryRule,
   type DriveToken, type DriveFile, type AppNotification, type T212Config,
-  type Profile, type AccountMember, type AccountInvite,
+  type Profile, type AccountMember, type AccountInvite, type SuspiciousPair,
 } from '@/lib/supabase'
 
 // ─────────────────────────────────────────────────────────────────
@@ -3234,6 +3235,97 @@ const InvitesScreen = ({invites,onClose,pal,onChanged}:{invites:AccountInvite[],
   )
 }
 
+
+// ─────────────────────────────────────────────────────────────────
+// WIZARD DE DUPLICADOS SUSPEITOS
+// ─────────────────────────────────────────────────────────────────
+const DuplicatesWizard = ({onClose,pal,onResolved}:{onClose:()=>void,pal:{accent:string,soft:string},onResolved:()=>void}) => {
+  const [pairs, setPairs] = useState<SuspiciousPair[]>([])
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState<string|null>(null)
+
+  const load = useCallback(async()=>{ setLoading(true); setPairs(await loadSuspiciousDuplicates()); setLoading(false) },[])
+  useEffect(()=>{ load() },[load])
+
+  const doDelete = async(keepId:string, deleteId:string) => {
+    setBusy(deleteId)
+    await resolveDuplicate(keepId, deleteId)
+    await load(); onResolved(); setBusy(null)
+  }
+  const doKeepBoth = async(suspId:string) => {
+    setBusy(suspId)
+    await keepBothTransactions(suspId)
+    await load(); onResolved(); setBusy(null)
+  }
+
+  const TxnCard = ({txn,label,accent}:{txn:Transaction,label:string,accent?:string}) => (
+    <div style={{flex:1,background:T.surface2,borderRadius:10,padding:'10px 12px',minWidth:0}}>
+      <div style={{fontSize:9,fontWeight:700,color:accent??T.textTer,textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:6}}>{label}</div>
+      <div style={{fontSize:11,fontWeight:600,color:T.text,marginBottom:3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{txn.descritivo}</div>
+      <div style={{fontSize:10,color:T.textSec,marginBottom:6}}>{txn.data}</div>
+      <div style={{fontSize:14,fontWeight:700,color:Number(txn.valor)>=0?T.green:T.red}}>{dec(txn.valor)}</div>
+      <div style={{fontSize:10,color:T.textTer,marginTop:3}}>{txn.categoria??'—'}</div>
+    </div>
+  )
+
+  return (
+    <div style={{position:'fixed',inset:0,background:T.bg,zIndex:95,overflowY:'auto'}}>
+      <div style={{maxWidth:440,margin:'0 auto'}}>
+        <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',background:T.surface,borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,zIndex:10}}>
+          <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ArrowLeft size={18} color={T.textSec}/></button>
+          <div style={{flex:1}}>
+            <div style={{fontSize:15,fontWeight:700,color:T.text}}>Duplicados suspeitos</div>
+            {!loading&&<div style={{fontSize:11,color:T.textSec}}>{pairs.length} grupo{pairs.length!==1?'s':''} para rever</div>}
+          </div>
+          <button onClick={load} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><RefreshCw size={14} color={T.textSec}/></button>
+        </div>
+
+        <div style={{padding:'16px 14px'}}>
+          {loading ? (
+            <div style={{padding:40,textAlign:'center',fontSize:12,color:T.textSec}}>A carregar…</div>
+          ) : pairs.length===0 ? (
+            <div style={{padding:40,textAlign:'center'}}>
+              <div style={{fontSize:32,marginBottom:12}}>✓</div>
+              <div style={{fontSize:14,fontWeight:600,color:T.text,marginBottom:6}}>Sem duplicados suspeitos</div>
+              <div style={{fontSize:12,color:T.textSec}}>Todas as transações foram revistas</div>
+            </div>
+          ) : pairs.map((pair,pi)=>(
+            <Card key={pair.suspicious.id} style={{marginBottom:14,padding:'14px'}}>
+              <div style={{fontSize:11,color:T.textSec,marginBottom:10}}>
+                <span style={{fontWeight:600,color:T.text}}>{pair.account_nome}</span>
+                {' · '}{pair.suspicious.data}{' · '}<span style={{color:Number(pair.suspicious.valor)>=0?T.green:T.red,fontWeight:600}}>{dec(pair.suspicious.valor)}</span>
+              </div>
+
+              <div style={{display:'flex',gap:8,marginBottom:12}}>
+                <TxnCard txn={pair.suspicious} label="Suspeita (mais recente)" accent='#FBBF24'/>
+                {pair.twins[0]
+                  ? <TxnCard txn={pair.twins[0]} label="Original (mais antiga)"/>
+                  : <div style={{flex:1,background:T.surface2,borderRadius:10,padding:'10px 12px',display:'flex',alignItems:'center',justifyContent:'center'}}><span style={{fontSize:11,color:T.textTer}}>Sem gémeo encontrado</span></div>
+                }
+              </div>
+
+              <div style={{display:'flex',gap:8}}>
+                {pair.twins[0]&&<button
+                  onClick={()=>doDelete(pair.twins[0].id, pair.suspicious.id)}
+                  disabled={busy===pair.suspicious.id}
+                  style={{flex:1,background:'rgba(248,113,113,0.12)',color:T.red,border:'none',borderRadius:8,padding:'8px 10px',fontSize:11,fontWeight:600,cursor:'pointer',opacity:busy===pair.suspicious.id?0.5:1}}>
+                  Apagar suspeita
+                </button>}
+                <button
+                  onClick={()=>doKeepBoth(pair.suspicious.id)}
+                  disabled={busy===pair.suspicious.id}
+                  style={{flex:1,background:pal.soft,color:pal.accent,border:'none',borderRadius:8,padding:'8px 10px',fontSize:11,fontWeight:600,cursor:'pointer',opacity:busy===pair.suspicious.id?0.5:1}}>
+                  Manter ambas
+                </button>
+              </div>
+            </Card>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─────────────────────────────────────────────────────────────────
 // ROOT
 // ─────────────────────────────────────────────────────────────────
@@ -3258,6 +3350,8 @@ export default function Page() {
   const [showAllTxns, setShowAllTxns] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
+  const [suspeitasCount, setSuspeitasCount] = useState(0)
+  const [showDuplicates, setShowDuplicates] = useState(false)
   const [me, setMe] = useState<Profile|null>(null)
   const [invites, setInvites] = useState<AccountInvite[]>([])
   const [showInvites, setShowInvites] = useState(false)
@@ -3279,16 +3373,17 @@ export default function Page() {
 
   const refreshInvites = useCallback(async()=>{ setInvites(await loadPendingInvites()) },[])
   const refreshMe = useCallback(async()=>{ setMe(await getCurrentProfile()) },[])
+  const refreshSuspeitas = useCallback(async()=>{ setSuspeitasCount(await countSuspiciousDuplicates()) },[])
 
   useEffect(()=>{
-    supabase.auth.getSession().then(({data:{session}})=>{ setSession(session); if(session){load();loadFull();refreshMe();refreshInvites()} else setLoading(false) })
+    supabase.auth.getSession().then(({data:{session}})=>{ setSession(session); if(session){load();loadFull();refreshMe();refreshInvites();refreshSuspeitas()} else setLoading(false) })
     const {data:{subscription}} = supabase.auth.onAuthStateChange((_,session)=>{
       setSession(session)
-      if(session){ load(); loadFull(); refreshMe(); refreshInvites(); countUnreadNotifications().then(setUnreadCount) }
+      if(session){ load(); loadFull(); refreshMe(); refreshInvites(); countUnreadNotifications().then(setUnreadCount); refreshSuspeitas() }
       else { setLoading(false); setSession(null); setMe(null); setInvites([]) }
     })
     return ()=>subscription.unsubscribe()
-  },[load,loadFull,refreshMe,refreshInvites])
+  },[load,loadFull,refreshMe,refreshInvites,refreshSuspeitas])
 
   // Trata o regresso do fluxo OAuth da Google (?drive_connected=1 ou ?drive_error=...)
   useEffect(()=>{
@@ -3332,6 +3427,10 @@ export default function Page() {
         <div style={{fontSize:20,fontWeight:800,letterSpacing:'-0.03em'}}>Finance<span style={{color:pal.accent}}>.</span></div>
         <div style={{display:'flex',gap:8}}>
           <button onClick={()=>setShowImport(true)} style={{background:pal.soft,border:'none',borderRadius:10,padding:'7px 12px',display:'flex',alignItems:'center',gap:5,cursor:'pointer'}}><Upload size={13} color={pal.accent}/><span style={{fontSize:12,fontWeight:600,color:pal.accent}}>Importar</span></button>
+          {suspeitasCount>0&&<button onClick={()=>setShowDuplicates(true)} style={{background:'rgba(251,191,36,0.15)',border:'none',borderRadius:10,padding:'7px 10px',cursor:'pointer',display:'flex',alignItems:'center',gap:4}}>
+            <AlertTriangle size={14} color='#FBBF24'/>
+            <span style={{fontSize:10,fontWeight:700,color:'#FBBF24'}}>{suspeitasCount}</span>
+          </button>}
           <button onClick={()=>{setShowNotifications(true);setUnreadCount(0)}} style={{background:T.surface2,border:'none',borderRadius:10,padding:'7px 10px',cursor:'pointer',position:'relative'}}>
             <Bell size={14} color={unreadCount>0?pal.accent:T.textSec}/>
             {unreadCount>0&&<span style={{position:'absolute',top:4,right:4,width:8,height:8,borderRadius:'50%',background:pal.accent,border:`2px solid ${T.surface2}`}}/>}
@@ -3345,6 +3444,7 @@ export default function Page() {
       </div>
       {showImport&&<ImportWizard onClose={()=>setShowImport(false)} accounts={accounts} pal={pal} onDone={async()=>{await refreshAll();showToast('✓ Importação concluída')}} onRefreshAccounts={refreshAll}/>}
       {showSettings&&<SettingsPanel onClose={()=>setShowSettings(false)} accounts={accounts} onRefresh={async()=>{await refreshAll();showToast('✓ Dados actualizados')}} pal={pal} me={me} onMembers={(id)=>setMembersAccountId(id)} onShowInvites={()=>setShowInvites(true)} pendingInvitesCount={invites.length} onProfileUpdated={refreshMe}/>}
+      {showDuplicates&&<DuplicatesWizard onClose={()=>setShowDuplicates(false)} pal={pal} onResolved={async()=>{ setSuspeitasCount(await countSuspiciousDuplicates()) }}/>}
       {membersAccountId&&<MembersScreen accountId={membersAccountId} accounts={accounts} onClose={()=>setMembersAccountId(null)} pal={pal} onChanged={refreshAll}/>}
       {showInvites&&<InvitesScreen invites={invites} onClose={()=>setShowInvites(false)} pal={pal} onChanged={async()=>{await refreshInvites();await refreshAll()}}/>}
       {showAllTxns&&<AllTransactionsScreen allTxns={allTxns} accounts={accounts} tag={tab==='imoveis'?'investimento':tab} pal={pal} onClose={()=>{setShowAllTxns(false);setViewAllCategoria(undefined);setViewAllContaId(undefined);setViewAllImovelId(undefined)}} onRefresh={async()=>{await refreshAll();showToast('✓ Transações actualizadas')}} imoveis={tab==='imoveis'?imoveis:undefined} initialCategoria={viewAllCategoria} initialContaId={viewAllContaId} initialImovelId={viewAllImovelId}/>}

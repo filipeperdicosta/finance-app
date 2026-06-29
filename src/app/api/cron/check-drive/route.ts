@@ -138,9 +138,15 @@ export async function GET(req: NextRequest) {
               }))
 
               // Filtra as que já existem (pode ter chegado via Enable Banking)
-              const { data: existingHashes } = await supabaseAdmin.from('transactions').select('hash').eq('account_id', account.id)
-              const existingSet = new Set((existingHashes ?? []).map((t: any) => t.hash))
-              const newTxns = txnsToInsert.filter((t: any) => !existingSet.has(t.hash))
+              const { data: existing } = await supabaseAdmin.from('transactions').select('hash, data, valor').eq('account_id', account.id)
+              const existingHashSet = new Set((existing ?? []).map((t: any) => t.hash))
+              const existingValSet  = new Set((existing ?? []).map((t: any) => `${t.data}|${t.valor}`))
+              const newTxns = txnsToInsert
+                .filter((t: any) => !existingHashSet.has(t.hash))
+                .map((t: any) => ({
+                  ...t,
+                  suspeita_duplicado: existingValSet.has(`${t.data}|${t.valor}`),
+                }))
 
               if (newTxns.length) {
                 await supabaseAdmin.from('transactions').upsert(newTxns, { onConflict: 'hash', ignoreDuplicates: true })
@@ -284,8 +290,9 @@ export async function GET(req: NextRequest) {
           let newTxns = 0
           try {
             const txns = await getEnableBankingTransactions(ebAcc.account_uid, dateFrom)
-            const { data: existing } = await supabaseEB.from('transactions').select('hash').eq('account_id', ebAcc.account_id)
+            const { data: existing } = await supabaseEB.from('transactions').select('hash, data, valor').eq('account_id', ebAcc.account_id)
             const existingHashes = new Set((existing ?? []).map((t: any) => t.hash))
+            const existingValSet = new Set((existing ?? []).map((t: any) => `${t.data}|${t.valor}`))
             const newTxnsList = txns.filter((t: any) => !existingHashes.has(`eb-${ebAcc.account_uid}-${t.entry_reference ?? t.transaction_id ?? ''}`))
 
             if (newTxnsList.length > 0) {
@@ -309,14 +316,16 @@ export async function GET(req: NextRequest) {
                   else if (kwCat) categoria = kwCat
                   else categoria = await categorizeSingleTransaction(descritivo, valor, rules)
                 }
+                const txnData = t.booking_date ?? t.value_date ?? today
                 return {
                   account_id: ebAcc.account_id,
-                  data: t.booking_date ?? t.value_date ?? today,
+                  data: txnData,
                   descritivo, valor, categoria,
                   categoria_confirmada: false, ai_confianca: null, excluir_analise: false,
                   imovel_classificado: false, ordem_extrato: i,
                   hash: `eb-${ebAcc.account_uid}-${t.entry_reference ?? t.transaction_id ?? i}`,
                   import_batch_id: null, imovel_id: null, notas: null, subcategoria: null, descritivo_norm: null,
+                  suspeita_duplicado: existingValSet.has(`${txnData}|${valor}`),
                 }
               }))
               await supabaseEB.from('transactions').upsert(toInsert, { onConflict: 'hash', ignoreDuplicates: true })

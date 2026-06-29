@@ -71,7 +71,14 @@ export type Transaction = {
   notas: string | null
   excluir_analise: boolean
   ordem_extrato: number
+  suspeita_duplicado: boolean
   created_at: string
+}
+
+export type SuspiciousPair = {
+  suspicious: Transaction
+  twins: Transaction[]
+  account_nome: string
 }
 
 export type Imovel = {
@@ -635,4 +642,57 @@ export async function acceptInvite(inviteId: string) {
 
 export async function rejectInvite(inviteId: string) {
   return supabase.from('account_invites').update({ status: 'rejected', responded_at: new Date().toISOString() }).eq('id', inviteId)
+}
+
+// ── Duplicados suspeitos ────────────────────────────────────────
+export async function countSuspiciousDuplicates(): Promise<number> {
+  const { count } = await supabase
+    .from('transactions')
+    .select('id', { count: 'exact', head: true })
+    .eq('suspeita_duplicado', true)
+  return count ?? 0
+}
+
+export async function loadSuspiciousDuplicates(): Promise<SuspiciousPair[]> {
+  const { data: susp } = await supabase
+    .from('transactions')
+    .select('*')
+    .eq('suspeita_duplicado', true)
+    .order('data', { ascending: false })
+
+  if (!susp?.length) return []
+
+  const accountIds = [...new Set(susp.map((s: any) => s.account_id))]
+  const { data: accs } = await supabase.from('accounts').select('id, nome').in('id', accountIds)
+  const accountNames: Record<string, string> = {}
+  ;(accs ?? []).forEach((a: any) => { accountNames[a.id] = a.nome })
+
+  // Candidatos a gémeo: mesmas contas, não suspeitos
+  const { data: candidates } = await supabase
+    .from('transactions')
+    .select('*')
+    .in('account_id', accountIds)
+    .eq('suspeita_duplicado', false)
+
+  return susp.map((s: any) => ({
+    suspicious: s as Transaction,
+    account_nome: accountNames[s.account_id] ?? '',
+    twins: ((candidates ?? []) as Transaction[]).filter((c: any) =>
+      c.account_id === s.account_id &&
+      c.data === s.data &&
+      Number(c.valor) === Number(s.valor) &&
+      c.id !== s.id
+    ),
+  }))
+}
+
+// Apagar a transação suspeita e marcar o gémeo como confirmado
+export async function resolveDuplicate(keepId: string, deleteId: string) {
+  await supabase.from('transactions').delete().eq('id', deleteId)
+  return supabase.from('transactions').update({ suspeita_duplicado: false }).eq('id', keepId)
+}
+
+// Manter ambas — simplesmente desmarcar como suspeita
+export async function keepBothTransactions(suspiciousId: string) {
+  return supabase.from('transactions').update({ suspeita_duplicado: false }).eq('id', suspiciousId)
 }
