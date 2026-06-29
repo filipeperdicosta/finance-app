@@ -3273,6 +3273,7 @@ const DuplicatesWizard = ({onClose,pal,onResolved,imoveis,accounts}:{onClose:()=
   )
 
   return (
+    <>
     <div style={{position:'fixed',inset:0,background:T.bg,zIndex:95,overflowY:'auto'}}>
       <div style={{maxWidth:440,margin:'0 auto'}}>
         <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',background:T.surface,borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,zIndex:10}}>
@@ -3328,6 +3329,7 @@ const DuplicatesWizard = ({onClose,pal,onResolved,imoveis,accounts}:{onClose:()=
       </div>
     </div>
     {editTxn&&<TxnEditForm txn={editTxn} onClose={()=>setEditTxn(null)} onSaved={load} pal={pal} imoveis={imoveis} accounts={accounts}/>}
+  </>
   )
 }
 
