@@ -1580,11 +1580,6 @@ const DriveFolderPicker = ({account,onClose,onSaved,pal}:{account:Account,onClos
   const [fileCount,setFileCount] = useState<number|null>(null)
   const [loading,setLoading] = useState(true)
   const [saving,setSaving] = useState(false)
-  const [manualUrl,setManualUrl] = useState('')
-  const [manualError,setManualError] = useState('')
-  const [searchQ,setSearchQ] = useState('')
-  const [searchRes,setSearchRes] = useState<{id:string,name:string}[]|null>(null)
-  const [searching,setSearching] = useState(false)
 
   const currentFolder = path[path.length-1]
 
@@ -1610,49 +1605,19 @@ const DriveFolderPicker = ({account,onClose,onSaved,pal}:{account:Account,onClos
   useEffect(()=>{ if(selected) checkFileCount(selected.id) },[selected, checkFileCount])
 
   const enterFolder = (f:{id:string,name:string}) => {
-    setPath([...path,f]); setSelected(null); setFileCount(null); setSearchRes(null); setSearchQ('')
+    setPath([...path,f]); setSelected(null); setFileCount(null)
   }
   const goBackTo = (idx:number) => {
-    setPath(path.slice(0,idx+1)); setSelected(null); setFileCount(null); setSearchRes(null); setSearchQ('')
+    setPath(path.slice(0,idx+1)); setSelected(null); setFileCount(null)
   }
-
-  // Pesquisa por nome na Drive (sem restrição de pasta pai)
-  const doSearch = async () => {
-    if(!searchQ.trim()) return
-    setSearching(true); setSearchRes(null)
-    const { data:{user} } = await supabase.auth.getUser()
-    if(!user) return
-    const res = await fetch(`/api/drive/folders?user_id=${user.id}&parent=search&q=${encodeURIComponent(searchQ.trim())}`)
-    const data = await res.json()
-    setSearchRes(data.folders ?? [])
-    setSearching(false)
-  }
-
-  // Entrada manual de URL ou ID
-  const applyManual = async () => {
-    setManualError('')
-    const val = manualUrl.trim()
-    if(!val) return
-    // Extrair ID de URL Google Drive ou usar directamente como ID
-    const match = val.match(/\/folders\/([a-zA-Z0-9_-]{10,})/)
-    const folderId = match ? match[1] : val
-    if(folderId.length < 10) { setManualError('ID ou URL inválido'); return }
-    // Verificar se conseguimos ler a pasta
-    const { data:{user} } = await supabase.auth.getUser()
-    if(!user) return
-    const res = await fetch(`/api/drive/files?user_id=${user.id}&folder_id=${folderId}`)
-    if(!res.ok) { setManualError('Pasta não encontrada ou sem acesso'); return }
-    // Usar nome do URL ou ID como fallback
-    const folderName = manualUrl.includes('/folders/') ? `Pasta (${folderId.slice(0,8)}…)` : folderId
-    setSelected({id:folderId, name:folderName})
-    setManualUrl('')
+  const goToRoot = () => {
+    setPath([{id:'root',name:'Meu Drive'}]); setSelected(null); setFileCount(null)
   }
 
   const confirm = async () => {
     if(!selected) return
     setSaving(true)
-    const folderName = searchRes ? selected.name : [...path.slice(1).map(p=>p.name),selected.name].join('/')
-    await updateAccountDriveFolder(account.id, selected.id, folderName)
+    await updateAccountDriveFolder(account.id, selected.id, [...path.slice(1).map(p=>p.name),selected.name].join('/'))
     await onSaved(); setSaving(false); onClose()
   }
 
@@ -1670,47 +1635,18 @@ const DriveFolderPicker = ({account,onClose,onSaved,pal}:{account:Account,onClos
           <div style={{fontSize:11,color:T.textSec,marginBottom:12,lineHeight:1.5}}>
             A app vai ler os PDFs desta pasta automaticamente. Não cria nem altera ficheiros — apenas leitura.
           </div>
-          <div style={{display:'flex',flexWrap:'wrap',gap:4,fontSize:11,color:T.textTer,marginBottom:8}}>
-            {path.map((p,i)=>(
-              <span key={p.id} onClick={()=>goBackTo(i)} style={{cursor:'pointer',color:i===path.length-1?pal.accent:T.textTer,fontWeight:i===path.length-1?600:400}}>
-                {p.name}{i<path.length-1?' / ':''}
-              </span>
-            ))}
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+            <div style={{display:'flex',flexWrap:'wrap',gap:4,fontSize:11,color:T.textTer}}>
+              {path.map((p,i)=>(
+                <span key={p.id} onClick={()=>goBackTo(i)} style={{cursor:'pointer',color:i===path.length-1?pal.accent:T.textTer,fontWeight:i===path.length-1?600:400}}>
+                  {p.name}{i<path.length-1?' / ':''}
+                </span>
+              ))}
+            </div>
+            {path[0].id!=='root'&&<button onClick={goToRoot} title="Ir para a raiz" style={{background:'none',border:'none',cursor:'pointer',fontSize:14,padding:'0 4px',color:T.textSec,flexShrink:0}}>⌂</button>}
           </div>
         </div>
         <div style={{flex:1,overflowY:'auto',padding:'0 18px'}}>
-          {/* Pesquisa por nome */}
-          <div style={{display:'flex',gap:6,marginBottom:10}}>
-            <input value={searchQ} onChange={e=>setSearchQ(e.target.value)} onKeyDown={e=>e.key==='Enter'&&doSearch()} placeholder="Pesquisar pasta por nome…" style={{flex:1,background:T.surface2,border:`1px solid ${T.border}`,borderRadius:8,padding:'7px 10px',fontSize:12,color:T.text}}/>
-            <button onClick={doSearch} disabled={searching} style={{background:pal.accent,color:'#0B0B12',border:'none',borderRadius:8,padding:'7px 12px',fontSize:11,fontWeight:600,cursor:'pointer',opacity:searching?0.5:1}}>🔍</button>
-          </div>
-          {/* Entrada manual de URL/ID */}
-          <div style={{marginBottom:12}}>
-            <div style={{display:'flex',gap:6}}>
-              <input value={manualUrl} onChange={e=>{setManualUrl(e.target.value);setManualError('')}} placeholder="Colar URL ou ID da pasta Drive…" style={{flex:1,background:T.surface2,border:`1px solid ${manualError?'#F87171':T.border}`,borderRadius:8,padding:'7px 10px',fontSize:12,color:T.text}}/>
-              <button onClick={applyManual} disabled={!manualUrl.trim()} style={{background:T.surface2,color:pal.accent,border:`1px solid ${T.border}`,borderRadius:8,padding:'7px 12px',fontSize:11,fontWeight:600,cursor:'pointer',opacity:!manualUrl.trim()?0.4:1}}>OK</button>
-            </div>
-            {manualError&&<div style={{fontSize:10,color:'#F87171',marginTop:4}}>{manualError}</div>}
-          </div>
-          {/* Resultados de pesquisa ou browser */}
-          {searchRes!==null ? (
-            <Card style={{marginBottom:14}}>
-              {searchRes.length===0&&<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem resultados.</div>}
-              {searchRes.map((f,i)=>{
-                const isSel = selected?.id===f.id
-                return (
-                  <div key={f.id} style={{display:'flex',alignItems:'center',gap:10,padding:'12px 14px',borderBottom:i<searchRes.length-1?`1px solid ${T.border}`:'none',background:isSel?pal.soft:'transparent',borderLeft:isSel?`3px solid ${pal.accent}`:'3px solid transparent'}}>
-                    <div onClick={()=>setSelected(isSel?null:f)} style={{display:'flex',alignItems:'center',gap:10,flex:1,cursor:'pointer'}}>
-                      <Folder size={16} color={isSel?pal.accent:T.textSec}/>
-                      <span style={{fontSize:13,color:isSel?pal.accent:T.text,fontWeight:isSel?700:400,flex:1}}>{f.name}</span>
-                      {isSel&&<Check size={14} color={pal.accent}/>}
-                    </div>
-                    <button onClick={()=>enterFolder(f)} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ChevronRight size={14} color={T.textTer}/></button>
-                  </div>
-                )
-              })}
-            </Card>
-          ) : (
           <Card style={{marginBottom:14}}>
             {loading&&<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>A carregar pastas…</div>}
             {!loading&&folders.length===0&&<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem subpastas aqui.</div>}
@@ -1728,7 +1664,6 @@ const DriveFolderPicker = ({account,onClose,onSaved,pal}:{account:Account,onClos
               )
             })}
           </Card>
-          )}
           {selected&&fileCount!==null&&(
             <Card style={{background:pal.soft,padding:'10px 12px',marginBottom:14}}>
               <div style={{fontSize:11,color:T.green,fontWeight:600}}>✓ {fileCount} ficheiro{fileCount!==1?'s':''} encontrado{fileCount!==1?'s':''} nesta pasta</div>
