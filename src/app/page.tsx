@@ -170,8 +170,9 @@ function computeView(accounts:Account[], transactions:Transaction[], tag:string,
     return {m:getMonthLabel(offset,refMonth!),rec:mRec,desp:mDesp,net:+(mRec-mDesp).toFixed(2)}
   }) : []
 
-  // Últimas transações do mês seleccionado (8 mais recentes)
-  const recentTxns = monthTxns.slice(0,8)
+  // Últimas transações — as X mais recentes no geral (não limitadas ao mês seleccionado).
+  // Se o mês actual ainda não tem transações, mostra as últimas do(s) mês(es) anterior(es).
+  const recentTxns = txns.slice(0,8)
 
   return {saldo,rec,desp,net:+(rec-desp).toFixed(2),cats,trend,txns:recentTxns,refMonth,latestMonth}
 }
