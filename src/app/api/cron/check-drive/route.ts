@@ -290,13 +290,15 @@ export async function GET(req: NextRequest) {
           let newTxns = 0
           try {
             const txns = await getEnableBankingTransactions(ebAcc.account_uid, dateFrom)
-            const { data: existing } = await supabaseEB.from('transactions').select('hash, data, valor').eq('account_id', ebAcc.account_id)
+            const { data: existing } = await supabaseEB.from('transactions').select('hash, data, valor, descritivo').eq('account_id', ebAcc.account_id)
             const existingHashes = new Set((existing ?? []).map((t: any) => t.hash))
+            const normDesc = (s: string) => (s ?? '').toLowerCase().trim().replace(/\s+/g, ' ')
             const existingValSet = new Set((existing ?? []).map((t: any) => `${t.data}|${t.valor}`))
+            const existingFullSet = new Set((existing ?? []).map((t: any) => `${t.data}|${t.valor}|${normDesc(t.descritivo)}`))
             const newTxnsList = txns.filter((t: any) => !existingHashes.has(`eb-${ebAcc.account_uid}-${t.entry_reference ?? t.transaction_id ?? ''}`))
 
             if (newTxnsList.length > 0) {
-              const toInsert = await Promise.all(newTxnsList.map(async (t: any, i: number) => {
+              const toInsertRaw = await Promise.all(newTxnsList.map(async (t: any, i: number) => {
                 const amount = Number(t.transaction_amount?.amount) || 0
                 const valor = t.credit_debit_indicator === 'DBIT' ? -Math.abs(amount) : Math.abs(amount)
                 const descritivo = t.remittance_information?.[0]
@@ -305,6 +307,11 @@ export async function GET(req: NextRequest) {
                   ?? t.additional_information
                   ?? t.creditor_account?.iban ?? t.debtor_account?.iban
                   ?? 'Transação'
+                const txnData = t.booking_date ?? t.value_date ?? today
+                // Se já existe transacção idêntica (mesma conta+data+valor+descritivo),
+                // é um re-fetch com entry_reference instável do banco — ignora silenciosamente,
+                // não insere nova linha nem marca como suspeita.
+                if (existingFullSet.has(`${txnData}|${valor}|${normDesc(descritivo)}`)) return null
                 // Categorização: MCC → keyword → regras aprendidas → Gemini
                 let categoria: string
                 if (valor >= 0) {
@@ -316,7 +323,6 @@ export async function GET(req: NextRequest) {
                   else if (kwCat) categoria = kwCat
                   else categoria = await categorizeSingleTransaction(descritivo, valor, rules)
                 }
-                const txnData = t.booking_date ?? t.value_date ?? today
                 return {
                   account_id: ebAcc.account_id,
                   data: txnData,
@@ -328,7 +334,10 @@ export async function GET(req: NextRequest) {
                   suspeita_duplicado: existingValSet.has(`${txnData}|${valor}`),
                 }
               }))
-              await supabaseEB.from('transactions').upsert(toInsert, { onConflict: 'hash', ignoreDuplicates: true })
+              const toInsert = toInsertRaw.filter((t): t is NonNullable<typeof t> => t !== null)
+              if (toInsert.length > 0) {
+                await supabaseEB.from('transactions').upsert(toInsert, { onConflict: 'hash', ignoreDuplicates: true })
+              }
               newTxns = toInsert.length
             }
           } catch (txnErr: any) {
