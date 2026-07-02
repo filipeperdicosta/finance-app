@@ -106,6 +106,7 @@ export async function GET(req: NextRequest) {
               })
               if (!fileRes.ok) {
                 summary.files_failed++
+                summary.errors.push(`ficheiro ${file.name} (${account.nome}): download falhou — HTTP ${fileRes.status}`)
                 await supabaseAdmin.from('drive_files').upsert({
                   account_id: account.id, google_file_id: file.id, filename: file.name,
                   status: 'ignorado', discovered_at: new Date().toISOString(),
@@ -122,6 +123,7 @@ export async function GET(req: NextRequest) {
 
               if (!result.ok) {
                 summary.files_failed++
+                summary.errors.push(`ficheiro ${file.name} (${account.nome}): parsing falhou — ${result.error ?? 'motivo desconhecido'}`)
                 await supabaseAdmin.from('drive_files').upsert({
                   account_id: account.id, google_file_id: file.id, filename: file.name,
                   status: 'ignorado', discovered_at: new Date().toISOString(),
