@@ -452,30 +452,40 @@ export type AppNotification = {
 }
 
 export async function loadNotifications(limit = 50) {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
   const { data } = await supabase
     .from('notifications')
     .select('*')
+    .eq('user_id', user.id)
     .order('created_at', { ascending: false })
     .limit(limit)
   return (data ?? []) as AppNotification[]
 }
 
 export async function countUnreadNotifications() {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return 0
   const { count } = await supabase
     .from('notifications')
     .select('*', { count: 'exact', head: true })
+    .eq('user_id', user.id)
     .eq('read', false)
   return count ?? 0
 }
 
 export async function markNotificationsRead(ids?: string[]) {
-  const q = supabase.from('notifications').update({ read: true })
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: { message: 'Não autenticado' } as any }
+  const q = supabase.from('notifications').update({ read: true }).eq('user_id', user.id)
   if (ids?.length) return q.in('id', ids)
-  return q.eq('read', false) // marca todas
+  return q.eq('read', false) // marca todas (só as minhas)
 }
 
 export async function deleteNotification(id: string) {
-  return supabase.from('notifications').delete().eq('id', id)
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: { message: 'Não autenticado' } as any }
+  return supabase.from('notifications').delete().eq('id', id).eq('user_id', user.id)
 }
 
 // ── Enable Banking ────────────────────────────────────────────────
