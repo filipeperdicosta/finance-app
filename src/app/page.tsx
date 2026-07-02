@@ -1418,10 +1418,14 @@ const NotificationsScreen = ({onClose,pal}:{onClose:()=>void,pal:{accent:string,
     const now = new Date()
     const diffMs = now.getTime()-d.getTime()
     const diffH = Math.floor(diffMs/3600000)
-    const diffD = Math.floor(diffMs/86400000)
+    // Diferença por DIA DE CALENDÁRIO (não por blocos de 24h corridas),
+    // para "ontem às 23h" não ficar indistinguível de "anteontem às 01h"
+    const startOfDay = (x:Date) => new Date(x.getFullYear(),x.getMonth(),x.getDate()).getTime()
+    const dayDiff = Math.round((startOfDay(now)-startOfDay(d))/86400000)
     if(diffH<1) return 'Agora mesmo'
-    if(diffH<24) return `Há ${diffH}h`
-    if(diffD<7) return `Há ${diffD} dia${diffD>1?'s':''}`
+    if(dayDiff<=0) return `Há ${diffH}h`
+    if(dayDiff===1) return 'Ontem'
+    if(dayDiff<7) return `Há ${dayDiff} dias`
     return d.toLocaleDateString('pt-PT',{day:'numeric',month:'short'})
   }
 
