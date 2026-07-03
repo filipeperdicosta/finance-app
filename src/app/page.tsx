@@ -149,7 +149,12 @@ function computeView(accounts:Account[], transactions:Transaction[], tag:string,
   if (!accs.length) return {saldo:0,rec:0,desp:0,net:0,cats:[],trend:[],txns:[],refMonth:null as string|null}
   const ids = new Set(accs.map(a=>a.id))
   const txns = transactions.filter(t=>ids.has(t.account_id))
-  const saldo = accs.reduce((s,a)=>s+accountSaldoTotal(a),0)
+  // Vista agregada ("Ver tudo"): exclui cartões da soma para não distorcer o total.
+  // Conta específica seleccionada: mostra o valor real dessa conta, mesmo se for cartão
+  // — aqui já não há risco de duplicação, é só a informação daquela conta.
+  const saldo = selId
+    ? accs.reduce((s,a)=>s+accountSaldo(a),0)
+    : accs.reduce((s,a)=>s+accountSaldoTotal(a),0)
 
   // Mês de referência = mês mais recente com transações, ajustado pelo offset de navegação
   const latestMonth = latestMonthWithData(txns)
@@ -457,7 +462,7 @@ const AccountList = ({accounts,sel,onSel,pal}:{accounts:Account[],sel:string|nul
     {accounts.length>0&&(
       <Card>
         {accounts.map((c,i)=>{
-          const active=sel===c.id, saldo=accountSaldo(c), isCard=c.tipo==='cartão'
+          const active=sel===c.id, saldo=accountSaldoTotal(c), isCard=c.tipo==='cartão'
           return (
             <div key={c.id} onClick={()=>onSel(active?null:c.id)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 16px',borderBottom:i<accounts.length-1?`1px solid ${T.border}`:'none',borderLeft:active?`3px solid ${pal.accent}`:'3px solid transparent',background:active?pal.soft:'transparent',cursor:'pointer',transition:'all 0.12s'}}>
               <div style={{display:'flex',alignItems:'center',gap:10}}>
@@ -2864,7 +2869,9 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
   const ativos=imoveis.filter(im=>im.ativo).length
 
   // Saldo da(s) conta(s) de investimento
-  const saldoContas = (selAcc ? investAccounts.filter(a=>a.id===selAcc) : investAccounts).reduce((s,a)=>s+accountSaldoTotal(a),0)
+  const saldoContas = selAcc
+    ? investAccounts.filter(a=>a.id===selAcc).reduce((s,a)=>s+accountSaldo(a),0)
+    : investAccounts.reduce((s,a)=>s+accountSaldoTotal(a),0)
 
   // Valorização total (100%) e toggle
   const [showValoriz,setShowValoriz] = useState(false)
@@ -2990,7 +2997,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
         {investAccounts.length>0&&(
           <Card>
             {investAccounts.map((c,i)=>{
-              const active=selAcc===c.id, saldo=accountSaldo(c), isCard=c.tipo==='cartão'
+              const active=selAcc===c.id, saldo=accountSaldoTotal(c), isCard=c.tipo==='cartão'
               return (
                 <div key={c.id} onClick={()=>setSelAcc(active?null:c.id)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 16px',borderBottom:i<investAccounts.length-1?`1px solid ${T.border}`:'none',borderLeft:active?`3px solid ${pal.accent}`:'3px solid transparent',background:active?pal.soft:'transparent',cursor:'pointer',transition:'all 0.12s'}}>
                   <div style={{display:'flex',alignItems:'center',gap:10}}>{isCard&&<CreditCard size={15} color={T.textSec}/>}<div><div style={{fontSize:13,fontWeight:active?700:500,color:active?pal.accent:T.text}}>{c.nome}</div><div style={{fontSize:11,color:T.textSec,marginTop:1}}>{c.titular} · {c.banco}</div></div></div>
