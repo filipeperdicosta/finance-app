@@ -120,6 +120,16 @@ function getMonthLabel(offset:number, anchorYM?:string) {
 function accountSaldo(a:Account) {
   return a.tipo === 'cartão' ? -Math.abs(a.saldo_atual) : a.saldo_atual
 }
+// Para SOMAS AGREGADAS (Hero, Património, totais por tag): cartões de crédito
+// não entram. O consumo do cartão só se torna dívida real quando é debitado
+// da conta corrente associada — nessa altura já aparece lá via PSD2. Somar o
+// saldo do cartão ao Património duplicaria esse valor até chegar o próximo
+// extracto PDF (o cartão não tem PSD2, só actualiza uma vez por mês).
+// O saldo do cartão continua visível na sua própria linha/conta, só não
+// entra nos totais combinados.
+function accountSaldoTotal(a:Account) {
+  return a.tipo === 'cartão' ? 0 : accountSaldo(a)
+}
 // Mês (YYYY-MM) mais recente entre as transações dadas; null se não houver nenhuma
 function latestMonthWithData(txns:Transaction[]):string|null {
   if(!txns.length) return null
@@ -139,7 +149,7 @@ function computeView(accounts:Account[], transactions:Transaction[], tag:string,
   if (!accs.length) return {saldo:0,rec:0,desp:0,net:0,cats:[],trend:[],txns:[],refMonth:null as string|null}
   const ids = new Set(accs.map(a=>a.id))
   const txns = transactions.filter(t=>ids.has(t.account_id))
-  const saldo = accs.reduce((s,a)=>s+accountSaldo(a),0)
+  const saldo = accs.reduce((s,a)=>s+accountSaldoTotal(a),0)
 
   // Mês de referência = mês mais recente com transações, ajustado pelo offset de navegação
   const latestMonth = latestMonthWithData(txns)
@@ -2854,7 +2864,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
   const ativos=imoveis.filter(im=>im.ativo).length
 
   // Saldo da(s) conta(s) de investimento
-  const saldoContas = (selAcc ? investAccounts.filter(a=>a.id===selAcc) : investAccounts).reduce((s,a)=>s+accountSaldo(a),0)
+  const saldoContas = (selAcc ? investAccounts.filter(a=>a.id===selAcc) : investAccounts).reduce((s,a)=>s+accountSaldoTotal(a),0)
 
   // Valorização total (100%) e toggle
   const [showValoriz,setShowValoriz] = useState(false)
@@ -3024,8 +3034,8 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
 const PatrimonioScreen = ({accounts,imoveis,transactions,pal}:{accounts:Account[],imoveis:Imovel[],transactions:Transaction[],pal:{grad:string,accent:string,soft:string}}) => {
   const [showValoriz,setShowValoriz] = useState(false)
 
-  const sumTag = (tag:string) => accounts.filter(a=>a.budget_tag===tag).reduce((s,a)=>s+accountSaldo(a),0)
-  const quotaTag = (tag:string) => accounts.filter(a=>a.budget_tag===tag).reduce((s,a)=>s+accountSaldo(a)*((a.my_ownership_pct??a.ownership_pct)/100),0)
+  const sumTag = (tag:string) => accounts.filter(a=>a.budget_tag===tag).reduce((s,a)=>s+accountSaldoTotal(a),0)
+  const quotaTag = (tag:string) => accounts.filter(a=>a.budget_tag===tag).reduce((s,a)=>s+accountSaldoTotal(a)*((a.my_ownership_pct??a.ownership_pct)/100),0)
 
   const pesSaldo=sumTag('pessoal'), famSaldo=sumTag('familiar'), invSaldo=sumTag('investimento')
   const pesQuota=quotaTag('pessoal'), famQuota=quotaTag('familiar'), invQuota=quotaTag('investimento')
