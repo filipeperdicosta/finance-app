@@ -2863,8 +2863,17 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
 
   // KPIs: quando há imóvel seleccionado, mostra só esse; caso contrário, todos
   const imovelList = selImovel ? imoveis.filter(im=>im.id===selImovel) : imoveis
-  const totRenda=imovelList.reduce((s,im)=>s+getImRenda(im.id),0)
-  const totCusto=imovelList.reduce((s,im)=>s+getImCusto(im.id),0)
+  const totRendaImoveis=imovelList.reduce((s,im)=>s+getImRenda(im.id),0)
+  const totCustoImoveis=imovelList.reduce((s,im)=>s+getImCusto(im.id),0)
+  // "Geral" = despesas/receitas classificadas (imovel_classificado=true) mas sem imóvel
+  // específico (imovel_id=null) — ex: custos partilhados entre imóveis. Só entram no
+  // total agregado (nenhum imóvel seleccionado); ao filtrar por 1 imóvel, ficam de fora
+  // — tal como o gráfico de tendência (matchImovel) já faz.
+  const geralTxns = !selImovel ? transactions.filter(t=>investAccountIds.has(t.account_id)&&matchAcc(t)&&t.imovel_id===null&&t.imovel_classificado===true&&t.data.startsWith(ym)) : []
+  const geralRenda = geralTxns.filter(t=>t.valor>0).reduce((s,t)=>s+t.valor,0)
+  const geralCusto = geralTxns.filter(t=>t.valor<0).reduce((s,t)=>s+Math.abs(t.valor),0)
+  const totRenda = totRendaImoveis + geralRenda
+  const totCusto = totCustoImoveis + geralCusto
   const totRes=totRenda-totCusto
   const ativos=imoveis.filter(im=>im.ativo).length
 
