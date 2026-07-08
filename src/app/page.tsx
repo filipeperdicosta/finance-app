@@ -462,7 +462,7 @@ const AccountList = ({accounts,sel,onSel,pal}:{accounts:Account[],sel:string|nul
     {accounts.length>0&&(
       <Card>
         {accounts.map((c,i)=>{
-          const active=sel===c.id, saldo=accountSaldoTotal(c), isCard=c.tipo==='cartão'
+          const active=sel===c.id, saldo=active?accountSaldo(c):accountSaldoTotal(c), isCard=c.tipo==='cartão'
           return (
             <div key={c.id} onClick={()=>onSel(active?null:c.id)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 16px',borderBottom:i<accounts.length-1?`1px solid ${T.border}`:'none',borderLeft:active?`3px solid ${pal.accent}`:'3px solid transparent',background:active?pal.soft:'transparent',cursor:'pointer',transition:'all 0.12s'}}>
               <div style={{display:'flex',alignItems:'center',gap:10}}>
@@ -3006,7 +3006,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
         {investAccounts.length>0&&(
           <Card>
             {investAccounts.map((c,i)=>{
-              const active=selAcc===c.id, saldo=accountSaldoTotal(c), isCard=c.tipo==='cartão'
+              const active=selAcc===c.id, saldo=active?accountSaldo(c):accountSaldoTotal(c), isCard=c.tipo==='cartão'
               return (
                 <div key={c.id} onClick={()=>setSelAcc(active?null:c.id)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 16px',borderBottom:i<investAccounts.length-1?`1px solid ${T.border}`:'none',borderLeft:active?`3px solid ${pal.accent}`:'3px solid transparent',background:active?pal.soft:'transparent',cursor:'pointer',transition:'all 0.12s'}}>
                   <div style={{display:'flex',alignItems:'center',gap:10}}>{isCard&&<CreditCard size={15} color={T.textSec}/>}<div><div style={{fontSize:13,fontWeight:active?700:500,color:active?pal.accent:T.text}}>{c.nome}</div><div style={{fontSize:11,color:T.textSec,marginTop:1}}>{c.titular} · {c.banco}</div></div></div>
