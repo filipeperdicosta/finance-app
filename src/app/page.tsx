@@ -2099,6 +2099,24 @@ const DriveSettingsScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
     }
   }
 
+  const checkOneAccount = async (acc:Account) => {
+    const { data:{user} } = await supabase.auth.getUser()
+    if(!user || !acc.drive_folder_id) return
+    setChecking(true)
+    setCheckResult(null)
+    setCheckProgress({done:0,total:1,filename:acc.nome})
+    const [folderFiles, driveFiles] = await Promise.all([
+      listDriveFolderFiles(user.id, acc.drive_folder_id),
+      loadDriveFiles(acc.id),
+    ])
+    const knownIds = new Set(driveFiles.map(f=>f.google_file_id))
+    const hasNew = folderFiles.some(f=>!knownIds.has(f.id))
+    setCheckProgress({done:1,total:1,filename:acc.nome})
+    setCheckResult({contasComNovidades:hasNew?1:0, contas:1})
+    setChecking(false)
+    if(hasNew) setReviewQueue([acc])
+  }
+
   // Quando uma conta da fila termina a revisão (ou é fechada), avança para a próxima
   const advanceQueue = async () => {
     await onRefresh()
@@ -2182,7 +2200,10 @@ const DriveSettingsScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
                       </div>
                     </div>
                     {a.drive_folder_id?(
-                      <span onClick={()=>setPickerAccount(a)} style={{fontSize:11,color:T.textSec,cursor:'pointer',flexShrink:0}}>Alterar</span>
+                      <>
+                        <button onClick={()=>!checking&&checkOneAccount(a)} disabled={checking} title="Verificar esta pasta" style={{background:'none',border:'none',cursor:checking?'default':'pointer',padding:4,opacity:checking?0.4:1,flexShrink:0}}><RefreshCw size={13} color={pal.accent}/></button>
+                        <span onClick={()=>setPickerAccount(a)} style={{fontSize:11,color:T.textSec,cursor:'pointer',flexShrink:0}}>Alterar</span>
+                      </>
                     ):(
                       <span onClick={()=>setPickerAccount(a)} style={{fontSize:11,color:pal.accent,fontWeight:600,cursor:'pointer',flexShrink:0}}>Associar</span>
                     )}
