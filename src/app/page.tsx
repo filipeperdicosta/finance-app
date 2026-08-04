@@ -1600,7 +1600,7 @@ const DriveFolderPicker = ({account,onClose,onSaved,pal}:{account:Account,onClos
   const [fileCount,setFileCount] = useState<number|null>(null)
   const [loading,setLoading] = useState(true)
   const [saving,setSaving] = useState(false)
-  const [pdfGeraTxn,setPdfGeraTxn] = useState(account.pdf_gera_transacoes)
+  const [pdfGeraTxn,setPdfGeraTxn] = useState(account.pdf_gera_transacoes ?? true)
   const [togglingSrc,setTogglingSrc] = useState(false)
 
   const toggleFonte = async () => {
