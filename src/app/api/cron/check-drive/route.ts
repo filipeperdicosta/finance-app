@@ -101,6 +101,17 @@ export async function GET(req: NextRequest) {
           // 4) Processa cada ficheiro novo
           for (const file of newFiles) {
             try {
+              // Conta configurada para NÃO gerar transações a partir de PDF
+              // (ex: já coberta por Enable Banking) — arquiva o ficheiro para
+              // registo histórico, sem descarregar nem gastar Gemini.
+              if (account.pdf_gera_transacoes === false) {
+                await supabaseAdmin.from('drive_files').upsert({
+                  account_id: account.id, google_file_id: file.id, filename: file.name,
+                  status: 'arquivado', discovered_at: new Date().toISOString(),
+                }, { onConflict: 'account_id,google_file_id' })
+                continue
+              }
+
               const fileRes = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
                 headers: { Authorization: `Bearer ${accessToken}` },
               })
@@ -131,13 +142,24 @@ export async function GET(req: NextRequest) {
                 continue
               }
 
-              const txnsToInsert = result.transactions.map((t: { data: string; descritivo: string; valor: number; categoria: string }, i: number) => ({
-                account_id: account.id, data: t.data, descritivo: t.descritivo, valor: t.valor,
-                categoria: t.categoria, categoria_confirmada: false, ai_confianca: null,
-                excluir_analise: false, imovel_classificado: false, ordem_extrato: i,
-                hash: txnHash(account.id, t.data, t.valor, t.descritivo),
-                import_batch_id: null, imovel_id: null, notas: null, subcategoria: null, descritivo_norm: null,
-              }))
+              // Desambigua transacções com assinatura idêntica (conta+data+valor+descritivo)
+              // dentro do MESMO lote — casos legítimos de duas cobranças iguais no mesmo dia
+              // (ex: dois cafés no mesmo café, mesmo valor). Sem isto, a restrição UNIQUE
+              // em `hash` deixaria cair a segunda por parecer duplicado da primeira.
+              const seenInBatch = new Map<string, number>()
+              const txnsToInsert = result.transactions.map((t: { data: string; descritivo: string; valor: number; categoria: string }, i: number) => {
+                const baseHash = txnHash(account.id, t.data, t.valor, t.descritivo)
+                const occ = seenInBatch.get(baseHash) ?? 0
+                seenInBatch.set(baseHash, occ + 1)
+                const hash = occ === 0 ? baseHash : `${baseHash}-dup${occ}`
+                return {
+                  account_id: account.id, data: t.data, descritivo: t.descritivo, valor: t.valor,
+                  categoria: t.categoria, categoria_confirmada: false, ai_confianca: null,
+                  excluir_analise: false, imovel_classificado: false, ordem_extrato: i,
+                  hash,
+                  import_batch_id: null, imovel_id: null, notas: null, subcategoria: null, descritivo_norm: null,
+                }
+              })
 
               // Filtra as que já existem (pode ter chegado via Enable Banking)
               const { data: existing } = await supabaseAdmin.from('transactions').select('hash, data, valor').eq('account_id', account.id)

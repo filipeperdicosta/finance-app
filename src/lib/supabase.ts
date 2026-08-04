@@ -24,6 +24,7 @@ export type Account = {
   numero_conta: string | null
   drive_folder_id: string | null
   drive_folder_name: string | null
+  pdf_gera_transacoes: boolean         // false = PDF só arquiva, não gera transações
   created_at: string
 }
 

@@ -1600,6 +1600,17 @@ const DriveFolderPicker = ({account,onClose,onSaved,pal}:{account:Account,onClos
   const [fileCount,setFileCount] = useState<number|null>(null)
   const [loading,setLoading] = useState(true)
   const [saving,setSaving] = useState(false)
+  const [pdfGeraTxn,setPdfGeraTxn] = useState(account.pdf_gera_transacoes)
+  const [togglingSrc,setTogglingSrc] = useState(false)
+
+  const toggleFonte = async () => {
+    setTogglingSrc(true)
+    const novo = !pdfGeraTxn
+    await updateAccount(account.id, { pdf_gera_transacoes: novo })
+    setPdfGeraTxn(novo)
+    await onSaved()
+    setTogglingSrc(false)
+  }
 
   const currentFolder = path[path.length-1]
 
@@ -1654,6 +1665,17 @@ const DriveFolderPicker = ({account,onClose,onSaved,pal}:{account:Account,onClos
         <div style={{padding:'14px 18px 0'}}>
           <div style={{fontSize:11,color:T.textSec,marginBottom:12,lineHeight:1.5}}>
             A app vai ler os PDFs desta pasta automaticamente. Não cria nem altera ficheiros — apenas leitura.
+          </div>
+          <div style={{display:'flex',alignItems:'center',gap:10,background:T.surface2,borderRadius:10,padding:'10px 12px',marginBottom:14}}>
+            <div style={{flex:1}}>
+              <div style={{fontSize:12,fontWeight:600,color:T.text}}>PDFs geram transações</div>
+              <div style={{fontSize:10,color:T.textSec,marginTop:2,lineHeight:1.4}}>
+                {pdfGeraTxn ? 'Os PDFs desta pasta são lidos e importados como transações.' : 'Os PDFs ficam arquivados aqui, mas não geram transações (esta conta já é actualizada por outra fonte, ex: Enable Banking).'}
+              </div>
+            </div>
+            <button onClick={toggleFonte} disabled={togglingSrc} style={{width:44,height:26,borderRadius:13,border:'none',background:pdfGeraTxn?pal.accent:T.border,position:'relative',cursor:'pointer',flexShrink:0,opacity:togglingSrc?0.6:1}}>
+              <div style={{width:20,height:20,borderRadius:'50%',background:'#fff',position:'absolute',top:3,left:pdfGeraTxn?21:3,transition:'left 0.15s'}}/>
+            </button>
           </div>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
             <div style={{display:'flex',flexWrap:'wrap',gap:4,fontSize:11,color:T.textTer}}>
