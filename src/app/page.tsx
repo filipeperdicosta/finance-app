@@ -165,10 +165,10 @@ const BUCKET_ORDER: Bucket[] = ['fixos','poupanca','investimento','guilt_free']
 
 // Detecta pares de transferência de ALTA confiança entre contas próprias:
 // valor exactamente simétrico (soma ~0), datas no mesmo dia ou +1 dia, contas diferentes.
-// Devolve o conjunto de IDs de transacções a excluir por completo (receita e despesa).
-function detectHighConfidenceTransfers(txns:Transaction[]): Set<string> {
+// Devolve os pares completos (para auditoria na UI).
+function detectHighConfidenceTransferPairs(txns:Transaction[]): {a:Transaction,b:Transaction}[] {
   const used = new Set<string>()
-  const matched = new Set<string>()
+  const pairs: {a:Transaction,b:Transaction}[] = []
   for(let i=0;i<txns.length;i++){
     const a = txns[i]
     if(used.has(a.id) || Number(a.valor)===0) continue
@@ -178,12 +178,18 @@ function detectHighConfidenceTransfers(txns:Transaction[]): Set<string> {
       if(Math.abs(Number(a.valor)+Number(b.valor))>0.01) continue
       const diffDays = Math.abs(new Date(a.data).getTime()-new Date(b.data).getTime())/86400000
       if(diffDays>1) continue
-      matched.add(a.id); matched.add(b.id)
+      pairs.push({a,b})
       used.add(a.id); used.add(b.id)
       break
     }
   }
-  return matched
+  return pairs
+}
+// Devolve só os IDs a excluir (usado no cálculo agregado)
+function detectHighConfidenceTransfers(txns:Transaction[]): Set<string> {
+  const ids = new Set<string>()
+  detectHighConfidenceTransferPairs(txns).forEach(({a,b})=>{ ids.add(a.id); ids.add(b.id) })
+  return ids
 }
 
 type SaudeResult = {
@@ -513,7 +519,7 @@ const TrendTile = ({data,accent,catFilter}:{data:{m:string,rec:number,desp:numbe
 // ─────────────────────────────────────────────────────────────────
 const Hero = ({pal,title,mainValue,mainColor,kpis,trend,period,mainSuffix,sparkMode,onPrev,onNext,canNext,onSaudeFinanceira}:{pal:{grad:string,accent:string,soft:string},title:string,mainValue:string,mainColor?:string,kpis:{l:string,v:string,c:string}[],trend:{m:string,rec:number,desp:number,net:number}[],period:string,mainSuffix?:string,sparkMode?:'budget'|'patrimonio',onPrev?:()=>void,onNext?:()=>void,canNext?:boolean,onSaudeFinanceira?:()=>void}) => (
   <div style={{background:pal.grad,borderRadius:18,padding:'20px 18px 16px',marginBottom:16,border:'1px solid rgba(255,255,255,0.05)'}}>
-    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:onSaudeFinanceira?10:14}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-end',marginBottom:14}}>
       <div>
         <div style={{fontSize:10,color:'rgba(255,255,255,0.4)',letterSpacing:'0.1em',textTransform:'uppercase',fontWeight:600,marginBottom:5}}>{title}</div>
         <div style={{display:'flex',alignItems:'baseline',gap:6}}>
@@ -521,20 +527,21 @@ const Hero = ({pal,title,mainValue,mainColor,kpis,trend,period,mainSuffix,sparkM
           {mainSuffix&&<span style={{fontSize:12,color:'rgba(255,255,255,0.3)'}}>{mainSuffix}</span>}
         </div>
       </div>
-      {/* Período sempre alinhado ao topo com altura fixa igual ao título — com ou sem setas */}
-      <div style={{display:'flex',alignItems:'center',gap:4,height:16,marginTop:1}}>
-        {onPrev&&<button onClick={onPrev} style={{background:'none',border:'none',cursor:'pointer',color:'rgba(255,255,255,0.5)',fontSize:18,lineHeight:1,padding:'0 2px'}}>‹</button>}
-        <span style={{fontSize:11,color:'rgba(255,255,255,0.45)',fontWeight:600,minWidth:52,textAlign:'center'}}>{period}</span>
-        {onNext&&<button onClick={onNext} disabled={!canNext} style={{background:'none',border:'none',cursor:canNext?'pointer':'default',color:canNext?'rgba(255,255,255,0.5)':'rgba(255,255,255,0.15)',fontSize:18,lineHeight:1,padding:'0 2px'}}>›</button>}
+      <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6}}>
+        <div style={{display:'flex',alignItems:'center',gap:4,height:16}}>
+          {onPrev&&<button onClick={onPrev} style={{background:'none',border:'none',cursor:'pointer',color:'rgba(255,255,255,0.5)',fontSize:18,lineHeight:1,padding:'0 2px'}}>‹</button>}
+          <span style={{fontSize:11,color:'rgba(255,255,255,0.45)',fontWeight:600,minWidth:52,textAlign:'center'}}>{period}</span>
+          {onNext&&<button onClick={onNext} disabled={!canNext} style={{background:'none',border:'none',cursor:canNext?'pointer':'default',color:canNext?'rgba(255,255,255,0.5)':'rgba(255,255,255,0.15)',fontSize:18,lineHeight:1,padding:'0 2px'}}>›</button>}
+        </div>
+        {onSaudeFinanceira&&(
+          <button onClick={onSaudeFinanceira} style={{display:'flex',alignItems:'center',gap:4,background:'rgba(255,255,255,0.1)',border:'none',borderRadius:7,padding:'4px 8px',cursor:'pointer',whiteSpace:'nowrap'}}>
+            <HeartPulse size={11} color="#fff"/>
+            <span style={{fontSize:10,fontWeight:600,color:'#fff'}}>Saúde</span>
+            <ChevronRight size={10} color="rgba(255,255,255,0.6)"/>
+          </button>
+        )}
       </div>
     </div>
-    {onSaudeFinanceira&&(
-      <button onClick={onSaudeFinanceira} style={{display:'flex',alignItems:'center',gap:5,background:'rgba(255,255,255,0.1)',border:'none',borderRadius:8,padding:'5px 10px',marginBottom:12,cursor:'pointer'}}>
-        <HeartPulse size={12} color="#fff"/>
-        <span style={{fontSize:11,fontWeight:600,color:'#fff'}}>Saúde financeira</span>
-        <ChevronRight size={12} color="rgba(255,255,255,0.6)"/>
-      </button>
-    )}
     <div style={{display:'grid',gridTemplateColumns:`repeat(${kpis.length},1fr)`,gap:6,marginBottom:14}}>
       {kpis.map((k,i)=>(<div key={i} style={{background:'rgba(255,255,255,0.08)',borderRadius:10,padding:'9px 10px'}}><div style={{fontSize:9,color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:600,marginBottom:3}}>{k.l}</div><div style={{fontSize:kpis.length===4?11:12,fontWeight:700,color:k.c,fontFamily:T.mono}}>{k.v}</div></div>))}
     </div>
@@ -3514,7 +3521,9 @@ const SaudeFinanceiraScreen = ({accounts,transactions,onClose}:{accounts:Account
   const pal = PAL.saude
   const [scope,setScope] = useState<'pessoal'|'familiar'|'ambos'>('ambos')
   const [monthOffset,setMonthOffset] = useState(0)
-  const [expanded,setExpanded] = useState<Bucket|null>(null)
+  const [selectedBucket,setSelectedBucket] = useState<Bucket|null>(null)
+  const [detailView,setDetailView] = useState<'categorias'|'transacoes'>('categorias')
+  const [showTransfers,setShowTransfers] = useState(false)
 
   const scopeAccounts = useMemo(()=>accounts.filter(a=>{
     if(scope==='pessoal') return a.budget_tag==='pessoal'
@@ -3522,6 +3531,7 @@ const SaudeFinanceiraScreen = ({accounts,transactions,onClose}:{accounts:Account
     return a.budget_tag==='pessoal'||a.budget_tag==='familiar'
   }),[accounts,scope])
   const scopeIds = useMemo(()=>new Set(scopeAccounts.map(a=>a.id)),[scopeAccounts])
+  const accountNome = useMemo(()=>new Map(scopeAccounts.map(a=>[a.id,a.nome])),[scopeAccounts])
   const scopeTxns = useMemo(()=>transactions.filter(t=>scopeIds.has(t.account_id)),[transactions,scopeIds])
 
   const latestMonth = latestMonthWithData(scopeTxns)
@@ -3535,21 +3545,33 @@ const SaudeFinanceiraScreen = ({accounts,transactions,onClose}:{accounts:Account
 
   const result = useMemo(()=>refMonth?computeSaudeFinanceira(accounts,transactions,scope,refMonth):null,[accounts,transactions,scope,refMonth])
 
-  // Composição por categoria dentro do balde expandido
+  const monthTxnsForDetail = useMemo(()=>{
+    if(!refMonth) return []
+    return scopeTxns.filter(t=>t.data.startsWith(refMonth!) && !t.excluir_analise && Number(t.valor)<0)
+  },[scopeTxns,refMonth])
+
+  const transferPairs = useMemo(()=>refMonth?detectHighConfidenceTransferPairs(scopeTxns.filter(t=>t.data.startsWith(refMonth!))):[],[scopeTxns,refMonth])
+  const transferIdSet = useMemo(()=>{ const s=new Set<string>(); transferPairs.forEach(({a,b})=>{s.add(a.id);s.add(b.id)}); return s },[transferPairs])
+
+  // Transacções (excluindo transferências) do balde seleccionado
+  const bucketTxns = useMemo(()=>{
+    if(!selectedBucket) return []
+    return monthTxnsForDetail.filter(t=>!transferIdSet.has(t.id) && (CATEGORY_BUCKET[t.categoria??''] ?? 'guilt_free')===selectedBucket)
+      .sort((a,b)=>Math.abs(Number(b.valor))-Math.abs(Number(a.valor)))
+  },[monthTxnsForDetail,transferIdSet,selectedBucket])
+
+  // Composição por categoria dentro do balde seleccionado
   const bucketBreakdown = useMemo(()=>{
-    if(!expanded || !refMonth) return []
+    if(!selectedBucket) return []
     const pctByAccount = new Map(scopeAccounts.map(a=>[a.id, a.budget_tag==='familiar' ? (a.my_ownership_pct??a.ownership_pct)/100 : 1]))
-    const transferIds = detectHighConfidenceTransfers(scopeTxns.filter(t=>t.data.startsWith(refMonth!)))
     const map: Record<string,number> = {}
-    scopeTxns.filter(t=>t.data.startsWith(refMonth!) && !t.excluir_analise && !transferIds.has(t.id) && Number(t.valor)<0).forEach(t=>{
-      const bucket = CATEGORY_BUCKET[t.categoria??''] ?? 'guilt_free'
-      if(bucket!==expanded) return
+    bucketTxns.forEach(t=>{
       const pct = pctByAccount.get(t.account_id) ?? 1
       const key = t.categoria ?? 'Outra'
       map[key] = (map[key]||0) + Math.abs(Number(t.valor)*pct)
     })
     return Object.entries(map).sort((a,b)=>b[1]-a[1])
-  },[expanded,refMonth,scopeTxns,scopeAccounts])
+  },[bucketTxns,selectedBucket,scopeAccounts])
 
   const SCOPE_LABEL = {pessoal:'Pessoal',familiar:'Familiar',ambos:'Ambos'}
 
@@ -3568,15 +3590,15 @@ const SaudeFinanceiraScreen = ({accounts,transactions,onClose}:{accounts:Account
           {/* Toggle de âmbito */}
           <div style={{display:'flex',gap:6,marginBottom:16,background:T.surface2,borderRadius:10,padding:3}}>
             {(['pessoal','familiar','ambos'] as const).map(s=>(
-              <button key={s} onClick={()=>setScope(s)} style={{flex:1,padding:'7px 0',borderRadius:8,border:'none',cursor:'pointer',background:scope===s?pal.accent:'transparent',color:scope===s?'#0B0B12':T.textSec,fontSize:12,fontWeight:scope===s?700:500}}>{SCOPE_LABEL[s]}</button>
+              <button key={s} onClick={()=>{setScope(s);setSelectedBucket(null)}} style={{flex:1,padding:'7px 0',borderRadius:8,border:'none',cursor:'pointer',background:scope===s?pal.accent:'transparent',color:scope===s?'#0B0B12':T.textSec,fontSize:12,fontWeight:scope===s?700:500}}>{SCOPE_LABEL[s]}</button>
             ))}
           </div>
 
           {/* Navegação de mês */}
           <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:10,marginBottom:16}}>
-            <button onClick={()=>setMonthOffset(o=>o-1)} style={{background:'none',border:'none',cursor:'pointer',color:T.textSec,fontSize:18,padding:'0 4px'}}>‹</button>
+            <button onClick={()=>{setMonthOffset(o=>o-1);setSelectedBucket(null)}} style={{background:'none',border:'none',cursor:'pointer',color:T.textSec,fontSize:18,padding:'0 4px'}}>‹</button>
             <span style={{fontSize:13,fontWeight:600,color:T.text,minWidth:110,textAlign:'center'}}>{monthYearLabel(refMonth)}</span>
-            <button onClick={()=>{if(canGoForward)setMonthOffset(o=>o+1)}} disabled={!canGoForward} style={{background:'none',border:'none',cursor:canGoForward?'pointer':'default',color:canGoForward?T.textSec:'rgba(255,255,255,0.15)',fontSize:18,padding:'0 4px'}}>›</button>
+            <button onClick={()=>{if(canGoForward){setMonthOffset(o=>o+1);setSelectedBucket(null)}}} disabled={!canGoForward} style={{background:'none',border:'none',cursor:canGoForward?'pointer':'default',color:canGoForward?T.textSec:'rgba(255,255,255,0.15)',fontSize:18,padding:'0 4px'}}>›</button>
           </div>
 
           {!result || !result.hasData ? (
@@ -3586,10 +3608,10 @@ const SaudeFinanceiraScreen = ({accounts,transactions,onClose}:{accounts:Account
               <div style={{textAlign:'center',marginBottom:18}}>
                 <div style={{fontSize:11,color:T.textTer,textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:600,marginBottom:4}}>Rendimento considerado</div>
                 <div style={{fontSize:22,fontWeight:700,color:T.text,fontFamily:T.mono}}>{dec(result.income)}</div>
-                {result.transfersExcluded>0&&<div style={{fontSize:10,color:T.textTer,marginTop:4}}>{result.transfersExcluded} transferência{result.transfersExcluded!==1?'s':''} interna{result.transfersExcluded!==1?'s':''} excluída{result.transfersExcluded!==1?'s':''} deste cálculo</div>}
               </div>
 
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:16}}>
+              {/* Grelha fixa — nunca reflui, só marca selecção */}
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
                 {BUCKET_ORDER.map(b=>{
                   const valor = result.buckets[b]
                   const pct = result.income>0 ? (valor/result.income*100) : 0
@@ -3597,9 +3619,9 @@ const SaudeFinanceiraScreen = ({accounts,transactions,onClose}:{accounts:Account
                   const severity = bucketSeverity(pct,target)
                   const color = SEVERITY_COLOR[severity]
                   const targetTxt = target.max!==undefined ? `meta ≤${target.max}%` : `meta ≥${target.min}%`
-                  const isOpen = expanded===b
+                  const isSel = selectedBucket===b
                   return (
-                    <div key={b} onClick={()=>setExpanded(isOpen?null:b)} style={{gridColumn:isOpen?'1 / -1':undefined,background:T.surface2,borderRadius:12,padding:'14px',cursor:'pointer',border:`1px solid ${isOpen?pal.accent:T.border}`}}>
+                    <div key={b} onClick={()=>{setSelectedBucket(isSel?null:b);setDetailView('categorias')}} style={{background:T.surface2,borderRadius:12,padding:'14px',cursor:'pointer',border:`1px solid ${isSel?pal.accent:T.border}`}}>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:6}}>
                         <div style={{fontSize:11,fontWeight:700,color:T.textSec,textTransform:'uppercase',letterSpacing:'0.06em'}}>{BUCKET_LABELS[b]}</div>
                         <div style={{width:8,height:8,borderRadius:'50%',background:color,marginTop:3,flexShrink:0}}/>
@@ -3607,23 +3629,67 @@ const SaudeFinanceiraScreen = ({accounts,transactions,onClose}:{accounts:Account
                       <div style={{fontSize:22,fontWeight:700,color,fontFamily:T.mono,marginBottom:2}}>{Math.round(pct)}%</div>
                       <div style={{fontSize:10,color:T.textTer,marginBottom:2}}>{targetTxt}</div>
                       <div style={{fontSize:11,color:T.textSec,fontFamily:T.mono}}>{dec(valor)}</div>
-                      {isOpen&&(
-                        <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${T.border}`}}>
-                          {bucketBreakdown.length===0?(
-                            <div style={{fontSize:11,color:T.textTer,textAlign:'center',padding:8}}>Sem transações neste balde</div>
-                          ):bucketBreakdown.map(([cat,v])=>(
-                            <div key={cat} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',fontSize:12}}>
-                              <span style={{color:T.text}}>{cat}</span>
-                              <span style={{color:T.textSec,fontFamily:T.mono}}>{dec(v)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
                     </div>
                   )
                 })}
               </div>
-              <div style={{fontSize:10,color:T.textTer,lineHeight:1.5,padding:'0 4px'}}>Toca num balde para veres a composição por categoria. Severidade calculada por desvio relativo à meta: verde = dentro, amarelo = atenção (10-25% de desvio), vermelho = fora (&gt;25%).</div>
+
+              {/* Painel de detalhe do balde seleccionado — sempre por baixo, nunca deforma a grelha */}
+              {selectedBucket&&(
+                <Card style={{marginBottom:14}}>
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 14px',borderBottom:`1px solid ${T.border}`}}>
+                    <div style={{fontSize:12,fontWeight:700,color:T.text}}>{BUCKET_LABELS[selectedBucket]}</div>
+                    <div style={{display:'flex',gap:3,background:T.surface,borderRadius:8,padding:2}}>
+                      <button onClick={()=>setDetailView('categorias')} style={{padding:'4px 9px',borderRadius:6,border:'none',cursor:'pointer',background:detailView==='categorias'?pal.accent:'transparent',color:detailView==='categorias'?'#0B0B12':T.textSec,fontSize:10,fontWeight:600}}>Categorias</button>
+                      <button onClick={()=>setDetailView('transacoes')} style={{padding:'4px 9px',borderRadius:6,border:'none',cursor:'pointer',background:detailView==='transacoes'?pal.accent:'transparent',color:detailView==='transacoes'?'#0B0B12':T.textSec,fontSize:10,fontWeight:600}}>Transações</button>
+                    </div>
+                  </div>
+                  <div style={{padding:'6px 14px 12px'}}>
+                    {detailView==='categorias' ? (
+                      bucketBreakdown.length===0 ? (
+                        <div style={{fontSize:11,color:T.textTer,textAlign:'center',padding:16}}>Sem transações neste balde</div>
+                      ) : bucketBreakdown.map(([cat,v])=>(
+                        <div key={cat} style={{display:'flex',justifyContent:'space-between',padding:'7px 0',fontSize:12,borderBottom:`1px solid ${T.border}`}}>
+                          <span style={{color:T.text}}>{cat}</span>
+                          <span style={{color:T.textSec,fontFamily:T.mono}}>{dec(v)}</span>
+                        </div>
+                      ))
+                    ) : (
+                      bucketTxns.length===0 ? (
+                        <div style={{fontSize:11,color:T.textTer,textAlign:'center',padding:16}}>Sem transações neste balde</div>
+                      ) : bucketTxns.map(t=>(
+                        <div key={t.id} style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',padding:'8px 0',borderBottom:`1px solid ${T.border}`,gap:8}}>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:12,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div>
+                            <div style={{fontSize:10,color:T.textTer,marginTop:1}}>{t.data} · {accountNome.get(t.account_id)}</div>
+                          </div>
+                          <span style={{fontSize:12,color:T.textSec,fontFamily:T.mono,flexShrink:0}}>{dec(Math.abs(Number(t.valor)))}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </Card>
+              )}
+
+              {/* Auditoria de transferências — para validar a heurística */}
+              <button onClick={()=>setShowTransfers(s=>!s)} style={{width:'100%',display:'flex',justifyContent:'space-between',alignItems:'center',background:T.surface2,border:'none',borderRadius:10,padding:'10px 14px',cursor:'pointer',marginBottom:showTransfers?8:16}}>
+                <span style={{fontSize:11,fontWeight:600,color:T.textSec}}>Transferências identificadas ({transferPairs.length})</span>
+                <ChevronRight size={13} color={T.textTer} style={{transform:showTransfers?'rotate(90deg)':'none',transition:'transform 0.15s'}}/>
+              </button>
+              {showTransfers&&(
+                <Card style={{marginBottom:16}}>
+                  {transferPairs.length===0 ? (
+                    <div style={{fontSize:11,color:T.textTer,textAlign:'center',padding:16}}>Nenhuma transferência interna identificada este mês</div>
+                  ) : transferPairs.map(({a,b},i)=>(
+                    <div key={i} style={{padding:'10px 14px',borderBottom:i<transferPairs.length-1?`1px solid ${T.border}`:'none'}}>
+                      <div style={{fontSize:11,color:T.text,marginBottom:3}}>{accountNome.get(a.account_id)} → {accountNome.get(b.account_id)}</div>
+                      <div style={{fontSize:10,color:T.textTer}}>{a.descritivo} · {a.data} · {dec(Math.abs(Number(a.valor)))}</div>
+                    </div>
+                  ))}
+                </Card>
+              )}
+
+              <div style={{fontSize:10,color:T.textTer,lineHeight:1.5,padding:'0 4px'}}>Severidade por desvio relativo à meta: verde = dentro, amarelo = atenção (10-25%), vermelho = fora (&gt;25%).</div>
             </>
           )}
         </div>
