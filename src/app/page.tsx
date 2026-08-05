@@ -148,20 +148,20 @@ function monthYearLabel(ym:string|null):string {
 // ─────────────────────────────────────────────────────────────────
 // SAÚDE FINANCEIRA — baldes, metas, detecção de transferências
 // ─────────────────────────────────────────────────────────────────
-type Bucket = 'fixos'|'poupanca'|'investimento'|'guilt_free'
+type Bucket = 'fixos'|'poupanca_investimento'|'guilt_free'
 
 const CATEGORY_BUCKET: Record<string,Bucket> = {
   'Habitação':'fixos','Utilities':'fixos','Comissões e Taxas':'fixos','Groceries':'fixos','Saúde':'fixos','Transportes':'fixos',
-  'Investimentos':'investimento',
+  'Investimentos':'poupanca_investimento',
   'Restauração':'guilt_free','Compras':'guilt_free','Lazer':'guilt_free','Subscrições':'guilt_free','Despesas Gerais':'guilt_free','Levantamentos':'guilt_free','Transferências':'guilt_free',
 }
 const BUCKET_TARGETS: Record<Bucket,{min?:number,max?:number}> = {
-  fixos:{max:50}, poupanca:{min:10}, investimento:{min:10}, guilt_free:{max:30},
+  fixos:{max:50}, poupanca_investimento:{min:20}, guilt_free:{max:30},
 }
 const BUCKET_LABELS: Record<Bucket,string> = {
-  fixos:'Fixos', poupanca:'Poupança', investimento:'Investimento', guilt_free:'Guilt-free',
+  fixos:'Fixos', poupanca_investimento:'Poupança & Investimento', guilt_free:'Guilt-free',
 }
-const BUCKET_ORDER: Bucket[] = ['fixos','poupanca','investimento','guilt_free']
+const BUCKET_ORDER: Bucket[] = ['fixos','poupanca_investimento','guilt_free']
 
 // Detecta pares de transferência de ALTA confiança entre contas próprias:
 // valor exactamente simétrico (soma ~0), datas no mesmo dia ou +1 dia, contas diferentes.
@@ -211,7 +211,7 @@ function computeSaudeFinanceira(accounts:Account[], transactions:Transaction[], 
   const transferIds = detectHighConfidenceTransfers(monthTxns)
 
   let income = 0
-  const buckets: Record<Bucket,number> = {fixos:0,poupanca:0,investimento:0,guilt_free:0}
+  const buckets: Record<Bucket,number> = {fixos:0,poupanca_investimento:0,guilt_free:0}
 
   for(const t of monthTxns){
     if(transferIds.has(t.id)) continue
@@ -519,7 +519,7 @@ const TrendTile = ({data,accent,catFilter}:{data:{m:string,rec:number,desp:numbe
 // ─────────────────────────────────────────────────────────────────
 const Hero = ({pal,title,mainValue,mainColor,kpis,trend,period,mainSuffix,sparkMode,onPrev,onNext,canNext,onSaudeFinanceira}:{pal:{grad:string,accent:string,soft:string},title:string,mainValue:string,mainColor?:string,kpis:{l:string,v:string,c:string}[],trend:{m:string,rec:number,desp:number,net:number}[],period:string,mainSuffix?:string,sparkMode?:'budget'|'patrimonio',onPrev?:()=>void,onNext?:()=>void,canNext?:boolean,onSaudeFinanceira?:()=>void}) => (
   <div style={{background:pal.grad,borderRadius:18,padding:'20px 18px 16px',marginBottom:16,border:'1px solid rgba(255,255,255,0.05)'}}>
-    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-end',marginBottom:14}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:onSaudeFinanceira?'flex-end':'flex-start',marginBottom:14}}>
       <div>
         <div style={{fontSize:10,color:'rgba(255,255,255,0.4)',letterSpacing:'0.1em',textTransform:'uppercase',fontWeight:600,marginBottom:5}}>{title}</div>
         <div style={{display:'flex',alignItems:'baseline',gap:6}}>
@@ -527,7 +527,7 @@ const Hero = ({pal,title,mainValue,mainColor,kpis,trend,period,mainSuffix,sparkM
           {mainSuffix&&<span style={{fontSize:12,color:'rgba(255,255,255,0.3)'}}>{mainSuffix}</span>}
         </div>
       </div>
-      <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6}}>
+      <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6,marginTop:onSaudeFinanceira?0:1}}>
         <div style={{display:'flex',alignItems:'center',gap:4,height:16}}>
           {onPrev&&<button onClick={onPrev} style={{background:'none',border:'none',cursor:'pointer',color:'rgba(255,255,255,0.5)',fontSize:18,lineHeight:1,padding:'0 2px'}}>‹</button>}
           <span style={{fontSize:11,color:'rgba(255,255,255,0.45)',fontWeight:600,minWidth:52,textAlign:'center'}}>{period}</span>
@@ -3611,24 +3611,24 @@ const SaudeFinanceiraScreen = ({accounts,transactions,onClose}:{accounts:Account
               </div>
 
               {/* Grelha fixa — nunca reflui, só marca selecção */}
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:10}}>
                 {BUCKET_ORDER.map(b=>{
                   const valor = result.buckets[b]
                   const pct = result.income>0 ? (valor/result.income*100) : 0
                   const target = BUCKET_TARGETS[b]
                   const severity = bucketSeverity(pct,target)
                   const color = SEVERITY_COLOR[severity]
-                  const targetTxt = target.max!==undefined ? `meta ≤${target.max}%` : `meta ≥${target.min}%`
+                  const targetTxt = target.max!==undefined ? `≤${target.max}%` : `≥${target.min}%`
                   const isSel = selectedBucket===b
                   return (
-                    <div key={b} onClick={()=>{setSelectedBucket(isSel?null:b);setDetailView('categorias')}} style={{background:T.surface2,borderRadius:12,padding:'14px',cursor:'pointer',border:`1px solid ${isSel?pal.accent:T.border}`}}>
-                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:6}}>
-                        <div style={{fontSize:11,fontWeight:700,color:T.textSec,textTransform:'uppercase',letterSpacing:'0.06em'}}>{BUCKET_LABELS[b]}</div>
-                        <div style={{width:8,height:8,borderRadius:'50%',background:color,marginTop:3,flexShrink:0}}/>
+                    <div key={b} onClick={()=>{setSelectedBucket(isSel?null:b);setDetailView('categorias')}} style={{background:T.surface2,borderRadius:12,padding:'12px 10px',cursor:'pointer',border:`1px solid ${isSel?pal.accent:T.border}`}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:6,gap:4}}>
+                        <div style={{fontSize:9.5,fontWeight:700,color:T.textSec,textTransform:'uppercase',letterSpacing:'0.04em',lineHeight:1.25}}>{BUCKET_LABELS[b]}</div>
+                        <div style={{width:7,height:7,borderRadius:'50%',background:color,marginTop:3,flexShrink:0}}/>
                       </div>
-                      <div style={{fontSize:22,fontWeight:700,color,fontFamily:T.mono,marginBottom:2}}>{Math.round(pct)}%</div>
-                      <div style={{fontSize:10,color:T.textTer,marginBottom:2}}>{targetTxt}</div>
-                      <div style={{fontSize:11,color:T.textSec,fontFamily:T.mono}}>{dec(valor)}</div>
+                      <div style={{fontSize:19,fontWeight:700,color,fontFamily:T.mono,marginBottom:2}}>{Math.round(pct)}%</div>
+                      <div style={{fontSize:9,color:T.textTer,marginBottom:2}}>{targetTxt}</div>
+                      <div style={{fontSize:10,color:T.textSec,fontFamily:T.mono,whiteSpace:'nowrap'}}>{dec(valor)}</div>
                     </div>
                   )
                 })}
