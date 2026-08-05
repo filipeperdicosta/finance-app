@@ -10,7 +10,7 @@ import {
   ArrowLeft, Trash2, FileText, HardDrive, Zap, RefreshCw, Edit2, CreditCard,
   Filter, CheckSquare, Square, Tag, Calendar, SlidersHorizontal, Link2, Inbox,
   Sparkles, Target, BrainCircuit, Folder, ChevronRight, AlertTriangle, Bell,
-  Users, UserPlus, Mail,
+  Users, UserPlus, Mail, HeartPulse,
 } from 'lucide-react'
 import {
   supabase, loadAllData, loadAllTransactions, saveAccount, deleteAccount, updateAccount,
@@ -45,6 +45,7 @@ const PAL: Record<string,{grad:string,accent:string,soft:string}> = {
   pessoal:    {grad:'linear-gradient(145deg,#06291b,#0d5c39)',accent:'#34D399',soft:'#0a2419'},
   imoveis:    {grad:'linear-gradient(145deg,#0a1f3d,#15448a)',accent:'#60A5FA',soft:'#0e1f3a'},
   patrimonio: {grad:'linear-gradient(145deg,#17171d,#3a3a46)',accent:'#AEB6C6',soft:'#1c1c24'},
+  saude:      {grad:'linear-gradient(145deg,#2b0f1f,#7c2d5a)',accent:'#F472B6',soft:'#2a1420'},
 }
 const tagPal = (tag:string) => tag==='investimento' ? PAL.imoveis : (PAL[tag] ?? PAL.pessoal)
 const PROP_GRAD = {pos:'linear-gradient(145deg,#042b1c,#0d5c38)',neg:'linear-gradient(145deg,#1c0808,#7f1d1d)'}
@@ -143,6 +144,91 @@ function monthYearLabel(ym:string|null):string {
   const [y,m] = ym.split('-').map(Number)
   return `${MONTHS_FULL[m-1]} ${y}`
 }
+
+// ─────────────────────────────────────────────────────────────────
+// SAÚDE FINANCEIRA — baldes, metas, detecção de transferências
+// ─────────────────────────────────────────────────────────────────
+type Bucket = 'fixos'|'poupanca'|'investimento'|'guilt_free'
+
+const CATEGORY_BUCKET: Record<string,Bucket> = {
+  'Habitação':'fixos','Utilities':'fixos','Comissões e Taxas':'fixos','Groceries':'fixos','Saúde':'fixos','Transportes':'fixos',
+  'Investimentos':'investimento',
+  'Restauração':'guilt_free','Compras':'guilt_free','Lazer':'guilt_free','Subscrições':'guilt_free','Despesas Gerais':'guilt_free','Levantamentos':'guilt_free','Transferências':'guilt_free',
+}
+const BUCKET_TARGETS: Record<Bucket,{min?:number,max?:number}> = {
+  fixos:{max:50}, poupanca:{min:10}, investimento:{min:10}, guilt_free:{max:30},
+}
+const BUCKET_LABELS: Record<Bucket,string> = {
+  fixos:'Fixos', poupanca:'Poupança', investimento:'Investimento', guilt_free:'Guilt-free',
+}
+const BUCKET_ORDER: Bucket[] = ['fixos','poupanca','investimento','guilt_free']
+
+// Detecta pares de transferência de ALTA confiança entre contas próprias:
+// valor exactamente simétrico (soma ~0), datas no mesmo dia ou +1 dia, contas diferentes.
+// Devolve o conjunto de IDs de transacções a excluir por completo (receita e despesa).
+function detectHighConfidenceTransfers(txns:Transaction[]): Set<string> {
+  const used = new Set<string>()
+  const matched = new Set<string>()
+  for(let i=0;i<txns.length;i++){
+    const a = txns[i]
+    if(used.has(a.id) || Number(a.valor)===0) continue
+    for(let j=i+1;j<txns.length;j++){
+      const b = txns[j]
+      if(used.has(b.id) || a.account_id===b.account_id) continue
+      if(Math.abs(Number(a.valor)+Number(b.valor))>0.01) continue
+      const diffDays = Math.abs(new Date(a.data).getTime()-new Date(b.data).getTime())/86400000
+      if(diffDays>1) continue
+      matched.add(a.id); matched.add(b.id)
+      used.add(a.id); used.add(b.id)
+      break
+    }
+  }
+  return matched
+}
+
+type SaudeResult = {
+  income: number
+  buckets: Record<Bucket,number>
+  transfersExcluded: number
+  hasData: boolean
+}
+
+function computeSaudeFinanceira(accounts:Account[], transactions:Transaction[], scope:'pessoal'|'familiar'|'ambos', refMonth:string): SaudeResult {
+  const scopeAccounts = accounts.filter(a=>{
+    if(scope==='pessoal') return a.budget_tag==='pessoal'
+    if(scope==='familiar') return a.budget_tag==='familiar'
+    return a.budget_tag==='pessoal'||a.budget_tag==='familiar'
+  })
+  const scopeIds = new Set(scopeAccounts.map(a=>a.id))
+  const pctByAccount = new Map(scopeAccounts.map(a=>[a.id, a.budget_tag==='familiar' ? (a.my_ownership_pct??a.ownership_pct)/100 : 1]))
+  const monthTxns = transactions.filter(t=>scopeIds.has(t.account_id)&&t.data.startsWith(refMonth)&&!t.excluir_analise)
+  const transferIds = detectHighConfidenceTransfers(monthTxns)
+
+  let income = 0
+  const buckets: Record<Bucket,number> = {fixos:0,poupanca:0,investimento:0,guilt_free:0}
+
+  for(const t of monthTxns){
+    if(transferIds.has(t.id)) continue
+    const pct = pctByAccount.get(t.account_id) ?? 1
+    const valor = Number(t.valor)*pct
+    if(valor>0){ income += valor; continue }
+    const bucket = CATEGORY_BUCKET[t.categoria??''] ?? 'guilt_free'
+    buckets[bucket] += Math.abs(valor)
+  }
+
+  return { income, buckets, transfersExcluded: transferIds.size/2, hasData: monthTxns.length>0 }
+}
+
+function bucketSeverity(actualPct:number, target:{min?:number,max?:number}): 'ok'|'atencao'|'fora' {
+  let deviation = 0
+  if(target.max!==undefined && actualPct>target.max) deviation=(actualPct-target.max)/target.max
+  else if(target.min!==undefined && actualPct<target.min) deviation=(target.min-actualPct)/target.min
+  else return 'ok'
+  if(deviation<0.10) return 'ok'
+  if(deviation<0.25) return 'atencao'
+  return 'fora'
+}
+const SEVERITY_COLOR = { ok:'#4ADE80', atencao:'#FBBF24', fora:'#F87171' }
 
 function computeView(accounts:Account[], transactions:Transaction[], tag:string, selId:string|null, monthOffset=0) {
   const accs = accounts.filter(a=>a.budget_tag===tag && (selId?a.id===selId:true))
@@ -425,9 +511,9 @@ const TrendTile = ({data,accent,catFilter}:{data:{m:string,rec:number,desp:numbe
 // ─────────────────────────────────────────────────────────────────
 // HERO
 // ─────────────────────────────────────────────────────────────────
-const Hero = ({pal,title,mainValue,mainColor,kpis,trend,period,mainSuffix,sparkMode,onPrev,onNext,canNext}:{pal:{grad:string,accent:string,soft:string},title:string,mainValue:string,mainColor?:string,kpis:{l:string,v:string,c:string}[],trend:{m:string,rec:number,desp:number,net:number}[],period:string,mainSuffix?:string,sparkMode?:'budget'|'patrimonio',onPrev?:()=>void,onNext?:()=>void,canNext?:boolean}) => (
+const Hero = ({pal,title,mainValue,mainColor,kpis,trend,period,mainSuffix,sparkMode,onPrev,onNext,canNext,onSaudeFinanceira}:{pal:{grad:string,accent:string,soft:string},title:string,mainValue:string,mainColor?:string,kpis:{l:string,v:string,c:string}[],trend:{m:string,rec:number,desp:number,net:number}[],period:string,mainSuffix?:string,sparkMode?:'budget'|'patrimonio',onPrev?:()=>void,onNext?:()=>void,canNext?:boolean,onSaudeFinanceira?:()=>void}) => (
   <div style={{background:pal.grad,borderRadius:18,padding:'20px 18px 16px',marginBottom:16,border:'1px solid rgba(255,255,255,0.05)'}}>
-    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:onSaudeFinanceira?10:14}}>
       <div>
         <div style={{fontSize:10,color:'rgba(255,255,255,0.4)',letterSpacing:'0.1em',textTransform:'uppercase',fontWeight:600,marginBottom:5}}>{title}</div>
         <div style={{display:'flex',alignItems:'baseline',gap:6}}>
@@ -442,6 +528,13 @@ const Hero = ({pal,title,mainValue,mainColor,kpis,trend,period,mainSuffix,sparkM
         {onNext&&<button onClick={onNext} disabled={!canNext} style={{background:'none',border:'none',cursor:canNext?'pointer':'default',color:canNext?'rgba(255,255,255,0.5)':'rgba(255,255,255,0.15)',fontSize:18,lineHeight:1,padding:'0 2px'}}>›</button>}
       </div>
     </div>
+    {onSaudeFinanceira&&(
+      <button onClick={onSaudeFinanceira} style={{display:'flex',alignItems:'center',gap:5,background:'rgba(255,255,255,0.1)',border:'none',borderRadius:8,padding:'5px 10px',marginBottom:12,cursor:'pointer'}}>
+        <HeartPulse size={12} color="#fff"/>
+        <span style={{fontSize:11,fontWeight:600,color:'#fff'}}>Saúde financeira</span>
+        <ChevronRight size={12} color="rgba(255,255,255,0.6)"/>
+      </button>
+    )}
     <div style={{display:'grid',gridTemplateColumns:`repeat(${kpis.length},1fr)`,gap:6,marginBottom:14}}>
       {kpis.map((k,i)=>(<div key={i} style={{background:'rgba(255,255,255,0.08)',borderRadius:10,padding:'9px 10px'}}><div style={{fontSize:9,color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:600,marginBottom:3}}>{k.l}</div><div style={{fontSize:kpis.length===4?11:12,fontWeight:700,color:k.c,fontFamily:T.mono}}>{k.v}</div></div>))}
     </div>
@@ -2688,7 +2781,7 @@ const ImportWizard = ({onClose,accounts,pal,onDone,onRefreshAccounts}:{onClose:(
 // ─────────────────────────────────────────────────────────────────
 // SCREENS
 // ─────────────────────────────────────────────────────────────────
-const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAllTxns,onRefresh}:{accounts:Account[],transactions:Transaction[],tag:string,pal:{grad:string,accent:string,soft:string},title:string,onViewAllTxns:(categoria?:string,contaId?:string)=>void,onRefresh:()=>void}) => {
+const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAllTxns,onRefresh,onSaudeFinanceira}:{accounts:Account[],transactions:Transaction[],tag:string,pal:{grad:string,accent:string,soft:string},title:string,onViewAllTxns:(categoria?:string,contaId?:string)=>void,onRefresh:()=>void,onSaudeFinanceira?:()=>void}) => {
   const [sel,setSel] = useState<string|null>(null)
   const [catSel,setCatSel] = useState<string|null>(null)
   const [editTxn,setEditTxn] = useState<Transaction|null>(null)
@@ -2728,7 +2821,7 @@ const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAllTxns,onRefre
 
   return (
     <div>
-      <Hero pal={pal} title={title} period={period} mainValue={big(view.saldo)} mainColor={view.saldo<0?'#FCA5A5':'#FFF'} trend={view.trend} kpis={[{l:'Receitas',v:dec(view.rec),c:'#4ADE80'},{l:'Despesas',v:dec(view.desp),c:'#F87171'},{l:'Saldo mês',v:sgn(view.net),c:view.net>=0?'#4ADE80':'#F87171'}]} onPrev={()=>{setMonthOffset(o=>o-1);setCatSel(null)}} onNext={()=>{if(canGoForward){setMonthOffset(o=>o+1);setCatSel(null)}}} canNext={canGoForward}/>
+      <Hero pal={pal} title={title} period={period} mainValue={big(view.saldo)} mainColor={view.saldo<0?'#FCA5A5':'#FFF'} trend={view.trend} kpis={[{l:'Receitas',v:dec(view.rec),c:'#4ADE80'},{l:'Despesas',v:dec(view.desp),c:'#F87171'},{l:'Saldo mês',v:sgn(view.net),c:view.net>=0?'#4ADE80':'#F87171'}]} onPrev={()=>{setMonthOffset(o=>o-1);setCatSel(null)}} onNext={()=>{if(canGoForward){setMonthOffset(o=>o+1);setCatSel(null)}}} canNext={canGoForward} onSaudeFinanceira={onSaudeFinanceira}/>
       <AccountList accounts={tagAccs} sel={sel} onSel={setSel} pal={pal}/>
       <div style={{marginBottom:20}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'0 2px',minHeight:26}}>
@@ -3413,6 +3506,132 @@ const DuplicatesWizard = ({onClose,pal,onResolved,imoveis,accounts}:{onClose:()=
   )
 }
 
+
+// ─────────────────────────────────────────────────────────────────
+// SAÚDE FINANCEIRA
+// ─────────────────────────────────────────────────────────────────
+const SaudeFinanceiraScreen = ({accounts,transactions,onClose}:{accounts:Account[],transactions:Transaction[],onClose:()=>void}) => {
+  const pal = PAL.saude
+  const [scope,setScope] = useState<'pessoal'|'familiar'|'ambos'>('ambos')
+  const [monthOffset,setMonthOffset] = useState(0)
+  const [expanded,setExpanded] = useState<Bucket|null>(null)
+
+  const scopeAccounts = useMemo(()=>accounts.filter(a=>{
+    if(scope==='pessoal') return a.budget_tag==='pessoal'
+    if(scope==='familiar') return a.budget_tag==='familiar'
+    return a.budget_tag==='pessoal'||a.budget_tag==='familiar'
+  }),[accounts,scope])
+  const scopeIds = useMemo(()=>new Set(scopeAccounts.map(a=>a.id)),[scopeAccounts])
+  const scopeTxns = useMemo(()=>transactions.filter(t=>scopeIds.has(t.account_id)),[transactions,scopeIds])
+
+  const latestMonth = latestMonthWithData(scopeTxns)
+  let refMonth: string|null = latestMonth
+  if(latestMonth && monthOffset!==0){
+    const [ry,rm] = latestMonth.split('-').map(Number)
+    const d = new Date(ry,rm-1,1); d.setMonth(d.getMonth()+monthOffset)
+    refMonth = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
+  }
+  const canGoForward = monthOffset<0
+
+  const result = useMemo(()=>refMonth?computeSaudeFinanceira(accounts,transactions,scope,refMonth):null,[accounts,transactions,scope,refMonth])
+
+  // Composição por categoria dentro do balde expandido
+  const bucketBreakdown = useMemo(()=>{
+    if(!expanded || !refMonth) return []
+    const pctByAccount = new Map(scopeAccounts.map(a=>[a.id, a.budget_tag==='familiar' ? (a.my_ownership_pct??a.ownership_pct)/100 : 1]))
+    const transferIds = detectHighConfidenceTransfers(scopeTxns.filter(t=>t.data.startsWith(refMonth!)))
+    const map: Record<string,number> = {}
+    scopeTxns.filter(t=>t.data.startsWith(refMonth!) && !t.excluir_analise && !transferIds.has(t.id) && Number(t.valor)<0).forEach(t=>{
+      const bucket = CATEGORY_BUCKET[t.categoria??''] ?? 'guilt_free'
+      if(bucket!==expanded) return
+      const pct = pctByAccount.get(t.account_id) ?? 1
+      const key = t.categoria ?? 'Outra'
+      map[key] = (map[key]||0) + Math.abs(Number(t.valor)*pct)
+    })
+    return Object.entries(map).sort((a,b)=>b[1]-a[1])
+  },[expanded,refMonth,scopeTxns,scopeAccounts])
+
+  const SCOPE_LABEL = {pessoal:'Pessoal',familiar:'Familiar',ambos:'Ambos'}
+
+  return (
+    <div style={{position:'fixed',inset:0,background:T.bg,zIndex:95,overflowY:'auto'}}>
+      <div style={{maxWidth:440,margin:'0 auto'}}>
+        <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',background:T.surface,borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,zIndex:10}}>
+          <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ArrowLeft size={18} color={T.textSec}/></button>
+          <div style={{display:'flex',alignItems:'center',gap:6,flex:1}}>
+            <HeartPulse size={16} color={pal.accent}/>
+            <div style={{fontSize:16,fontWeight:700,color:T.text}}>Saúde financeira</div>
+          </div>
+        </div>
+
+        <div style={{padding:'16px 14px'}}>
+          {/* Toggle de âmbito */}
+          <div style={{display:'flex',gap:6,marginBottom:16,background:T.surface2,borderRadius:10,padding:3}}>
+            {(['pessoal','familiar','ambos'] as const).map(s=>(
+              <button key={s} onClick={()=>setScope(s)} style={{flex:1,padding:'7px 0',borderRadius:8,border:'none',cursor:'pointer',background:scope===s?pal.accent:'transparent',color:scope===s?'#0B0B12':T.textSec,fontSize:12,fontWeight:scope===s?700:500}}>{SCOPE_LABEL[s]}</button>
+            ))}
+          </div>
+
+          {/* Navegação de mês */}
+          <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:10,marginBottom:16}}>
+            <button onClick={()=>setMonthOffset(o=>o-1)} style={{background:'none',border:'none',cursor:'pointer',color:T.textSec,fontSize:18,padding:'0 4px'}}>‹</button>
+            <span style={{fontSize:13,fontWeight:600,color:T.text,minWidth:110,textAlign:'center'}}>{monthYearLabel(refMonth)}</span>
+            <button onClick={()=>{if(canGoForward)setMonthOffset(o=>o+1)}} disabled={!canGoForward} style={{background:'none',border:'none',cursor:canGoForward?'pointer':'default',color:canGoForward?T.textSec:'rgba(255,255,255,0.15)',fontSize:18,padding:'0 4px'}}>›</button>
+          </div>
+
+          {!result || !result.hasData ? (
+            <Card><div style={{padding:32,textAlign:'center',color:T.textSec,fontSize:13}}>Sem dados para este mês/âmbito.</div></Card>
+          ) : (
+            <>
+              <div style={{textAlign:'center',marginBottom:18}}>
+                <div style={{fontSize:11,color:T.textTer,textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:600,marginBottom:4}}>Rendimento considerado</div>
+                <div style={{fontSize:22,fontWeight:700,color:T.text,fontFamily:T.mono}}>{dec(result.income)}</div>
+                {result.transfersExcluded>0&&<div style={{fontSize:10,color:T.textTer,marginTop:4}}>{result.transfersExcluded} transferência{result.transfersExcluded!==1?'s':''} interna{result.transfersExcluded!==1?'s':''} excluída{result.transfersExcluded!==1?'s':''} deste cálculo</div>}
+              </div>
+
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:16}}>
+                {BUCKET_ORDER.map(b=>{
+                  const valor = result.buckets[b]
+                  const pct = result.income>0 ? (valor/result.income*100) : 0
+                  const target = BUCKET_TARGETS[b]
+                  const severity = bucketSeverity(pct,target)
+                  const color = SEVERITY_COLOR[severity]
+                  const targetTxt = target.max!==undefined ? `meta ≤${target.max}%` : `meta ≥${target.min}%`
+                  const isOpen = expanded===b
+                  return (
+                    <div key={b} onClick={()=>setExpanded(isOpen?null:b)} style={{gridColumn:isOpen?'1 / -1':undefined,background:T.surface2,borderRadius:12,padding:'14px',cursor:'pointer',border:`1px solid ${isOpen?pal.accent:T.border}`}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:6}}>
+                        <div style={{fontSize:11,fontWeight:700,color:T.textSec,textTransform:'uppercase',letterSpacing:'0.06em'}}>{BUCKET_LABELS[b]}</div>
+                        <div style={{width:8,height:8,borderRadius:'50%',background:color,marginTop:3,flexShrink:0}}/>
+                      </div>
+                      <div style={{fontSize:22,fontWeight:700,color,fontFamily:T.mono,marginBottom:2}}>{Math.round(pct)}%</div>
+                      <div style={{fontSize:10,color:T.textTer,marginBottom:2}}>{targetTxt}</div>
+                      <div style={{fontSize:11,color:T.textSec,fontFamily:T.mono}}>{dec(valor)}</div>
+                      {isOpen&&(
+                        <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${T.border}`}}>
+                          {bucketBreakdown.length===0?(
+                            <div style={{fontSize:11,color:T.textTer,textAlign:'center',padding:8}}>Sem transações neste balde</div>
+                          ):bucketBreakdown.map(([cat,v])=>(
+                            <div key={cat} style={{display:'flex',justifyContent:'space-between',padding:'6px 0',fontSize:12}}>
+                              <span style={{color:T.text}}>{cat}</span>
+                              <span style={{color:T.textSec,fontFamily:T.mono}}>{dec(v)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+              <div style={{fontSize:10,color:T.textTer,lineHeight:1.5,padding:'0 4px'}}>Toca num balde para veres a composição por categoria. Severidade calculada por desvio relativo à meta: verde = dentro, amarelo = atenção (10-25% de desvio), vermelho = fora (&gt;25%).</div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─────────────────────────────────────────────────────────────────
 // ROOT
 // ─────────────────────────────────────────────────────────────────
@@ -3439,6 +3658,7 @@ export default function Page() {
   const [unreadCount, setUnreadCount] = useState(0)
   const [suspeitasCount, setSuspeitasCount] = useState(0)
   const [showDuplicates, setShowDuplicates] = useState(false)
+  const [showSaude, setShowSaude] = useState(false)
   const [me, setMe] = useState<Profile|null>(null)
   const [invites, setInvites] = useState<AccountInvite[]>([])
   const [showInvites, setShowInvites] = useState(false)
@@ -3502,8 +3722,8 @@ export default function Page() {
   if(!session) return <LoginScreen onLogin={()=>{setLoading(true);load();loadFull()}}/>
 
   const screens:Record<string,React.ReactNode> = {
-    familiar:   <BudgetScreen accounts={accounts} transactions={transactions} tag="familiar" pal={PAL.familiar} title="Conta Corrente Familiar" onViewAllTxns={openAllTxns} onRefresh={async()=>{await refreshAll();showToast('✓ Transação actualizada')}}/>,
-    pessoal:    <BudgetScreen accounts={accounts} transactions={transactions} tag="pessoal"  pal={PAL.pessoal}  title="Conta Corrente Pessoal" onViewAllTxns={openAllTxns} onRefresh={async()=>{await refreshAll();showToast('✓ Transação actualizada')}}/>,
+    familiar:   <BudgetScreen accounts={accounts} transactions={transactions} tag="familiar" pal={PAL.familiar} title="Conta Corrente Familiar" onViewAllTxns={openAllTxns} onRefresh={async()=>{await refreshAll();showToast('✓ Transação actualizada')}} onSaudeFinanceira={()=>setShowSaude(true)}/>,
+    pessoal:    <BudgetScreen accounts={accounts} transactions={transactions} tag="pessoal"  pal={PAL.pessoal}  title="Conta Corrente Pessoal" onViewAllTxns={openAllTxns} onRefresh={async()=>{await refreshAll();showToast('✓ Transação actualizada')}} onSaudeFinanceira={()=>setShowSaude(true)}/>,
     imoveis:    <ImoveisScreen imoveis={imoveis} transactions={transactions} accounts={accounts} contaImovel={contaImovel} pal={PAL.imoveis} onRefresh={async()=>{await refreshAll();showToast('✓ Imóveis actualizados')}} onViewAll={(imovelId)=>{setViewAllImovelId(imovelId);openAllTxns()}}/>,
     patrimonio: <PatrimonioScreen accounts={accounts} imoveis={imoveis} transactions={transactions} pal={PAL.patrimonio}/>,
   }
@@ -3532,6 +3752,7 @@ export default function Page() {
       {showImport&&<ImportWizard onClose={()=>setShowImport(false)} accounts={accounts} pal={pal} onDone={async()=>{await refreshAll();showToast('✓ Importação concluída')}} onRefreshAccounts={refreshAll}/>}
       {showSettings&&<SettingsPanel onClose={()=>setShowSettings(false)} accounts={accounts} onRefresh={async()=>{await refreshAll();showToast('✓ Dados actualizados')}} pal={pal} me={me} onMembers={(id)=>setMembersAccountId(id)} onShowInvites={()=>setShowInvites(true)} pendingInvitesCount={invites.length} onProfileUpdated={refreshMe}/>}
       {showDuplicates&&<DuplicatesWizard onClose={()=>setShowDuplicates(false)} pal={pal} onResolved={async()=>{ setSuspeitasCount(await countSuspiciousDuplicates()) }} imoveis={imoveis} accounts={accounts}/>}
+      {showSaude&&<SaudeFinanceiraScreen accounts={accounts} transactions={transactions} onClose={()=>setShowSaude(false)}/>}
       {membersAccountId&&<MembersScreen accountId={membersAccountId} accounts={accounts} onClose={()=>setMembersAccountId(null)} pal={pal} onChanged={refreshAll}/>}
       {showInvites&&<InvitesScreen invites={invites} onClose={()=>setShowInvites(false)} pal={pal} onChanged={async()=>{await refreshInvites();await refreshAll()}}/>}
       {showAllTxns&&<AllTransactionsScreen allTxns={allTxns} accounts={accounts} tag={tab==='imoveis'?'investimento':tab} pal={pal} onClose={()=>{setShowAllTxns(false);setViewAllCategoria(undefined);setViewAllContaId(undefined);setViewAllImovelId(undefined)}} onRefresh={async()=>{await refreshAll();showToast('✓ Transações actualizadas')}} imoveis={tab==='imoveis'?imoveis:undefined} initialCategoria={viewAllCategoria} initialContaId={viewAllContaId} initialImovelId={viewAllImovelId}/>}
