@@ -190,6 +190,10 @@ export async function GET(req: NextRequest) {
               if (result.meta.saldo_final !== null && ehMaisRecente) {
                 updates.saldo_atual = result.meta.saldo_final
                 updates.saldo_data = novaData
+              } else if (result.meta.saldo_final === null) {
+                // Transacções importaram bem, mas o Gemini não conseguiu extrair o saldo
+                // deste PDF — saldo_atual fica desactualizado até ao próximo extracto.
+                summary.errors.push(`saldo não extraído: ${file.name} (${account.nome}) — transações importadas, saldo mantém-se`)
               }
               if (result.meta.iban && !account.iban) updates.iban = result.meta.iban
               if (result.meta.numero_conta && !account.numero_conta) updates.numero_conta = result.meta.numero_conta

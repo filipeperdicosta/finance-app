@@ -34,10 +34,10 @@ CATEGORY RULES:
 3. If genuinely unsure, use "Despesas Gerais" as a safe default — never invent a category outside the list.
 
 META RULES:
-1. "saldo_final": the closing/final account balance shown at the end of the statement period, as a plain number.
+1. "saldo_final": the closing/final balance for this statement. IMPORTANT for credit card statements (cartão de crédito): these documents often show MULTIPLE balance-like figures — always prefer "Saldo em Dívida" (the amount owed / current debt), and NEVER use "Saldo disponível" (available credit/spending room left) or "Montante a Pagar"/"Montante Mínimo a Pagar" (the payment due amount, which may differ from the debt if there's a minimum-payment plan). If several "Saldo em Dívida" values appear (e.g. "à data do extrato anterior" vs "à data do extrato atual"), use the one "à data do extrato atual" (current/closing one). For a normal bank account (conta à ordem/poupança) statement, use the standard closing/final balance shown. This figure is ALMOST ALWAYS printed explicitly on credit card statements (often in a highlighted "Saldo em Dívida e Saldo disponível" box) — search the ENTIRE document carefully before giving up; only use null if you are certain no such figure exists anywhere in the document, not merely because it's hard to locate.
 2. "iban": the full IBAN if printed on the document (format like PT50...), otherwise null.
 3. "numero_conta": the account number digits if printed, otherwise null.
-4. "periodo_fim": the last date covered by this statement, as YYYY-MM-DD, otherwise null.
+4. "periodo_fim": the closing date of the statement's billing period, as YYYY-MM-DD. Prefer the EXPLICIT period end date if stated (e.g. "Periodo de liquidação: 01-07-2026 A 31-07-2026" → use 2026-07-31, NOT the date of the last individual transaction listed, which is often a few days earlier). Only fall back to the last transaction's date if no explicit period/statement date is printed. Otherwise null.
 5. Use null (not empty string, not 0) for any meta field that is not present in the document.
 
 EDGE CASES:
