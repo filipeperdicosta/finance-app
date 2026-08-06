@@ -42,6 +42,6 @@ bancárias (PSD2 + PDF), investimentos, imóveis e património num dashboard ún
 Consulta `docs/PROJECT_STATE.md` para: funcionalidades já feitas, bugs em aberto,
 roadmap acordado, decisões técnicas e aprendizagens/armadilhas conhecidas.
 
-**Bug activo agora:** `ownership_pct` a 100% não reflecte no ecrã Saúde Financeira
-(SQL confirma 50/50 mesmo depois de forçar 100% na app). Ver PROJECT_STATE.md
-→ "Bugs em aberto" para o contexto completo antes de investigar.
+**Sem bug activo de momento.** Último resolvido: `ownership_pct` a 100% não
+reflectia no ecrã (2026-08-06) — causa era edição no ecrã errado, não bug de
+código. Ver PROJECT_STATE.md → "Bugs resolvidos (Saúde Financeira)".

@@ -118,14 +118,29 @@ navegação por mês, 3 cards lado a lado (grelha fixa, nunca deforma), painel
 de detalhe por baixo com toggle Categorias/Transações, secção de auditoria
 de transferências identificadas (lista só, sem edição ainda).
 
-### Bugs em aberto
-**`ownership_pct` a 100% não reflecte no ecrã.** Testado: forçou 100% na
-app (Membros → editar %), voltou a correr a query SQL de verificação,
-continuava 50/50 na BD. Ainda por diagnosticar — pode ser: (a) a mudança
-não gravou mesmo (RPC `update_member_ownership` falhou silenciosamente),
-(b) gravou mas o ecrã não recarregou dados frescos. Próximo passo: confirmar
-com o Filipe se saiu e voltou a entrar no ecrã depois de mudar a %, e se
-apareceu algum erro na altura.
+### Bugs resolvidos (Saúde Financeira)
+**`ownership_pct` a 100% não reflecte no ecrã — RESOLVIDO (2026-08-06).**
+Causa raiz real: **não era bug de código nenhum** — o Filipe estava a editar
+o campo "% propriedade" no formulário **Editar Conta** (`AccountForm`),
+que escreve na coluna legada `accounts.ownership_pct` via `updateAccount()`
+(update directo REST, sem RPC). Esse campo é usado só para semear
+`account_users` na **criação** de conta nova (`create_account` RPC); depois
+de existirem membros, a % real vive em `account_users.ownership_pct` e só
+se edita no ecrã **Membros** (RPC `update_member_ownership`), acedido pelo
+ícone 👥 na lista de contas em Definições — não pelo lápis de editar.
+Confirmámos por SQL que a RPC `update_member_ownership` sempre funcionou
+correctamente (lógica de redistribuição proporcional correcta, RLS não era
+bloqueio — owner `postgres` tem `BYPASSRLS`). O diagnóstico incluiu, por
+ordem, e todos descartados antes de encontrar a causa real: RLS a bloquear
+o UPDATE silenciosamente, overloads da função, view/tabela de leitura
+diferente da de escrita, build sem a correcção de erro deployado. O que
+resolveu foi inspeccionar o Network tab do browser e ver que a gravação
+não gerava nenhum pedido RPC — só aí ficou claro que o ecrã editado era o
+errado.
+Fix aplicado: campo "% propriedade" agora só aparece no formulário ao
+**criar** conta nova (`!isEdit`); ao editar, deixa de ser enviado no
+payload de `updateAccount()`, para não voltar a confundir com o campo
+legado. `page.tsx` — `AccountForm`, `changePct`.
 
 ### Pergunta em aberto (UI)
 Pill diz "Saúde" (abreviado) em vez de "Saúde financeira" completo — foi
