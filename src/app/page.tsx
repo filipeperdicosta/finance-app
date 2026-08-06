@@ -724,7 +724,9 @@ const saudeOptionsFor = (tipo:string, categoria:string): {value:string,label:str
     {value:'poupanca_investimento',label:BUCKET_LABELS.poupanca_investimento},
     {value:'guilt_free',label:BUCKET_LABELS.guilt_free},
   ]
-  return categoria==='Transferências' ? [...buckets,{value:'transferencia',label:'Transferência interna'}] : buckets
+  // "Investimentos" entra aqui também: reaplicação de um depósito/poupança que vence é
+  // capital reciclado, não investimento novo — precisa da mesma opção de ignorar.
+  return (categoria==='Transferências'||categoria==='Investimentos') ? [...buckets,{value:'transferencia',label:'Transferência interna'}] : buckets
 }
 // Sugestão por defeito quando ainda não há escolha explícita — espelha o que
 // computeSaudeFinanceiraMonth aplicaria hoje a esta transacção. Uma regra aprendida
