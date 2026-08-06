@@ -99,24 +99,41 @@ Nome final: **"Saúde financeira"**.
   disponível para outras configurações de família
 - Mapeamento categoria→balde é um objecto estático no código
   (`CATEGORY_BUCKET`), não uma tabela na BD
-- Transferências entre contas próprias: heurística de alta confiança (valor
-  simétrico exacto, mesmo dia ou +1) exclui automaticamente do cálculo, sem
-  pedir confirmação. Casos ambíguos (fase 2, ver Roadmap) vão para fila de
-  revisão, pré-preenchida com a sugestão
+- Transferências entre contas próprias: heurística de **2 níveis** — alta
+  confiança (valor simétrico exacto, mesmo dia ou +1) continua a excluir
+  automaticamente sem pedir confirmação; média confiança (tolerância até
+  max(5€,5%), até 5 dias) + transacções isoladas de categoria
+  "Transferências" sem par vão para fila de revisão (implementado
+  2026-08-06, ver abaixo)
 - Severidade por **desvio relativo à meta** (não pontos percentuais
   absolutos): <10% = ok, 10-25% = atenção, >25% = fora
-- Janela: mês a mês por agora (fase 1). Janela deslizante 3/6/12m fica para
-  fase 3 — mês corrente nunca entra na janela (não está fechado), mas
-  aparece como indicador informativo à parte
+- Janela: **deslizante** (Mensal/3M/6M/12M/Personalizado), default 6 meses,
+  persistida por utilizador em `profiles.saude_window_months` (implementado
+  2026-08-06 — já não é só mês a mês)
 - Reutiliza infra-estrutura existente: `my_ownership_pct` para pesar contas
   Familiares, sem sistema novo
 
 ### UI actual
-Pill "Saúde" no Hero (canto superior direito, alinhado à base do valor
-grande, só aparece nas tabs Familiar e Pessoal). Ecrã: toggle de âmbito,
-navegação por mês, 3 cards lado a lado (grelha fixa, nunca deforma), painel
-de detalhe por baixo com toggle Categorias/Transações, secção de auditoria
-de transferências identificadas (lista só, sem edição ainda).
+Pill "Saúde" no Hero (canto superior direito, ancorada à base do valor
+grande via CSS Grid; a navegação de mês fica na shape ao lado, ancorada à
+base do título — 2 shapes isoladas e centradas uma na outra, só aparece nas
+tabs Familiar e Pessoal). Ecrã: toggle de âmbito, navegação por
+mês/janela + segmented control da janela deslizante, 3 cards lado a lado
+(grelha fixa, nunca deforma), painel de detalhe por baixo com toggle
+Categorias/Transações, card "N transferências por validar" (quando há
+pendentes, mesmo padrão do "por associar" de Imóveis) + fila de revisão de
+transferências (3 acções: Ignorar/Investimento/Guilt-free), lista exaustiva
+de transferências identificadas agora clicável (abre o popup de edição da
+transação, que ganhou um campo "Balde de Saúde Financeira" para ajuste
+manual, mesmo em pares de alta confiança).
+
+### Ajuste manual de balde (`saude_override`)
+Coluna nova em `transactions` (`saude_override`, nullable: `'fixos'|
+'poupanca_investimento'|'guilt_free'|'transferencia'`). Quando definida,
+vence sempre sobre a heurística e o mapeamento categoria→balde —
+`'transferencia'` exclui do cálculo, os outros forçam esse balde (só para
+despesas; receitas continuam sempre a contar como rendimento,
+independentemente do override). `computeSaudeFinanceiraMonth` — page.tsx.
 
 ### Bugs resolvidos (Saúde Financeira)
 **`ownership_pct` a 100% não reflecte no ecrã — RESOLVIDO (2026-08-06).**
