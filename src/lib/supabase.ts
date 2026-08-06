@@ -74,6 +74,7 @@ export type Transaction = {
   excluir_analise: boolean
   ordem_extrato: number
   suspeita_duplicado: boolean
+  saude_override: 'fixos' | 'poupanca_investimento' | 'guilt_free' | 'transferencia' | null
   created_at: string
 }
 
