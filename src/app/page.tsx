@@ -978,7 +978,7 @@ const AccountForm = ({initial,onClose,onSaved,pal,accountsLen}:{initial:Account|
     setSaving(true)
     const payload = { nome:form.nome, banco:form.banco, tipo:form.tipo as any, budget_tag:form.budget_tag as any, titular:form.titular, ownership_pct:Number(form.ownership_pct), saldo_atual:parseNum(form.saldo_atual), iban:form.iban||null, numero_conta:form.numero_conta||null }
     if(isEdit) {
-      const updatePayload: any = { ...payload }
+      const { ownership_pct, ...updatePayload } = payload as any
       if(form.tipo === 'poupança') updatePayload.saldo_data = new Date().toISOString().split('T')[0]
       await updateAccount(initial!.id, updatePayload)
     } else {
@@ -1000,7 +1000,7 @@ const AccountForm = ({initial,onClose,onSaved,pal,accountsLen}:{initial:Account|
           <Sel label="Tipo" value={form.tipo} onChange={f('tipo')} options={[{value:'corrente',label:'Conta Corrente'},{value:'poupança',label:'Poupança'},{value:'cartão',label:'Cartão de Crédito'},{value:'corretora',label:'Corretora'}]}/>
           <Sel label="Budget" value={form.budget_tag} onChange={f('budget_tag')} options={[{value:'familiar',label:'🟠 Familiar'},{value:'pessoal',label:'🟢 Pessoal'},{value:'investimento',label:'🔵 Investimento'}]}/>
           <Inp label="Titular" value={form.titular} onChange={f('titular')} placeholder="ex: Eu, Cici, Conjunto"/>
-          <Inp label="% propriedade" value={form.ownership_pct} onChange={f('ownership_pct')} type="number"/>
+          {!isEdit && <Inp label="% propriedade" value={form.ownership_pct} onChange={f('ownership_pct')} type="number"/>}
           {isEdit ? (
             form.tipo === 'poupança' ? (
               <MoneyInp label="Saldo actual (€)" value={form.saldo_atual} onChange={f('saldo_atual')} hint="Actualiza manualmente quando constituíres, renovares ou resgates o depósito."/>
@@ -3301,7 +3301,9 @@ const MembersScreen = ({accountId,accounts,onClose,pal,onChanged}:{accountId:str
   const changePct = async (m:AccountMember, v:string) => {
     const n = Math.max(0, Math.min(100, Number(v)||0))
     if (n === m.ownership_pct) return
-    await updateMemberOwnership(m.id, n); await refresh(); onChanged()
+    const { error } = await updateMemberOwnership(m.id, n)
+    if (error) { alert('Erro ao actualizar %: '+error.message); return }
+    await refresh(); onChanged()
   }
   const doRemove = async (m:AccountMember) => {
     if(!confirm(`Remover ${m.nome} desta conta?`)) return
