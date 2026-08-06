@@ -18,6 +18,7 @@ import {
   saveImovel, updateImovel, deleteImovel, linkContaImovel, unlinkContaImovel,
   assignTransactionToImovel, assignTransactionsToImovel,
   loadCategoryRules, learnFromCategorization, matchRule, deleteCategoryRule, deleteCategoryRules, updateCategoryRule,
+  loadSaudeRules, learnSaudeOverride, matchSaudeRule,
   getDriveConnectionStatus, disconnectDrive, getDriveAuthUrl, updateAccountDriveFolder, loadDriveFiles,
   listDriveFolderFiles, importDriveFile, resetDriveFileImport, previewDriveFile,
   loadNotifications, countUnreadNotifications, markNotificationsRead, deleteNotification,
@@ -27,7 +28,7 @@ import {
   findUserByEmail, inviteUserToAccount, loadPendingInvites, acceptInvite, rejectInvite,
   loadAccountPendingInvites, cancelInvite,
   countSuspiciousDuplicates, loadSuspiciousDuplicates, resolveDuplicate, keepBothTransactions,
-  type Account, type Transaction, type Imovel, type ContaImovel, type CategoryRule,
+  type Account, type Transaction, type Imovel, type ContaImovel, type CategoryRule, type SaudeRule,
   type DriveToken, type DriveFile, type AppNotification, type T212Config,
   type Profile, type AccountMember, type AccountInvite, type SuspiciousPair,
 } from '@/lib/supabase'
@@ -214,7 +215,7 @@ function detectHighConfidenceTransfers(txns:Transaction[]): Set<string> {
 }
 
 // Detecta pares de transferência de MÉDIA confiança: mesma ideia da alta confiança, mas
-// tolerância relaxada (diferença de valor até 5€ ou 5%, o que for maior; janela de data até
+// tolerância relaxada (diferença de valor até 2€ ou 5%, o que for maior; janela de data até
 // 5 dias). Ficam para o utilizador validar — não são excluídos automaticamente do cálculo.
 // excludeIds evita reaproveitar transacções já emparelhadas como alta confiança.
 function detectMediumConfidenceTransferPairs(txns:Transaction[], excludeIds:Set<string>): {a:Transaction,b:Transaction}[] {
@@ -228,7 +229,7 @@ function detectMediumConfidenceTransferPairs(txns:Transaction[], excludeIds:Set<
       if(used.has(b.id) || excludeIds.has(b.id) || a.account_id===b.account_id || !isTransferEligible(b)) continue
       const va = Number(a.valor), vb = Number(b.valor)
       const bigger = Math.max(Math.abs(va),Math.abs(vb))
-      const tolerance = Math.max(5, bigger*0.05)
+      const tolerance = Math.max(2, bigger*0.05)
       if(Math.abs(va+vb)>tolerance) continue
       const diffDays = Math.abs(new Date(a.data).getTime()-new Date(b.data).getTime())/86400000
       if(diffDays>5) continue
@@ -242,7 +243,11 @@ function detectMediumConfidenceTransferPairs(txns:Transaction[], excludeIds:Set<
 
 type TransferConfidence = 'alta'|'media'
 type TransferCandidate = { id:string, confidence:TransferConfidence, a:Transaction, b:Transaction|null }
-const transferResolved = (c:TransferCandidate) => c.a.saude_override!=null || (c.b!=null && c.b.saude_override!=null)
+// Classificação efectiva de uma transacção: ajuste explícito na própria transacção vence,
+// depois a regra aprendida por padrão de descritivo (ver saude_rules), senão null (heurística
+// de emparelhamento/categoria decide, calculada à parte).
+const effectiveSaudeOverride = (t:Transaction, rules:SaudeRule[]=[]): string|null => t.saude_override ?? matchSaudeRule(t.descritivo, rules)
+const transferResolved = (c:TransferCandidate, rules:SaudeRule[]=[]) => effectiveSaudeOverride(c.a,rules)!=null || (c.b!=null && effectiveSaudeOverride(c.b,rules)!=null)
 
 // Lista exaustiva de candidatos a transferência: pares de alta confiança (auto-excluídos),
 // pares de média confiança (por validar) e transacções isoladas de categoria "Transferências"
@@ -269,7 +274,7 @@ type SaudeResult = {
 }
 
 // Cálculo de um único mês — bloco reutilizado pela agregação por janela abaixo.
-function computeSaudeFinanceiraMonth(accounts:Account[], transactions:Transaction[], scope:'pessoal'|'familiar'|'ambos', ym:string): SaudeResult {
+function computeSaudeFinanceiraMonth(accounts:Account[], transactions:Transaction[], scope:'pessoal'|'familiar'|'ambos', ym:string, rules:SaudeRule[]=[]): SaudeResult {
   const scopeAccounts = accounts.filter(a=>{
     if(scope==='pessoal') return a.budget_tag==='pessoal'
     if(scope==='familiar') return a.budget_tag==='familiar'
@@ -284,13 +289,15 @@ function computeSaudeFinanceiraMonth(accounts:Account[], transactions:Transactio
   const buckets: Record<Bucket,number> = {fixos:0,poupanca_investimento:0,guilt_free:0}
 
   for(const t of monthTxns){
-    // Ajuste manual (saude_override) vence sempre sobre a heurística e o mapeamento por categoria.
-    if(t.saude_override==='transferencia') continue
+    // Ajuste manual (saude_override) ou regra aprendida vencem sempre sobre a heurística e
+    // o mapeamento por categoria.
+    const eff = effectiveSaudeOverride(t, rules)
+    if(eff==='transferencia') continue
     const pct = pctByAccount.get(t.account_id) ?? 1
     const valor = Number(t.valor)*pct
-    if(t.saude_override){
+    if(eff){
       if(valor>0){ income += valor; continue } // receitas nunca entram em baldes, mesmo com override
-      buckets[t.saude_override] += Math.abs(valor)
+      buckets[eff as Bucket] += Math.abs(valor)
       continue
     }
     if(transferIds.has(t.id)) continue
@@ -305,7 +312,7 @@ function computeSaudeFinanceiraMonth(accounts:Account[], transactions:Transactio
 // Agrega N meses terminados em refMonth (inclusive). % de cada balde = soma/soma —
 // não média das percentagens mensais — para não deixar um mês de rendimento atípico
 // distorcer o peso relativo (soma pondera correctamente por rendimento de cada mês).
-function computeSaudeFinanceira(accounts:Account[], transactions:Transaction[], scope:'pessoal'|'familiar'|'ambos', refMonth:string, windowMonths:number=1): SaudeResult {
+function computeSaudeFinanceira(accounts:Account[], transactions:Transaction[], scope:'pessoal'|'familiar'|'ambos', refMonth:string, windowMonths:number=1, rules:SaudeRule[]=[]): SaudeResult {
   let income = 0
   let transfersExcluded = 0
   let hasData = false
@@ -313,7 +320,7 @@ function computeSaudeFinanceira(accounts:Account[], transactions:Transaction[], 
 
   for(let i=0;i<windowMonths;i++){
     const ym = shiftMonth(refMonth, -i)
-    const r = computeSaudeFinanceiraMonth(accounts, transactions, scope, ym)
+    const r = computeSaudeFinanceiraMonth(accounts, transactions, scope, ym, rules)
     income += r.income
     transfersExcluded += r.transfersExcluded
     hasData = hasData || r.hasData
@@ -720,8 +727,11 @@ const saudeOptionsFor = (tipo:string, categoria:string): {value:string,label:str
   return categoria==='Transferências' ? [...buckets,{value:'transferencia',label:'Transferência interna'}] : buckets
 }
 // Sugestão por defeito quando ainda não há escolha explícita — espelha o que
-// computeSaudeFinanceiraMonth aplicaria hoje a esta transacção.
-const saudeHeuristicDefault = (tipo:string, categoria:string, isDetectedTransfer:boolean): string => {
+// computeSaudeFinanceiraMonth aplicaria hoje a esta transacção. Uma regra aprendida
+// (ver saude_rules) tem prioridade sobre a heurística de pares/categoria, desde que ainda
+// seja uma opção válida para o tipo/categoria actual.
+const saudeHeuristicDefault = (tipo:string, categoria:string, isDetectedTransfer:boolean, ruleMatch:string|null): string => {
+  if(ruleMatch && saudeOptionsFor(tipo,categoria).some(o=>o.value===ruleMatch)) return ruleMatch
   if(tipo==='receita') return isDetectedTransfer ? 'transferencia' : ''
   if(categoria==='Transferências') return isDetectedTransfer ? 'transferencia' : (CATEGORY_BUCKET['Transferências'] ?? 'guilt_free')
   return CATEGORY_BUCKET[categoria] ?? 'guilt_free'
@@ -737,10 +747,13 @@ const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis,accounts,isDetectedTransfe
   const [saudeOverride,setSaudeOverride] = useState(txn.saude_override ?? '')
   const [saudeTouched,setSaudeTouched] = useState(!!txn.saude_override)
   const [saving,setSaving] = useState(false)
+  const [saudeRules,setSaudeRules] = useState<SaudeRule[]>([])
+  useEffect(()=>{ loadSaudeRules().then(setSaudeRules) },[])
   const hasImoveis = imoveis && imoveis.length>0
 
   const saudeOptions = saudeOptionsFor(tipo,categoria)
-  const saudeDefault = saudeHeuristicDefault(tipo,categoria,!!isDetectedTransfer)
+  const ruleMatch = matchSaudeRule(descritivo,saudeRules)
+  const saudeDefault = saudeHeuristicDefault(tipo,categoria,!!isDetectedTransfer,ruleMatch)
   const saudeSelected = saudeTouched ? saudeOverride : saudeDefault
   // Se o tipo/categoria mudar de forma a invalidar a escolha anterior (ex: deixa de ser
   // "Transferências"), volta a seguir a sugestão por defeito em vez de gravar algo obsoleto.
@@ -770,6 +783,9 @@ const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis,accounts,isDetectedTransfe
     // Aprendizagem: reforça/cria a regra com base na categoria escolhida manualmente
     // (regras de "Receita" não trazem grande valor preditivo, mas não fazem mal)
     await learnFromCategorization(descritivo, finalCategoria)
+    // Idem para a Saúde Financeira — só quando o utilizador tocou explicitamente numa pill,
+    // para não fixar uma classificação a partir de uma gravação de rotina (ex: só corrigir a data)
+    if(saudeTouched && finalSaudeOverride) await learnSaudeOverride(descritivo, finalSaudeOverride)
     await onSaved(); setSaving(false); onClose()
   }
   const del = async () => {
@@ -813,7 +829,7 @@ const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis,accounts,isDetectedTransfe
                 )
               })}
             </div>
-            {!saudeTouched&&<div style={{fontSize:10,color:T.textTer,marginTop:6}}>Sugestão heurística — ainda não confirmada, toca noutra opção para corrigir.</div>}
+            {!saudeTouched&&<div style={{fontSize:10,color:T.textTer,marginTop:6}}>{ruleMatch?'Sugestão de uma regra aprendida':'Sugestão heurística'} — ainda não confirmada, toca noutra opção para corrigir.</div>}
           </div>
           <DateInp label="Data" value={data} onChange={setData}/>
           <div style={{display:'flex',gap:10,marginTop:4}}>
@@ -3664,15 +3680,18 @@ const DuplicatesWizard = ({onClose,pal,onResolved,imoveis,accounts}:{onClose:()=
 // SAÚDE FINANCEIRA
 // ─────────────────────────────────────────────────────────────────
 // Fila de transferências por validar — mesmo padrão do AssignQueue de Imóveis.
-const TransferReviewQueue = ({candidates,accountNome,onClose,onRefresh,pal}:{candidates:TransferCandidate[],accountNome:Map<string,string>,onClose:()=>void,onRefresh:()=>void,pal:{accent:string,soft:string}}) => {
+const TransferReviewQueue = ({candidates,accountNome,accounts,onClose,onRefresh,pal}:{candidates:TransferCandidate[],accountNome:Map<string,string>,accounts?:Account[],onClose:()=>void,onRefresh:()=>void,pal:{accent:string,soft:string}}) => {
   const [busy,setBusy] = useState<string|null>(null)
+  const [editTxn,setEditTxn] = useState<Transaction|null>(null)
   const resolve = async (c:TransferCandidate, choice:'transferencia'|'poupanca_investimento'|'guilt_free') => {
     setBusy(c.id)
     if(choice==='transferencia'){
       await updateTransaction(c.a.id,{saude_override:'transferencia'})
-      if(c.b) await updateTransaction(c.b.id,{saude_override:'transferencia'})
+      await learnSaudeOverride(c.a.descritivo,'transferencia')
+      if(c.b){ await updateTransaction(c.b.id,{saude_override:'transferencia'}); await learnSaudeOverride(c.b.descritivo,'transferencia') }
     } else {
       await updateTransaction(c.a.id,{saude_override:choice})
+      await learnSaudeOverride(c.a.descritivo,choice)
     }
     await onRefresh(); setBusy(null)
   }
@@ -3684,12 +3703,15 @@ const TransferReviewQueue = ({candidates,accountNome,onClose,onRefresh,pal}:{can
           <div style={{fontSize:16,fontWeight:700,color:T.text,flex:1}}>Por validar ({candidates.length})</div>
         </div>
         <div style={{padding:'16px 14px'}}>
-          <div style={{fontSize:13,color:T.textSec,marginBottom:16,lineHeight:1.5}}>Transacções parecidas com transferências entre contas próprias, mas ainda sem confirmação. Marca cada uma como movimento interno (ignorar), saída para investimento, ou despesa normal.</div>
+          <div style={{fontSize:13,color:T.textSec,marginBottom:16,lineHeight:1.5}}>Transacções parecidas com transferências entre contas próprias, mas ainda sem confirmação. Toca na transacção para ver mais detalhe (e outras opções, como Fixos), ou usa os atalhos abaixo.</div>
           {candidates.length===0&&<Card><div style={{padding:32,textAlign:'center',color:T.textSec,fontSize:13}}>✓ Tudo validado! Não há transferências pendentes.</div></Card>}
           {candidates.map(c=>(
             <Card key={c.id} style={{marginBottom:10,padding:'13px 14px'}}>
-              <div style={{marginBottom:10}}>
-                <div style={{fontSize:13,fontWeight:600,color:T.text}}>{c.a.descritivo}</div>
+              <div onClick={()=>setEditTxn(c.a)} style={{marginBottom:10,cursor:'pointer'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
+                  <div style={{fontSize:13,fontWeight:600,color:T.text}}>{c.a.descritivo}</div>
+                  <ChevronRight size={13} color={T.textTer} style={{flexShrink:0,marginTop:2}}/>
+                </div>
                 <div style={{fontSize:11,color:T.textSec,marginTop:2}}>{accountNome.get(c.a.account_id)} · {c.a.data} · {dec(Math.abs(Number(c.a.valor)))}</div>
                 {c.b&&<div style={{fontSize:11,color:T.textTer,marginTop:2}}>↔ {accountNome.get(c.b.account_id)} · {c.b.data} · {dec(Math.abs(Number(c.b.valor)))}</div>}
               </div>
@@ -3702,6 +3724,7 @@ const TransferReviewQueue = ({candidates,accountNome,onClose,onRefresh,pal}:{can
           ))}
         </div>
       </div>
+      {editTxn&&<TxnEditForm txn={editTxn} onClose={()=>setEditTxn(null)} onSaved={onRefresh} pal={pal} accounts={accounts}/>}
     </div>
   )
 }
@@ -3722,6 +3745,11 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
   const isPresetValue = (WINDOW_PRESETS as readonly number[]).includes(windowMonths)
   const [customMode,setCustomMode] = useState(!isPresetValue)
   const [customInput,setCustomInput] = useState(String(windowMonths))
+  const [saudeRules,setSaudeRules] = useState<SaudeRule[]>([])
+  useEffect(()=>{ loadSaudeRules().then(setSaudeRules) },[])
+  // Depois de gravar (transacção ou fila de revisão), refresca também as regras aprendidas
+  // — uma correcção pode ter acabado de criar/reforçar uma, que passa logo a aplicar-se.
+  const refresh = useCallback(async()=>{ await onRefresh(); setSaudeRules(await loadSaudeRules()) },[onRefresh])
 
   const scopeAccounts = useMemo(()=>accounts.filter(a=>{
     if(scope==='pessoal') return a.budget_tag==='pessoal'
@@ -3741,7 +3769,7 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
   }
   const canGoForward = monthOffset<0
 
-  const result = useMemo(()=>refMonth?computeSaudeFinanceira(accounts,transactions,scope,refMonth,windowMonths):null,[accounts,transactions,scope,refMonth,windowMonths])
+  const result = useMemo(()=>refMonth?computeSaudeFinanceira(accounts,transactions,scope,refMonth,windowMonths,saudeRules):null,[accounts,transactions,scope,refMonth,windowMonths,saudeRules])
 
   // Conjunto de meses (YYYY-MM) cobertos pela janela actual, terminando em refMonth
   const windowYMs = useMemo(()=>{
@@ -3760,24 +3788,24 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
   // Candidatos por validar em TODO o histórico (não limitado à janela) — para o card, tal
   // como a fila "por associar" de Imóveis também não é filtrada ao mês.
   const allCandidates = useMemo(()=>detectTransferCandidates(scopeTxns),[scopeTxns])
-  const pendingCandidates = useMemo(()=>allCandidates.filter(c=>c.confidence==='media' && !transferResolved(c)),[allCandidates])
+  const pendingCandidates = useMemo(()=>allCandidates.filter(c=>c.confidence==='media' && !transferResolved(c,saudeRules)),[allCandidates,saudeRules])
   const altaIds = useMemo(()=>{
     const s = new Set<string>()
     windowCandidates.filter(c=>c.confidence==='alta').forEach(c=>{ s.add(c.a.id); if(c.b) s.add(c.b.id) })
     return s
   },[windowCandidates])
-  // IDs excluídos do cálculo: pares de alta confiança + qualquer override='transferencia'
+  // IDs excluídos do cálculo: pares de alta confiança + qualquer override/regra='transferencia'
   const excludedIdSet = useMemo(()=>{
     const s = new Set<string>(altaIds)
-    windowTxnsAllSigns.forEach(t=>{ if(t.saude_override==='transferencia') s.add(t.id) })
+    windowTxnsAllSigns.forEach(t=>{ if(effectiveSaudeOverride(t,saudeRules)==='transferencia') s.add(t.id) })
     return s
-  },[altaIds,windowTxnsAllSigns])
+  },[altaIds,windowTxnsAllSigns,saudeRules])
 
   // Transacções positivas da janela — auditoria do "Rendimento considerado"
   const incomeTxnsForDetail = useMemo(()=>{
     if(!refMonth) return []
     return windowTxnsAllSigns.filter(t=>!t.excluir_analise && Number(t.valor)>0)
-      .sort((a,b)=>Number(b.valor)-Number(a.valor))
+      .sort((a,b)=>b.data.localeCompare(a.data))
   },[windowTxnsAllSigns,refMonth])
 
   // Transacções (excluindo transferências) do balde seleccionado — respeita saude_override
@@ -3785,10 +3813,11 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
     if(!selectedBucket) return []
     return monthTxnsForDetail.filter(t=>{
       if(excludedIdSet.has(t.id)) return false
-      const bucket = (t.saude_override && t.saude_override!=='transferencia') ? t.saude_override : (CATEGORY_BUCKET[t.categoria??''] ?? 'guilt_free')
+      const eff = effectiveSaudeOverride(t,saudeRules)
+      const bucket = (eff && eff!=='transferencia') ? eff : (CATEGORY_BUCKET[t.categoria??''] ?? 'guilt_free')
       return bucket===selectedBucket
     }).sort((a,b)=>Math.abs(Number(b.valor))-Math.abs(Number(a.valor)))
-  },[monthTxnsForDetail,excludedIdSet,selectedBucket])
+  },[monthTxnsForDetail,excludedIdSet,selectedBucket,saudeRules])
 
   // Composição por categoria dentro do balde seleccionado
   const bucketBreakdown = useMemo(()=>{
@@ -3824,22 +3853,20 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
             ))}
           </div>
 
-          {/* Navegação de mês */}
-          <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:10,marginBottom:12}}>
-            <button onClick={()=>{setMonthOffset(o=>o-1);setSelectedBucket(null)}} style={{background:'none',border:'none',cursor:'pointer',color:T.textSec,fontSize:18,padding:'0 4px'}}>‹</button>
-            <span style={{fontSize:13,fontWeight:600,color:T.text,minWidth:130,textAlign:'center'}}>{periodRangeLabel(refMonth,windowMonths)}</span>
-            <button onClick={()=>{if(canGoForward){setMonthOffset(o=>o+1);setSelectedBucket(null)}}} disabled={!canGoForward} style={{background:'none',border:'none',cursor:canGoForward?'pointer':'default',color:canGoForward?T.textSec:'rgba(255,255,255,0.15)',fontSize:18,padding:'0 4px'}}>›</button>
-          </div>
-
-          {/* Janela deslizante — chip compacto com menu, em vez de linha inteira */}
-          <div style={{display:'flex',justifyContent:'center',marginBottom:16,position:'relative'}}>
-            <button onClick={()=>setShowWindowMenu(s=>!s)} style={{display:'flex',alignItems:'center',gap:5,background:T.surface2,border:`1px solid ${T.border}`,borderRadius:20,padding:'6px 13px',cursor:'pointer',color:T.text,fontSize:12,fontWeight:600}}>
+          {/* Navegação de mês + janela deslizante — chip compacto ancorado ao canto direito */}
+          <div style={{position:'relative',marginBottom:16}}>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:10}}>
+              <button onClick={()=>{setMonthOffset(o=>o-1);setSelectedBucket(null)}} style={{background:'none',border:'none',cursor:'pointer',color:T.textSec,fontSize:18,padding:'0 4px'}}>‹</button>
+              <span style={{fontSize:13,fontWeight:600,color:T.text,minWidth:130,textAlign:'center'}}>{periodRangeLabel(refMonth,windowMonths)}</span>
+              <button onClick={()=>{if(canGoForward){setMonthOffset(o=>o+1);setSelectedBucket(null)}}} disabled={!canGoForward} style={{background:'none',border:'none',cursor:canGoForward?'pointer':'default',color:canGoForward?T.textSec:'rgba(255,255,255,0.15)',fontSize:18,padding:'0 4px'}}>›</button>
+            </div>
+            <button onClick={()=>setShowWindowMenu(s=>!s)} style={{position:'absolute',right:0,top:'50%',transform:'translateY(-50%)',display:'flex',alignItems:'center',gap:5,background:T.surface2,border:`1px solid ${T.border}`,borderRadius:20,padding:'6px 13px',cursor:'pointer',color:T.text,fontSize:12,fontWeight:600}}>
               {windowMonths===1?'Mensal':`${windowMonths}M`}
               <span style={{fontSize:9,color:T.textTer}}>▾</span>
             </button>
             {showWindowMenu&&(<>
               <div onClick={()=>setShowWindowMenu(false)} style={{position:'fixed',inset:0,zIndex:19}}/>
-              <Card style={{position:'absolute',top:'calc(100% + 6px)',left:'50%',transform:'translateX(-50%)',zIndex:20,padding:8,minWidth:170}}>
+              <Card style={{position:'absolute',top:'calc(100% + 6px)',right:0,zIndex:20,padding:8,minWidth:170}}>
                 <div style={{display:'flex',flexDirection:'column',gap:3}}>
                   {WINDOW_PRESETS.map(n=>(
                     <button key={n} onClick={()=>{setCustomMode(false);onWindowChanged(n);setShowWindowMenu(false)}} style={{textAlign:'left',padding:'7px 10px',borderRadius:7,border:'none',cursor:'pointer',background:!customMode&&windowMonths===n?pal.accent:'transparent',color:!customMode&&windowMonths===n?'#0B0B12':T.text,fontSize:12,fontWeight:!customMode&&windowMonths===n?700:500}}>{n===1?'Mensal':`${n} meses`}</button>
@@ -3861,37 +3888,13 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
             <Card><div style={{padding:32,textAlign:'center',color:T.textSec,fontSize:13}}>Sem dados para este período/âmbito.</div></Card>
           ) : (
             <>
-              <div onClick={()=>setShowIncomeDetail(s=>!s)} style={{textAlign:'center',marginBottom:showIncomeDetail?10:18,cursor:'pointer'}}>
+              <div onClick={()=>{setShowIncomeDetail(s=>!s);setSelectedBucket(null)}} style={{textAlign:'center',marginBottom:18,cursor:'pointer'}}>
                 <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:4,fontSize:11,color:T.textTer,textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:600,marginBottom:4}}>
                   Rendimento considerado
                   <ChevronRight size={11} color={T.textTer} style={{transform:showIncomeDetail?'rotate(90deg)':'none',transition:'transform 0.15s'}}/>
                 </div>
                 <div style={{fontSize:22,fontWeight:700,color:T.text,fontFamily:T.mono}}>{dec(result.income)}</div>
               </div>
-
-              {/* Auditoria do rendimento — para apanhar entradas que não são rendimento real
-                  (ex: capital de poupanças a regressar à conta corrente para ser reinvestido) */}
-              {showIncomeDetail&&(
-                <Card style={{marginBottom:18}}>
-                  {incomeTxnsForDetail.length===0 ? (
-                    <div style={{fontSize:11,color:T.textTer,textAlign:'center',padding:16}}>Sem entradas nesta janela</div>
-                  ) : incomeTxnsForDetail.map((t,i)=>{
-                    const counted = !excludedIdSet.has(t.id)
-                    return (
-                      <div key={t.id} onClick={()=>setEditTxn({t,alta:altaIds.has(t.id)})} style={{padding:'10px 14px',borderBottom:i<incomeTxnsForDetail.length-1?`1px solid ${T.border}`:'none',cursor:'pointer'}}>
-                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8,marginBottom:3}}>
-                          <div style={{fontSize:12,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div>
-                          <span style={{fontSize:12,color:counted?T.text:T.textTer,fontFamily:T.mono,flexShrink:0,textDecoration:counted?'none':'line-through'}}>{dec(Number(t.valor))}</span>
-                        </div>
-                        <div style={{display:'flex',justifyContent:'space-between',gap:8}}>
-                          <div style={{fontSize:10,color:T.textTer}}>{accountNome.get(t.account_id)} · {t.data}</div>
-                          {!counted&&<span style={{fontSize:9,fontWeight:600,color:'#4ADE80'}}>↔ Transferência interna</span>}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </Card>
-              )}
 
               {/* Grelha fixa — nunca reflui, só marca selecção */}
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:10}}>
@@ -3904,7 +3907,7 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
                   const targetTxt = target.max!==undefined ? `≤${target.max}%` : `≥${target.min}%`
                   const isSel = selectedBucket===b
                   return (
-                    <div key={b} onClick={()=>{setSelectedBucket(isSel?null:b);setDetailView('categorias')}} style={{background:T.surface2,borderRadius:12,padding:'12px 10px',cursor:'pointer',border:`1px solid ${isSel?pal.accent:T.border}`}}>
+                    <div key={b} onClick={()=>{setSelectedBucket(isSel?null:b);setDetailView('categorias');setShowIncomeDetail(false)}} style={{background:T.surface2,borderRadius:12,padding:'12px 10px',cursor:'pointer',border:`1px solid ${isSel?pal.accent:T.border}`}}>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:6,gap:4}}>
                         <div style={{fontSize:9.5,fontWeight:700,color:T.textSec,textTransform:'uppercase',letterSpacing:'0.04em',lineHeight:1.25}}>{BUCKET_LABELS[b]}</div>
                         <div style={{width:7,height:7,borderRadius:'50%',background:color,marginTop:3,flexShrink:0}}/>
@@ -3917,7 +3920,8 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
                 })}
               </div>
 
-              {/* Painel de detalhe do balde seleccionado — sempre por baixo, nunca deforma a grelha */}
+              {/* Painel de detalhe — balde seleccionado OU auditoria do rendimento, nunca os dois;
+                  fica sempre depois da grelha para não a empurrar */}
               {selectedBucket&&(
                 <Card style={{marginBottom:14}}>
                   <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 14px',borderBottom:`1px solid ${T.border}`}}>
@@ -3941,7 +3945,7 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
                       bucketTxns.length===0 ? (
                         <div style={{fontSize:11,color:T.textTer,textAlign:'center',padding:16}}>Sem transações neste balde</div>
                       ) : bucketTxns.map(t=>(
-                        <div key={t.id} style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',padding:'8px 0',borderBottom:`1px solid ${T.border}`,gap:8}}>
+                        <div key={t.id} onClick={()=>setEditTxn({t,alta:altaIds.has(t.id)})} style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',padding:'8px 0',borderBottom:`1px solid ${T.border}`,gap:8,cursor:'pointer'}}>
                           <div style={{flex:1,minWidth:0}}>
                             <div style={{fontSize:12,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div>
                             <div style={{fontSize:10,color:T.textTer,marginTop:1}}>{t.data} · {accountNome.get(t.account_id)}</div>
@@ -3951,6 +3955,30 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
                       ))
                     )}
                   </div>
+                </Card>
+              )}
+
+              {/* Auditoria do rendimento — para apanhar entradas que não são rendimento real
+                  (ex: capital de poupanças a regressar à conta corrente para ser reinvestido) */}
+              {!selectedBucket&&showIncomeDetail&&(
+                <Card style={{marginBottom:14}}>
+                  {incomeTxnsForDetail.length===0 ? (
+                    <div style={{fontSize:11,color:T.textTer,textAlign:'center',padding:16}}>Sem entradas nesta janela</div>
+                  ) : incomeTxnsForDetail.map((t,i)=>{
+                    const counted = !excludedIdSet.has(t.id)
+                    return (
+                      <div key={t.id} onClick={()=>setEditTxn({t,alta:altaIds.has(t.id)})} style={{padding:'10px 14px',borderBottom:i<incomeTxnsForDetail.length-1?`1px solid ${T.border}`:'none',cursor:'pointer'}}>
+                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8,marginBottom:3}}>
+                          <div style={{fontSize:12,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div>
+                          <span style={{fontSize:12,color:counted?T.text:T.textTer,fontFamily:T.mono,flexShrink:0,textDecoration:counted?'none':'line-through'}}>{dec(Number(t.valor))}</span>
+                        </div>
+                        <div style={{display:'flex',justifyContent:'space-between',gap:8}}>
+                          <div style={{fontSize:10,color:T.textTer}}>{accountNome.get(t.account_id)} · {t.data}</div>
+                          {!counted&&<span style={{fontSize:9,fontWeight:600,color:'#4ADE80'}}>↔ Transferência interna</span>}
+                        </div>
+                      </div>
+                    )
+                  })}
                 </Card>
               )}
 
@@ -3975,8 +4003,9 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
                   {windowCandidates.length===0 ? (
                     <div style={{fontSize:11,color:T.textTer,textAlign:'center',padding:16}}>Nenhuma transferência identificada nesta janela</div>
                   ) : windowCandidates.map((c,i)=>{
-                    const resolved = transferResolved(c)
-                    const statusTxt = c.a.saude_override==='transferencia' ? '✓ Ignorada' : c.a.saude_override==='poupanca_investimento' ? '✓ Investimento' : c.a.saude_override==='guilt_free' ? '✓ Guilt-free' : c.a.saude_override==='fixos' ? '✓ Fixos' : (c.confidence==='alta' ? 'Alta confiança (auto)' : 'Média confiança')
+                    const resolved = transferResolved(c,saudeRules)
+                    const effA = effectiveSaudeOverride(c.a,saudeRules)
+                    const statusTxt = effA==='transferencia' ? '✓ Ignorada' : effA==='poupanca_investimento' ? '✓ Investimento' : effA==='guilt_free' ? '✓ Guilt-free' : effA==='fixos' ? '✓ Fixos' : (c.confidence==='alta' ? 'Alta confiança (auto)' : 'Média confiança')
                     return (
                       <div key={c.id} onClick={()=>setEditTxn({t:c.a,alta:c.confidence==='alta'})} style={{padding:'10px 14px',borderBottom:i<windowCandidates.length-1?`1px solid ${T.border}`:'none',cursor:'pointer'}}>
                         <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8,marginBottom:3}}>
@@ -3995,8 +4024,8 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
           )}
         </div>
       </div>
-      {showReviewQueue&&<TransferReviewQueue candidates={pendingCandidates} accountNome={accountNome} onClose={()=>setShowReviewQueue(false)} onRefresh={onRefresh} pal={pal}/>}
-      {editTxn&&<TxnEditForm txn={editTxn.t} isDetectedTransfer={editTxn.alta} onClose={()=>setEditTxn(null)} onSaved={onRefresh} pal={pal} accounts={accounts}/>}
+      {showReviewQueue&&<TransferReviewQueue candidates={pendingCandidates} accountNome={accountNome} accounts={accounts} onClose={()=>setShowReviewQueue(false)} onRefresh={refresh} pal={pal}/>}
+      {editTxn&&<TxnEditForm txn={editTxn.t} isDetectedTransfer={editTxn.alta} onClose={()=>setEditTxn(null)} onSaved={refresh} pal={pal} accounts={accounts}/>}
     </div>
   )
 }

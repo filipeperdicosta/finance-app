@@ -340,6 +340,52 @@ export async function updateCategoryRule(id: string, categoria: string) {
   return supabase.from('category_rules').update({ categoria }).eq('id', id)
 }
 
+// ── Regras de Saúde Financeira (aprendizagem) — mesmo padrão do category_rules acima,
+// mas para o balde/transferência escolhido manualmente, em vez da categoria ────────
+export type SaudeRule = {
+  id: string
+  pattern: string
+  saude_override: string
+  vezes_usada: number
+  ativa: boolean
+  created_at: string
+}
+
+export async function loadSaudeRules() {
+  const { data } = await supabase.from('saude_rules').select('*').eq('ativa', true).order('vezes_usada', { ascending: false })
+  return (data ?? []) as SaudeRule[]
+}
+
+export async function learnSaudeOverride(descritivo: string, saude_override: string) {
+  const pattern = extractPattern(descritivo)
+  if (!pattern || pattern.length < 3) return null
+
+  const { data: existing } = await supabase
+    .from('saude_rules')
+    .select('*')
+    .eq('pattern', pattern)
+    .maybeSingle()
+
+  if (existing) {
+    if (existing.saude_override === saude_override) {
+      return supabase.from('saude_rules').update({ vezes_usada: existing.vezes_usada + 1 }).eq('id', existing.id)
+    } else {
+      return supabase.from('saude_rules').update({ saude_override, vezes_usada: 1 }).eq('id', existing.id)
+    }
+  } else {
+    return supabase.from('saude_rules').insert({ pattern, saude_override, vezes_usada: 1, ativa: true })
+  }
+}
+
+export function matchSaudeRule(descritivo: string, rules: SaudeRule[]): string | null {
+  const upper = descritivo.toUpperCase()
+  const sorted = [...rules].sort((a, b) => b.vezes_usada - a.vezes_usada)
+  for (const rule of sorted) {
+    if (rule.pattern && upper.includes(rule.pattern)) return rule.saude_override
+  }
+  return null
+}
+
 // ── Google Drive ────────────────────────────────────────────────
 export type DriveToken = {
   id: string
