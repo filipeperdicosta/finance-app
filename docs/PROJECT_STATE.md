@@ -82,12 +82,19 @@ silenciosamente (é o mesmo lançamento, referência instável do banco).
 Bulk histórico via CSV importado. Fluxo mensal PDF validado com o extracto
 de Julho real — apanhou os 2 bugs de saldo/hash acima descritos.
 
+### Filtro de transacções por descrição
+Ecrã "Ver todas as transações" → Filtros: campo de texto livre, substring
+case-insensitive sobre `descritivo` (ex: "cartão" apanha todos os pagamentos
+de cartão de crédito). `Filters.descricao`, `FilterSheet` — page.tsx.
+
 ---
 
-## Em progresso — Saúde Financeira
+## Saúde Financeira ✅
 
-Feature de sustentabilidade financeira (4 baldes → simplificado para 3).
-Nome final: **"Saúde financeira"**.
+Feature de sustentabilidade financeira, considerada **funcionalmente completa**
+desde 2026-08-06/07 (várias rondas de iteração no mesmo dia — layout, janela
+deslizante, revisão de transferências, aprendizagem). Nome final no Hero:
+**"Saúde Financeira"** (por extenso, não abreviado).
 
 ### Decisões fechadas
 - 3 baldes: **Fixos** (≤50%), **Poupança & Investimento** (≥20%, junção de
@@ -99,41 +106,68 @@ Nome final: **"Saúde financeira"**.
   disponível para outras configurações de família
 - Mapeamento categoria→balde é um objecto estático no código
   (`CATEGORY_BUCKET`), não uma tabela na BD
-- Transferências entre contas próprias: heurística de **2 níveis** — alta
-  confiança (valor simétrico exacto, mesmo dia ou +1) continua a excluir
-  automaticamente sem pedir confirmação; média confiança (tolerância até
-  max(5€,5%), até 5 dias) + transacções isoladas de categoria
-  "Transferências" sem par vão para fila de revisão (implementado
-  2026-08-06, ver abaixo)
 - Severidade por **desvio relativo à meta** (não pontos percentuais
   absolutos): <10% = ok, 10-25% = atenção, >25% = fora
 - Janela: **deslizante** (Mensal/3M/6M/12M/Personalizado), default 6 meses,
-  persistida por utilizador em `profiles.saude_window_months` (implementado
-  2026-08-06 — já não é só mês a mês)
+  persistida por utilizador em `profiles.saude_window_months` — vive só
+  dentro do ecrã Saúde, não é campo global em Definições
 - Reutiliza infra-estrutura existente: `my_ownership_pct` para pesar contas
   Familiares, sem sistema novo
 
-### UI actual
-Pill "Saúde" no Hero (canto superior direito, ancorada à base do valor
-grande via CSS Grid; a navegação de mês fica na shape ao lado, ancorada à
-base do título — 2 shapes isoladas e centradas uma na outra, só aparece nas
-tabs Familiar e Pessoal). Ecrã: toggle de âmbito, navegação por
-mês/janela + segmented control da janela deslizante, 3 cards lado a lado
-(grelha fixa, nunca deforma), painel de detalhe por baixo com toggle
-Categorias/Transações, card "N transferências por validar" (quando há
-pendentes, mesmo padrão do "por associar" de Imóveis) + fila de revisão de
-transferências (3 acções: Ignorar/Investimento/Guilt-free), lista exaustiva
-de transferências identificadas agora clicável (abre o popup de edição da
-transação, que ganhou um campo "Balde de Saúde Financeira" para ajuste
-manual, mesmo em pares de alta confiança).
+### UI
+Botão "Saúde Financeira" no Hero (canto superior direito, ancorado à base do
+saldo grande via CSS Grid; a navegação de mês fica numa shape ao lado, sem
+fundo, ancorada à base do título — 2 shapes isoladas e centradas uma na
+outra; só aparece nas tabs Familiar e Pessoal).
 
-### Ajuste manual de balde (`saude_override`)
-Coluna nova em `transactions` (`saude_override`, nullable: `'fixos'|
-'poupanca_investimento'|'guilt_free'|'transferencia'`). Quando definida,
-vence sempre sobre a heurística e o mapeamento categoria→balde —
-`'transferencia'` exclui do cálculo, os outros forçam esse balde (só para
-despesas; receitas continuam sempre a contar como rendimento,
-independentemente do override). `computeSaudeFinanceiraMonth` — page.tsx.
+Ecrã: toggle de âmbito (Pessoal/Familiar/Ambos), navegação de período com um
+chip "NM ▾" ancorado ao canto direito dessa linha (menu com Mensal/3M/6M/12M/
+Personalizado). "Rendimento considerado" é clicável — abre uma auditoria de
+todas as entradas da janela (conta, data, valor, se conta ou está marcada
+como transferência), no mesmo espaço onde o detalhe de um balde abre (nunca
+os dois ao mesmo tempo, nunca empurra a grelha). Grelha fixa de 3 baldes,
+painel de detalhe com toggle Categorias/Transações — as transações são
+clicáveis e abrem o popup de edição.
+
+Revisão de transferências: card "N por validar" (mesmo padrão do "por
+associar" de Imóveis, contagem global não filtrada à janela) → fila com 3
+acções rápidas (Ignorar interna / Investimento / Guilt-free) + cada linha
+clicável para abrir o popup completo (dá acesso a Fixos e a mais contexto,
+para os casos que os 3 atalhos não cobrem). Lista exaustiva "Transferências
+identificadas" mostra todos os níveis (alta e média confiança), resolvidos
+ou não, também clicável.
+
+### Ajuste manual + aprendizagem (`saude_override` / `saude_rules`)
+Coluna `transactions.saude_override` (nullable: `'fixos'|
+'poupanca_investimento'|'guilt_free'|'transferencia'`) — ajuste explícito por
+transação, sempre a vencer sobre heurística e categoria. No popup de edição,
+aparece como pills: 2 opções se for receita (Rendimento/Transferência
+interna), 4 se for despesa de categoria "Transferências" **ou
+"Investimentos"** (Fixos/Poupança & Investimento/Guilt-free/Transferência
+interna — Investimentos entra porque reaplicar um depósito que venceu é
+capital reciclado, não investimento novo), 3 nas restantes categorias (só os
+baldes, sem opção de transferência). Uma pill vem pré-seleccionada pela
+heurística/regra, com nota "ainda não confirmada" até se tocar noutra.
+
+Tabela `saude_rules` (novo, mesmo padrão de `category_rules`/
+`extractPattern`/`matchRule` já existente para categorias): guarda
+padrão-do-descritivo → `saude_override` aprendido. Cada vez que o utilizador
+confirma uma classificação (popup ou fila de revisão), a regra é
+criada/reforçada (`learnSaudeOverride`); a partir daí aplica-se
+automaticamente a **toda** transação passada ou futura com descritivo
+parecido — sem precisar de lógica especial para casos como "pagamento cartão
+de crédito" ou transferências que mencionam o próprio nome do titular.
+Prioridade de classificação: override explícito > regra aprendida >
+heurística de pares/categoria. RLS: policy simples `for all to authenticated
+using (true)`, tabela sem `account_id` (aprendizagem partilhada, tal como
+`category_rules`).
+
+Heurística de pares: 2 níveis, só entre transacções de categoria ambígua
+(`'Transferências'`, `'Receita'`, ou sem categoria — uma despesa já
+categorizada como Transportes/Restauração/etc. nunca é posta em causa só por
+coincidência de valor). Alta confiança = valor simétrico exacto, ≤1 dia,
+exclui automaticamente. Média confiança = tolerância até max(2€,5%), ≤5
+dias, vai para a fila de revisão.
 
 ### Bugs resolvidos (Saúde Financeira)
 **`ownership_pct` a 100% não reflecte no ecrã — RESOLVIDO (2026-08-06).**
@@ -159,11 +193,6 @@ Fix aplicado: campo "% propriedade" agora só aparece no formulário ao
 payload de `updateAccount()`, para não voltar a confundir com o campo
 legado. `page.tsx` — `AccountForm`, `changePct`.
 
-### Pergunta em aberto (UI)
-Pill diz "Saúde" (abreviado) em vez de "Saúde financeira" completo — foi
-decisão de espaço (coluna ficou mais estreita). Perguntar se o Filipe
-prefere manter curto ou alargar a coluna para caber o texto completo.
-
 ---
 
 ## Roadmap acordado (ordem de prioridade)
@@ -171,7 +200,7 @@ prefere manter curto ou alargar a coluna para caber o texto completo.
 Critério de ordenação: frequência de valor entregue (mensal > anual) supera
 risco técnico bruto.
 
-1. **Saúde financeira** ✅ em progresso (ver secção acima)
+1. **Saúde financeira** ✅ feita (ver secção acima)
 2. **Nome + logo novo** — actualmente "Balance it out", explorando "Bio"
    como forma curta. Precisa de: decisão criativa (fora do scope técnico) +
    depois `manifest.json`, `apple-touch-icon.png` (180×180), ícones
