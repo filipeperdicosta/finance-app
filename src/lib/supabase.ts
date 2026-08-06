@@ -34,6 +34,7 @@ export type Profile = {
   email: string | null
   role: string | null
   avatar_url: string | null
+  saude_window_months: number
 }
 
 export type AccountMember = {
@@ -560,15 +561,15 @@ export async function getT212Status() {
 export async function getCurrentProfile(): Promise<Profile | null> {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
-  const { data } = await supabase.from('profiles').select('id, nome, email, role, avatar_url').eq('id', user.id).maybeSingle()
+  const { data } = await supabase.from('profiles').select('id, nome, email, role, avatar_url, saude_window_months').eq('id', user.id).maybeSingle()
   if (data) return data as Profile
   // Cria perfil em falta com email do auth como fallback de nome
   const fallback = (user.email ?? '').split('@')[0] || 'Utilizador'
   await supabase.from('profiles').insert({ id: user.id, nome: fallback, email: user.email })
-  return { id: user.id, nome: fallback, email: user.email ?? null, role: null, avatar_url: null }
+  return { id: user.id, nome: fallback, email: user.email ?? null, role: null, avatar_url: null, saude_window_months: 6 }
 }
 
-export async function updateMyProfile(fields: { nome?: string }) {
+export async function updateMyProfile(fields: { nome?: string, saude_window_months?: number }) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: { message: 'Não autenticado' } as any }
   return supabase.from('profiles').update(fields).eq('id', user.id)

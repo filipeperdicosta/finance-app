@@ -144,6 +144,22 @@ function monthYearLabel(ym:string|null):string {
   const [y,m] = ym.split('-').map(Number)
   return `${MONTHS_FULL[m-1]} ${y}`
 }
+// Desloca um YYYY-MM por N meses (negativo = para trás)
+function shiftMonth(ym:string, delta:number):string {
+  const [y,m] = ym.split('-').map(Number)
+  const d = new Date(y,m-1,1); d.setMonth(d.getMonth()+delta)
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
+}
+// Label de período: 1 mês = "Mês AAAA"; janela > 1 = "MêsIni – MêsFim AAAA" (ou com 2 anos se cruza)
+function periodRangeLabel(refMonth:string|null, windowMonths:number):string {
+  if(!refMonth) return monthYearLabel(null)
+  if(windowMonths<=1) return monthYearLabel(refMonth)
+  const startYM = shiftMonth(refMonth, -(windowMonths-1))
+  const [sy,sm] = startYM.split('-').map(Number)
+  const [ey,em] = refMonth.split('-').map(Number)
+  const startLabel = sy===ey ? MONTHS_SHORT[sm-1] : `${MONTHS_SHORT[sm-1]} ${sy}`
+  return `${startLabel} – ${MONTHS_SHORT[em-1]} ${ey}`
+}
 
 // ─────────────────────────────────────────────────────────────────
 // SAÚDE FINANCEIRA — baldes, metas, detecção de transferências
@@ -199,7 +215,8 @@ type SaudeResult = {
   hasData: boolean
 }
 
-function computeSaudeFinanceira(accounts:Account[], transactions:Transaction[], scope:'pessoal'|'familiar'|'ambos', refMonth:string): SaudeResult {
+// Cálculo de um único mês — bloco reutilizado pela agregação por janela abaixo.
+function computeSaudeFinanceiraMonth(accounts:Account[], transactions:Transaction[], scope:'pessoal'|'familiar'|'ambos', ym:string): SaudeResult {
   const scopeAccounts = accounts.filter(a=>{
     if(scope==='pessoal') return a.budget_tag==='pessoal'
     if(scope==='familiar') return a.budget_tag==='familiar'
@@ -207,7 +224,7 @@ function computeSaudeFinanceira(accounts:Account[], transactions:Transaction[], 
   })
   const scopeIds = new Set(scopeAccounts.map(a=>a.id))
   const pctByAccount = new Map(scopeAccounts.map(a=>[a.id, a.budget_tag==='familiar' ? (a.my_ownership_pct??a.ownership_pct)/100 : 1]))
-  const monthTxns = transactions.filter(t=>scopeIds.has(t.account_id)&&t.data.startsWith(refMonth)&&!t.excluir_analise)
+  const monthTxns = transactions.filter(t=>scopeIds.has(t.account_id)&&t.data.startsWith(ym)&&!t.excluir_analise)
   const transferIds = detectHighConfidenceTransfers(monthTxns)
 
   let income = 0
@@ -223,6 +240,27 @@ function computeSaudeFinanceira(accounts:Account[], transactions:Transaction[], 
   }
 
   return { income, buckets, transfersExcluded: transferIds.size/2, hasData: monthTxns.length>0 }
+}
+
+// Agrega N meses terminados em refMonth (inclusive). % de cada balde = soma/soma —
+// não média das percentagens mensais — para não deixar um mês de rendimento atípico
+// distorcer o peso relativo (soma pondera correctamente por rendimento de cada mês).
+function computeSaudeFinanceira(accounts:Account[], transactions:Transaction[], scope:'pessoal'|'familiar'|'ambos', refMonth:string, windowMonths:number=1): SaudeResult {
+  let income = 0
+  let transfersExcluded = 0
+  let hasData = false
+  const buckets: Record<Bucket,number> = {fixos:0,poupanca_investimento:0,guilt_free:0}
+
+  for(let i=0;i<windowMonths;i++){
+    const ym = shiftMonth(refMonth, -i)
+    const r = computeSaudeFinanceiraMonth(accounts, transactions, scope, ym)
+    income += r.income
+    transfersExcluded += r.transfersExcluded
+    hasData = hasData || r.hasData
+    BUCKET_ORDER.forEach(b=>{ buckets[b] += r.buckets[b] })
+  }
+
+  return { income, buckets, transfersExcluded, hasData }
 }
 
 function bucketSeverity(actualPct:number, target:{min?:number,max?:number}): 'ok'|'atencao'|'fora' {
@@ -3519,13 +3557,18 @@ const DuplicatesWizard = ({onClose,pal,onResolved,imoveis,accounts}:{onClose:()=
 // ─────────────────────────────────────────────────────────────────
 // SAÚDE FINANCEIRA
 // ─────────────────────────────────────────────────────────────────
-const SaudeFinanceiraScreen = ({accounts,transactions,onClose}:{accounts:Account[],transactions:Transaction[],onClose:()=>void}) => {
+const WINDOW_PRESETS = [1,3,6,12] as const
+const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onClose}:{accounts:Account[],transactions:Transaction[],me:Profile|null,onWindowChanged:(months:number)=>void,onClose:()=>void}) => {
   const pal = PAL.saude
   const [scope,setScope] = useState<'pessoal'|'familiar'|'ambos'>('ambos')
   const [monthOffset,setMonthOffset] = useState(0)
   const [selectedBucket,setSelectedBucket] = useState<Bucket|null>(null)
   const [detailView,setDetailView] = useState<'categorias'|'transacoes'>('categorias')
   const [showTransfers,setShowTransfers] = useState(false)
+  const windowMonths = me?.saude_window_months ?? 6
+  const isPresetValue = (WINDOW_PRESETS as readonly number[]).includes(windowMonths)
+  const [customMode,setCustomMode] = useState(!isPresetValue)
+  const [customInput,setCustomInput] = useState(String(windowMonths))
 
   const scopeAccounts = useMemo(()=>accounts.filter(a=>{
     if(scope==='pessoal') return a.budget_tag==='pessoal'
@@ -3545,14 +3588,20 @@ const SaudeFinanceiraScreen = ({accounts,transactions,onClose}:{accounts:Account
   }
   const canGoForward = monthOffset<0
 
-  const result = useMemo(()=>refMonth?computeSaudeFinanceira(accounts,transactions,scope,refMonth):null,[accounts,transactions,scope,refMonth])
+  const result = useMemo(()=>refMonth?computeSaudeFinanceira(accounts,transactions,scope,refMonth,windowMonths):null,[accounts,transactions,scope,refMonth,windowMonths])
+
+  // Conjunto de meses (YYYY-MM) cobertos pela janela actual, terminando em refMonth
+  const windowYMs = useMemo(()=>{
+    if(!refMonth) return new Set<string>()
+    return new Set(Array.from({length:windowMonths},(_,i)=>shiftMonth(refMonth!,-i)))
+  },[refMonth,windowMonths])
 
   const monthTxnsForDetail = useMemo(()=>{
     if(!refMonth) return []
-    return scopeTxns.filter(t=>t.data.startsWith(refMonth!) && !t.excluir_analise && Number(t.valor)<0)
-  },[scopeTxns,refMonth])
+    return scopeTxns.filter(t=>windowYMs.has(t.data.slice(0,7)) && !t.excluir_analise && Number(t.valor)<0)
+  },[scopeTxns,refMonth,windowYMs])
 
-  const transferPairs = useMemo(()=>refMonth?detectHighConfidenceTransferPairs(scopeTxns.filter(t=>t.data.startsWith(refMonth!))):[],[scopeTxns,refMonth])
+  const transferPairs = useMemo(()=>refMonth?detectHighConfidenceTransferPairs(scopeTxns.filter(t=>windowYMs.has(t.data.slice(0,7)))):[],[scopeTxns,refMonth,windowYMs])
   const transferIdSet = useMemo(()=>{ const s=new Set<string>(); transferPairs.forEach(({a,b})=>{s.add(a.id);s.add(b.id)}); return s },[transferPairs])
 
   // Transacções (excluindo transferências) do balde seleccionado
@@ -3597,14 +3646,30 @@ const SaudeFinanceiraScreen = ({accounts,transactions,onClose}:{accounts:Account
           </div>
 
           {/* Navegação de mês */}
-          <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:10,marginBottom:16}}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:10,marginBottom:12}}>
             <button onClick={()=>{setMonthOffset(o=>o-1);setSelectedBucket(null)}} style={{background:'none',border:'none',cursor:'pointer',color:T.textSec,fontSize:18,padding:'0 4px'}}>‹</button>
-            <span style={{fontSize:13,fontWeight:600,color:T.text,minWidth:110,textAlign:'center'}}>{monthYearLabel(refMonth)}</span>
+            <span style={{fontSize:13,fontWeight:600,color:T.text,minWidth:130,textAlign:'center'}}>{periodRangeLabel(refMonth,windowMonths)}</span>
             <button onClick={()=>{if(canGoForward){setMonthOffset(o=>o+1);setSelectedBucket(null)}}} disabled={!canGoForward} style={{background:'none',border:'none',cursor:canGoForward?'pointer':'default',color:canGoForward?T.textSec:'rgba(255,255,255,0.15)',fontSize:18,padding:'0 4px'}}>›</button>
           </div>
 
+          {/* Janela deslizante */}
+          <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:16,background:T.surface2,borderRadius:10,padding:3}}>
+            {WINDOW_PRESETS.map(n=>(
+              <button key={n} onClick={()=>{setCustomMode(false);onWindowChanged(n)}} style={{flex:1,padding:'6px 0',borderRadius:8,border:'none',cursor:'pointer',background:!customMode&&windowMonths===n?pal.accent:'transparent',color:!customMode&&windowMonths===n?'#0B0B12':T.textSec,fontSize:11,fontWeight:!customMode&&windowMonths===n?700:500}}>{n===1?'Mensal':`${n}M`}</button>
+            ))}
+            <button onClick={()=>{setCustomInput(String(windowMonths));setCustomMode(true)}} style={{flex:1.3,padding:'6px 4px',borderRadius:8,border:'none',cursor:'pointer',background:customMode?pal.accent:'transparent',color:customMode?'#0B0B12':T.textSec,fontSize:11,fontWeight:customMode?700:500,display:'flex',alignItems:'center',justifyContent:'center',gap:3}}>
+              {!customMode ? 'Personal.' : (
+                <input type="number" min={2} max={36} value={customInput} autoFocus
+                  onChange={e=>setCustomInput(e.target.value)}
+                  onBlur={()=>{ const n=Math.max(2,Math.min(36,Number(customInput)||windowMonths)); setCustomInput(String(n)); onWindowChanged(n) }}
+                  onClick={e=>e.stopPropagation()}
+                  style={{width:34,background:'transparent',border:'none',color:'#0B0B12',fontSize:11,fontWeight:700,textAlign:'center',padding:0}}/>
+              )}
+            </button>
+          </div>
+
           {!result || !result.hasData ? (
-            <Card><div style={{padding:32,textAlign:'center',color:T.textSec,fontSize:13}}>Sem dados para este mês/âmbito.</div></Card>
+            <Card><div style={{padding:32,textAlign:'center',color:T.textSec,fontSize:13}}>Sem dados para este período/âmbito.</div></Card>
           ) : (
             <>
               <div style={{textAlign:'center',marginBottom:18}}>
@@ -3820,7 +3885,7 @@ export default function Page() {
       {showImport&&<ImportWizard onClose={()=>setShowImport(false)} accounts={accounts} pal={pal} onDone={async()=>{await refreshAll();showToast('✓ Importação concluída')}} onRefreshAccounts={refreshAll}/>}
       {showSettings&&<SettingsPanel onClose={()=>setShowSettings(false)} accounts={accounts} onRefresh={async()=>{await refreshAll();showToast('✓ Dados actualizados')}} pal={pal} me={me} onMembers={(id)=>setMembersAccountId(id)} onShowInvites={()=>setShowInvites(true)} pendingInvitesCount={invites.length} onProfileUpdated={refreshMe}/>}
       {showDuplicates&&<DuplicatesWizard onClose={()=>setShowDuplicates(false)} pal={pal} onResolved={async()=>{ setSuspeitasCount(await countSuspiciousDuplicates()) }} imoveis={imoveis} accounts={accounts}/>}
-      {showSaude&&<SaudeFinanceiraScreen accounts={accounts} transactions={transactions} onClose={()=>setShowSaude(false)}/>}
+      {showSaude&&<SaudeFinanceiraScreen accounts={accounts} transactions={transactions} me={me} onWindowChanged={async(n)=>{await updateMyProfile({saude_window_months:n});await refreshMe()}} onClose={()=>setShowSaude(false)}/>}
       {membersAccountId&&<MembersScreen accountId={membersAccountId} accounts={accounts} onClose={()=>setMembersAccountId(null)} pal={pal} onChanged={refreshAll}/>}
       {showInvites&&<InvitesScreen invites={invites} onClose={()=>setShowInvites(false)} pal={pal} onChanged={async()=>{await refreshInvites();await refreshAll()}}/>}
       {showAllTxns&&<AllTransactionsScreen allTxns={allTxns} accounts={accounts} tag={tab==='imoveis'?'investimento':tab} pal={pal} onClose={()=>{setShowAllTxns(false);setViewAllCategoria(undefined);setViewAllContaId(undefined);setViewAllImovelId(undefined)}} onRefresh={async()=>{await refreshAll();showToast('✓ Transações actualizadas')}} imoveis={tab==='imoveis'?imoveis:undefined} initialCategoria={viewAllCategoria} initialContaId={viewAllContaId} initialImovelId={viewAllImovelId}/>}
