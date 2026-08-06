@@ -519,28 +519,28 @@ const TrendTile = ({data,accent,catFilter}:{data:{m:string,rec:number,desp:numbe
 // ─────────────────────────────────────────────────────────────────
 const Hero = ({pal,title,mainValue,mainColor,kpis,trend,period,mainSuffix,sparkMode,onPrev,onNext,canNext,onSaudeFinanceira}:{pal:{grad:string,accent:string,soft:string},title:string,mainValue:string,mainColor?:string,kpis:{l:string,v:string,c:string}[],trend:{m:string,rec:number,desp:number,net:number}[],period:string,mainSuffix?:string,sparkMode?:'budget'|'patrimonio',onPrev?:()=>void,onNext?:()=>void,canNext?:boolean,onSaudeFinanceira?:()=>void}) => (
   <div style={{background:pal.grad,borderRadius:18,padding:'20px 18px 16px',marginBottom:16,border:'1px solid rgba(255,255,255,0.05)'}}>
-    <div style={{display:'flex',justifyContent:'space-between',alignItems:onSaudeFinanceira?'flex-end':'flex-start',marginBottom:14}}>
-      <div>
+    <div style={{display:'grid',gridTemplateColumns:'1fr auto',gridTemplateRows:'auto auto',columnGap:14,marginBottom:14}}>
+      <div style={{gridColumn:1,gridRow:1}}>
         <div style={{fontSize:10,color:'rgba(255,255,255,0.4)',letterSpacing:'0.1em',textTransform:'uppercase',fontWeight:600,marginBottom:5}}>{title}</div>
+      </div>
+      <div style={{gridColumn:1,gridRow:2}}>
         <div style={{display:'flex',alignItems:'baseline',gap:6}}>
           <div style={{fontSize:32,fontWeight:700,color:mainColor??'#FFF',letterSpacing:'-0.03em',fontFamily:T.mono}}>{mainValue}</div>
           {mainSuffix&&<span style={{fontSize:12,color:'rgba(255,255,255,0.3)'}}>{mainSuffix}</span>}
         </div>
       </div>
-      <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6,marginTop:onSaudeFinanceira?0:1}}>
-        <div style={{display:'flex',alignItems:'center',gap:4,height:16}}>
-          {onPrev&&<button onClick={onPrev} style={{background:'none',border:'none',cursor:'pointer',color:'rgba(255,255,255,0.5)',fontSize:18,lineHeight:1,padding:'0 2px'}}>‹</button>}
-          <span style={{fontSize:11,color:'rgba(255,255,255,0.45)',fontWeight:600,minWidth:52,textAlign:'center'}}>{period}</span>
-          {onNext&&<button onClick={onNext} disabled={!canNext} style={{background:'none',border:'none',cursor:canNext?'pointer':'default',color:canNext?'rgba(255,255,255,0.5)':'rgba(255,255,255,0.15)',fontSize:18,lineHeight:1,padding:'0 2px'}}>›</button>}
-        </div>
-        {onSaudeFinanceira&&(
-          <button onClick={onSaudeFinanceira} style={{display:'flex',alignItems:'center',gap:4,background:'rgba(255,255,255,0.1)',border:'none',borderRadius:7,padding:'4px 8px',cursor:'pointer',whiteSpace:'nowrap'}}>
-            <HeartPulse size={11} color="#fff"/>
-            <span style={{fontSize:10,fontWeight:600,color:'#fff'}}>Saúde</span>
-            <ChevronRight size={10} color="rgba(255,255,255,0.6)"/>
-          </button>
-        )}
+      <div style={{gridColumn:2,gridRow:1,alignSelf:'end',justifySelf:'center',display:'flex',alignItems:'center',gap:4,height:16}}>
+        {onPrev&&<button onClick={onPrev} style={{background:'none',border:'none',cursor:'pointer',color:'rgba(255,255,255,0.5)',fontSize:18,lineHeight:1,padding:'0 2px'}}>‹</button>}
+        <span style={{fontSize:11,color:'rgba(255,255,255,0.45)',fontWeight:600,minWidth:52,textAlign:'center'}}>{period}</span>
+        {onNext&&<button onClick={onNext} disabled={!canNext} style={{background:'none',border:'none',cursor:canNext?'pointer':'default',color:canNext?'rgba(255,255,255,0.5)':'rgba(255,255,255,0.15)',fontSize:18,lineHeight:1,padding:'0 2px'}}>›</button>}
       </div>
+      {onSaudeFinanceira&&(
+        <button onClick={onSaudeFinanceira} style={{gridColumn:2,gridRow:2,alignSelf:'end',justifySelf:'center',display:'flex',alignItems:'center',gap:4,background:'rgba(255,255,255,0.1)',border:'none',borderRadius:7,padding:'4px 8px',cursor:'pointer',whiteSpace:'nowrap'}}>
+          <HeartPulse size={11} color="#fff"/>
+          <span style={{fontSize:10,fontWeight:600,color:'#fff'}}>Saúde</span>
+          <ChevronRight size={10} color="rgba(255,255,255,0.6)"/>
+        </button>
+      )}
     </div>
     <div style={{display:'grid',gridTemplateColumns:`repeat(${kpis.length},1fr)`,gap:6,marginBottom:14}}>
       {kpis.map((k,i)=>(<div key={i} style={{background:'rgba(255,255,255,0.08)',borderRadius:10,padding:'9px 10px'}}><div style={{fontSize:9,color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:600,marginBottom:3}}>{k.l}</div><div style={{fontSize:kpis.length===4?11:12,fontWeight:700,color:k.c,fontFamily:T.mono}}>{k.v}</div></div>))}
