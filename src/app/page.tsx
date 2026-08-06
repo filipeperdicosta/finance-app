@@ -847,8 +847,8 @@ const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis,accounts,isDetectedTransfe
 // ─────────────────────────────────────────────────────────────────
 // FILTER SHEET
 // ─────────────────────────────────────────────────────────────────
-type Filters = { dateFrom:string, dateTo:string, tipo:string, valMin:string, valMax:string, categoria:string, conta:string, imovel:string }
-const emptyFilters:Filters = { dateFrom:'', dateTo:'', tipo:'todos', valMin:'', valMax:'', categoria:'todas', conta:'todas', imovel:'todos' }
+type Filters = { dateFrom:string, dateTo:string, tipo:string, valMin:string, valMax:string, categoria:string, conta:string, imovel:string, descricao:string }
+const emptyFilters:Filters = { dateFrom:'', dateTo:'', tipo:'todos', valMin:'', valMax:'', categoria:'todas', conta:'todas', imovel:'todos', descricao:'' }
 
 const FilterSheet = ({filters,onApply,onClose,pal,tagAccounts,imoveis}:{filters:Filters,onApply:(f:Filters)=>void,onClose:()=>void,pal:{accent:string,soft:string},tagAccounts?:{id:string,nome:string}[],imoveis?:{id:string,nome:string}[]}) => {
   const [f,setF] = useState<Filters>(filters)
@@ -861,6 +861,7 @@ const FilterSheet = ({filters,onApply,onClose,pal,tagAccounts,imoveis}:{filters:
           <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer'}}><X size={18} color={T.textSec}/></button>
         </div>
         <div style={{padding:'20px 18px'}}>
+          <Inp label="Descrição" value={f.descricao} onChange={upd('descricao')} placeholder="ex: pagamento cartão de crédito"/>
           {tagAccounts&&tagAccounts.length>1&&(
             <Sel label="Conta" value={f.conta} onChange={upd('conta')} options={[{value:'todas',label:'Todas as contas'},...tagAccounts.map(a=>({value:a.id,label:a.nome}))]}/>
           )}
@@ -941,6 +942,7 @@ const AllTransactionsScreen = ({allTxns,accounts,tag,pal,onClose,onRefresh,imove
       if(filters.tipo==='despesa' && t.valor>=0) return false
       if(filters.categoria!=='todas' && t.categoria!==filters.categoria) return false
       if(filters.imovel!=='todos' && t.imovel_id!==filters.imovel) return false
+      if(filters.descricao.trim() && !t.descritivo.toLowerCase().includes(filters.descricao.trim().toLowerCase())) return false
       const abs = Math.abs(t.valor)
       if(filters.valMin && abs < Number(filters.valMin)) return false
       if(filters.valMax && abs > Number(filters.valMax)) return false
