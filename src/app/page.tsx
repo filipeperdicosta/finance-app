@@ -3717,6 +3717,7 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
   const [showReviewQueue,setShowReviewQueue] = useState(false)
   const [editTxn,setEditTxn] = useState<{t:Transaction,alta:boolean}|null>(null)
   const [showWindowMenu,setShowWindowMenu] = useState(false)
+  const [showIncomeDetail,setShowIncomeDetail] = useState(false)
   const windowMonths = me?.saude_window_months ?? 6
   const isPresetValue = (WINDOW_PRESETS as readonly number[]).includes(windowMonths)
   const [customMode,setCustomMode] = useState(!isPresetValue)
@@ -3760,13 +3761,24 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
   // como a fila "por associar" de Imóveis também não é filtrada ao mês.
   const allCandidates = useMemo(()=>detectTransferCandidates(scopeTxns),[scopeTxns])
   const pendingCandidates = useMemo(()=>allCandidates.filter(c=>c.confidence==='media' && !transferResolved(c)),[allCandidates])
-  // IDs excluídos do cálculo: pares de alta confiança + qualquer override='transferencia'
-  const excludedIdSet = useMemo(()=>{
+  const altaIds = useMemo(()=>{
     const s = new Set<string>()
     windowCandidates.filter(c=>c.confidence==='alta').forEach(c=>{ s.add(c.a.id); if(c.b) s.add(c.b.id) })
+    return s
+  },[windowCandidates])
+  // IDs excluídos do cálculo: pares de alta confiança + qualquer override='transferencia'
+  const excludedIdSet = useMemo(()=>{
+    const s = new Set<string>(altaIds)
     windowTxnsAllSigns.forEach(t=>{ if(t.saude_override==='transferencia') s.add(t.id) })
     return s
-  },[windowCandidates,windowTxnsAllSigns])
+  },[altaIds,windowTxnsAllSigns])
+
+  // Transacções positivas da janela — auditoria do "Rendimento considerado"
+  const incomeTxnsForDetail = useMemo(()=>{
+    if(!refMonth) return []
+    return windowTxnsAllSigns.filter(t=>!t.excluir_analise && Number(t.valor)>0)
+      .sort((a,b)=>Number(b.valor)-Number(a.valor))
+  },[windowTxnsAllSigns,refMonth])
 
   // Transacções (excluindo transferências) do balde seleccionado — respeita saude_override
   const bucketTxns = useMemo(()=>{
@@ -3849,10 +3861,37 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
             <Card><div style={{padding:32,textAlign:'center',color:T.textSec,fontSize:13}}>Sem dados para este período/âmbito.</div></Card>
           ) : (
             <>
-              <div style={{textAlign:'center',marginBottom:18}}>
-                <div style={{fontSize:11,color:T.textTer,textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:600,marginBottom:4}}>Rendimento considerado</div>
+              <div onClick={()=>setShowIncomeDetail(s=>!s)} style={{textAlign:'center',marginBottom:showIncomeDetail?10:18,cursor:'pointer'}}>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:4,fontSize:11,color:T.textTer,textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:600,marginBottom:4}}>
+                  Rendimento considerado
+                  <ChevronRight size={11} color={T.textTer} style={{transform:showIncomeDetail?'rotate(90deg)':'none',transition:'transform 0.15s'}}/>
+                </div>
                 <div style={{fontSize:22,fontWeight:700,color:T.text,fontFamily:T.mono}}>{dec(result.income)}</div>
               </div>
+
+              {/* Auditoria do rendimento — para apanhar entradas que não são rendimento real
+                  (ex: capital de poupanças a regressar à conta corrente para ser reinvestido) */}
+              {showIncomeDetail&&(
+                <Card style={{marginBottom:18}}>
+                  {incomeTxnsForDetail.length===0 ? (
+                    <div style={{fontSize:11,color:T.textTer,textAlign:'center',padding:16}}>Sem entradas nesta janela</div>
+                  ) : incomeTxnsForDetail.map((t,i)=>{
+                    const counted = !excludedIdSet.has(t.id)
+                    return (
+                      <div key={t.id} onClick={()=>setEditTxn({t,alta:altaIds.has(t.id)})} style={{padding:'10px 14px',borderBottom:i<incomeTxnsForDetail.length-1?`1px solid ${T.border}`:'none',cursor:'pointer'}}>
+                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8,marginBottom:3}}>
+                          <div style={{fontSize:12,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div>
+                          <span style={{fontSize:12,color:counted?T.text:T.textTer,fontFamily:T.mono,flexShrink:0,textDecoration:counted?'none':'line-through'}}>{dec(Number(t.valor))}</span>
+                        </div>
+                        <div style={{display:'flex',justifyContent:'space-between',gap:8}}>
+                          <div style={{fontSize:10,color:T.textTer}}>{accountNome.get(t.account_id)} · {t.data}</div>
+                          {!counted&&<span style={{fontSize:9,fontWeight:600,color:'#4ADE80'}}>↔ Transferência interna</span>}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </Card>
+              )}
 
               {/* Grelha fixa — nunca reflui, só marca selecção */}
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:10}}>
