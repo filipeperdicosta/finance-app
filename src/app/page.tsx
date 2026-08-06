@@ -179,6 +179,11 @@ const BUCKET_LABELS: Record<Bucket,string> = {
 }
 const BUCKET_ORDER: Bucket[] = ['fixos','poupanca_investimento','guilt_free']
 
+// Só transacções de categoria ambígua por natureza podem ser emparelhadas como transferência
+// — uma despesa já categorizada com confiança (Transportes, Restauração, ...) não deve ser
+// posta em causa só por coincidência de valor/data.
+const isTransferEligible = (t:Transaction) => t.categoria==='Transferências' || t.categoria==='Receita' || !t.categoria
+
 // Detecta pares de transferência de ALTA confiança entre contas próprias:
 // valor exactamente simétrico (soma ~0), datas no mesmo dia ou +1 dia, contas diferentes.
 // Devolve os pares completos (para auditoria na UI).
@@ -187,10 +192,10 @@ function detectHighConfidenceTransferPairs(txns:Transaction[]): {a:Transaction,b
   const pairs: {a:Transaction,b:Transaction}[] = []
   for(let i=0;i<txns.length;i++){
     const a = txns[i]
-    if(used.has(a.id) || Number(a.valor)===0) continue
+    if(used.has(a.id) || Number(a.valor)===0 || !isTransferEligible(a)) continue
     for(let j=i+1;j<txns.length;j++){
       const b = txns[j]
-      if(used.has(b.id) || a.account_id===b.account_id) continue
+      if(used.has(b.id) || a.account_id===b.account_id || !isTransferEligible(b)) continue
       if(Math.abs(Number(a.valor)+Number(b.valor))>0.01) continue
       const diffDays = Math.abs(new Date(a.data).getTime()-new Date(b.data).getTime())/86400000
       if(diffDays>1) continue
@@ -217,10 +222,10 @@ function detectMediumConfidenceTransferPairs(txns:Transaction[], excludeIds:Set<
   const pairs: {a:Transaction,b:Transaction}[] = []
   for(let i=0;i<txns.length;i++){
     const a = txns[i]
-    if(used.has(a.id) || excludeIds.has(a.id) || Number(a.valor)===0) continue
+    if(used.has(a.id) || excludeIds.has(a.id) || Number(a.valor)===0 || !isTransferEligible(a)) continue
     for(let j=i+1;j<txns.length;j++){
       const b = txns[j]
-      if(used.has(b.id) || excludeIds.has(b.id) || a.account_id===b.account_id) continue
+      if(used.has(b.id) || excludeIds.has(b.id) || a.account_id===b.account_id || !isTransferEligible(b)) continue
       const va = Number(a.valor), vb = Number(b.valor)
       const bigger = Math.max(Math.abs(va),Math.abs(vb))
       const tolerance = Math.max(5, bigger*0.05)
@@ -630,7 +635,7 @@ const Hero = ({pal,title,mainValue,mainColor,kpis,trend,period,mainSuffix,sparkM
       {onSaudeFinanceira&&(
         <button onClick={onSaudeFinanceira} style={{gridColumn:2,gridRow:2,alignSelf:'end',justifySelf:'center',display:'flex',alignItems:'center',gap:4,background:'rgba(255,255,255,0.1)',border:'none',borderRadius:7,padding:'4px 8px',cursor:'pointer',whiteSpace:'nowrap'}}>
           <HeartPulse size={11} color="#fff"/>
-          <span style={{fontSize:10,fontWeight:600,color:'#fff'}}>Saúde</span>
+          <span style={{fontSize:10,fontWeight:600,color:'#fff'}}>Saúde Financeira</span>
           <ChevronRight size={10} color="rgba(255,255,255,0.6)"/>
         </button>
       )}
@@ -703,7 +708,26 @@ const TxnRow = ({t,last,onClick,accounts}:{t:Transaction,last:boolean,onClick?:(
 // ─────────────────────────────────────────────────────────────────
 // TRANSACTION EDIT FORM
 // ─────────────────────────────────────────────────────────────────
-const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis,accounts}:{txn:Transaction,onClose:()=>void,onSaved:()=>void,pal:{accent:string,soft:string},imoveis?:Imovel[],accounts?:Account[]}) => {
+// Opções de Saúde Financeira disponíveis consoante o tipo/categoria da transacção —
+// transferência só é uma opção válida quando é receita ou já está categorizada como tal.
+const saudeOptionsFor = (tipo:string, categoria:string): {value:string,label:string}[] => {
+  if(tipo==='receita') return [{value:'',label:'Rendimento'},{value:'transferencia',label:'Transferência interna'}]
+  const buckets = [
+    {value:'fixos',label:BUCKET_LABELS.fixos},
+    {value:'poupanca_investimento',label:BUCKET_LABELS.poupanca_investimento},
+    {value:'guilt_free',label:BUCKET_LABELS.guilt_free},
+  ]
+  return categoria==='Transferências' ? [...buckets,{value:'transferencia',label:'Transferência interna'}] : buckets
+}
+// Sugestão por defeito quando ainda não há escolha explícita — espelha o que
+// computeSaudeFinanceiraMonth aplicaria hoje a esta transacção.
+const saudeHeuristicDefault = (tipo:string, categoria:string, isDetectedTransfer:boolean): string => {
+  if(tipo==='receita') return isDetectedTransfer ? 'transferencia' : ''
+  if(categoria==='Transferências') return isDetectedTransfer ? 'transferencia' : (CATEGORY_BUCKET['Transferências'] ?? 'guilt_free')
+  return CATEGORY_BUCKET[categoria] ?? 'guilt_free'
+}
+
+const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis,accounts,isDetectedTransfer}:{txn:Transaction,onClose:()=>void,onSaved:()=>void,pal:{accent:string,soft:string},imoveis?:Imovel[],accounts?:Account[],isDetectedTransfer?:boolean}) => {
   const [descritivo,setDescritivo] = useState(txn.descritivo)
   const [valor,setValor] = useState(String(txn.valor))
   const [categoria,setCategoria] = useState(txn.valor>=0?'Receita':(txn.categoria??'Despesas Gerais'))
@@ -711,8 +735,18 @@ const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis,accounts}:{txn:Transaction
   const [tipo,setTipo] = useState(txn.valor>=0?'receita':'despesa')
   const [imovelId,setImovelId] = useState(txn.imovel_id ?? '')
   const [saudeOverride,setSaudeOverride] = useState(txn.saude_override ?? '')
+  const [saudeTouched,setSaudeTouched] = useState(!!txn.saude_override)
   const [saving,setSaving] = useState(false)
   const hasImoveis = imoveis && imoveis.length>0
+
+  const saudeOptions = saudeOptionsFor(tipo,categoria)
+  const saudeDefault = saudeHeuristicDefault(tipo,categoria,!!isDetectedTransfer)
+  const saudeSelected = saudeTouched ? saudeOverride : saudeDefault
+  // Se o tipo/categoria mudar de forma a invalidar a escolha anterior (ex: deixa de ser
+  // "Transferências"), volta a seguir a sugestão por defeito em vez de gravar algo obsoleto.
+  useEffect(()=>{
+    if(saudeTouched && !saudeOptionsFor(tipo,categoria).some(o=>o.value===saudeOverride)) setSaudeTouched(false)
+  },[tipo,categoria]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Receita não tem categoria à escolha — é sempre "Receita", sem ambiguidade
   const setTipoEColarCategoria = (novoTipo:string) => {
@@ -726,7 +760,8 @@ const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis,accounts}:{txn:Transaction
     const absVal = Math.abs(parseNum(valor))
     const finalVal = tipo==='receita' ? absVal : -absVal
     const finalCategoria = tipo==='receita' ? 'Receita' : categoria
-    const fields:any = { descritivo, valor:finalVal, categoria:finalCategoria, data, categoria_confirmada:true, saude_override: saudeOverride || null }
+    const finalSaudeOverride = saudeTouched ? (saudeOverride || null) : (txn.saude_override ?? null)
+    const fields:any = { descritivo, valor:finalVal, categoria:finalCategoria, data, categoria_confirmada:true, saude_override: finalSaudeOverride }
     if(hasImoveis){
       fields.imovel_id = imovelId || null
       fields.imovel_classificado = true
@@ -765,13 +800,21 @@ const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis,accounts}:{txn:Transaction
             <Sel label="Categoria" value={categoria} onChange={setCategoria} options={CAT_LIST.filter(c=>c!=='Receita').map(c=>({value:c,label:`${getCatStyle(c).icon} ${c}`}))}/>
           )}
           {hasImoveis&&<Sel label="Imóvel associado" value={imovelId} onChange={setImovelId} options={[{value:'',label:'Geral (nenhum imóvel)'},...imoveis!.map(im=>({value:im.id,label:`🏠 ${im.nome}`}))]}/>}
-          <Sel label="Balde de Saúde Financeira" value={saudeOverride} onChange={setSaudeOverride} options={[
-            {value:'',label:'Automático (por categoria/heurística)'},
-            {value:'fixos',label:`${BUCKET_LABELS.fixos}`},
-            {value:'poupanca_investimento',label:BUCKET_LABELS.poupanca_investimento},
-            {value:'guilt_free',label:BUCKET_LABELS.guilt_free},
-            {value:'transferencia',label:'Transferência interna (ignorar)'},
-          ]}/>
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:11,color:T.textSec,fontWeight:600,marginBottom:5,textTransform:'uppercase',letterSpacing:'0.06em'}}>Saúde Financeira</div>
+            <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+              {saudeOptions.map(o=>{
+                const isSel = saudeSelected===o.value
+                return (
+                  <button key={o.value} type="button" onClick={()=>{setSaudeOverride(o.value);setSaudeTouched(true)}}
+                    style={{background:isSel?pal.accent:T.surface2,border:`1px solid ${isSel?pal.accent:T.border}`,borderRadius:20,padding:'7px 13px',fontSize:12,fontWeight:600,color:isSel?'#0B0B12':T.text,cursor:'pointer'}}>
+                    {o.label}
+                  </button>
+                )
+              })}
+            </div>
+            {!saudeTouched&&<div style={{fontSize:10,color:T.textTer,marginTop:6}}>Sugestão heurística — ainda não confirmada, toca noutra opção para corrigir.</div>}
+          </div>
           <DateInp label="Data" value={data} onChange={setData}/>
           <div style={{display:'flex',gap:10,marginTop:4}}>
             <Btn onClick={del} variant="danger" accent={pal.accent} style={{flex:1}}>Apagar</Btn>
@@ -3672,7 +3715,8 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
   const [detailView,setDetailView] = useState<'categorias'|'transacoes'>('categorias')
   const [showTransfers,setShowTransfers] = useState(false)
   const [showReviewQueue,setShowReviewQueue] = useState(false)
-  const [editTxn,setEditTxn] = useState<Transaction|null>(null)
+  const [editTxn,setEditTxn] = useState<{t:Transaction,alta:boolean}|null>(null)
+  const [showWindowMenu,setShowWindowMenu] = useState(false)
   const windowMonths = me?.saude_window_months ?? 6
   const isPresetValue = (WINDOW_PRESETS as readonly number[]).includes(windowMonths)
   const [customMode,setCustomMode] = useState(!isPresetValue)
@@ -3775,20 +3819,30 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
             <button onClick={()=>{if(canGoForward){setMonthOffset(o=>o+1);setSelectedBucket(null)}}} disabled={!canGoForward} style={{background:'none',border:'none',cursor:canGoForward?'pointer':'default',color:canGoForward?T.textSec:'rgba(255,255,255,0.15)',fontSize:18,padding:'0 4px'}}>›</button>
           </div>
 
-          {/* Janela deslizante */}
-          <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:16,background:T.surface2,borderRadius:10,padding:3}}>
-            {WINDOW_PRESETS.map(n=>(
-              <button key={n} onClick={()=>{setCustomMode(false);onWindowChanged(n)}} style={{flex:1,padding:'6px 0',borderRadius:8,border:'none',cursor:'pointer',background:!customMode&&windowMonths===n?pal.accent:'transparent',color:!customMode&&windowMonths===n?'#0B0B12':T.textSec,fontSize:11,fontWeight:!customMode&&windowMonths===n?700:500}}>{n===1?'Mensal':`${n}M`}</button>
-            ))}
-            <button onClick={()=>{setCustomInput(String(windowMonths));setCustomMode(true)}} style={{flex:1.3,padding:'6px 4px',borderRadius:8,border:'none',cursor:'pointer',background:customMode?pal.accent:'transparent',color:customMode?'#0B0B12':T.textSec,fontSize:11,fontWeight:customMode?700:500,display:'flex',alignItems:'center',justifyContent:'center',gap:3}}>
-              {!customMode ? 'Personal.' : (
-                <input type="number" min={2} max={36} value={customInput} autoFocus
-                  onChange={e=>setCustomInput(e.target.value)}
-                  onBlur={()=>{ const n=Math.max(2,Math.min(36,Number(customInput)||windowMonths)); setCustomInput(String(n)); onWindowChanged(n) }}
-                  onClick={e=>e.stopPropagation()}
-                  style={{width:34,background:'transparent',border:'none',color:'#0B0B12',fontSize:11,fontWeight:700,textAlign:'center',padding:0}}/>
-              )}
+          {/* Janela deslizante — chip compacto com menu, em vez de linha inteira */}
+          <div style={{display:'flex',justifyContent:'center',marginBottom:16,position:'relative'}}>
+            <button onClick={()=>setShowWindowMenu(s=>!s)} style={{display:'flex',alignItems:'center',gap:5,background:T.surface2,border:`1px solid ${T.border}`,borderRadius:20,padding:'6px 13px',cursor:'pointer',color:T.text,fontSize:12,fontWeight:600}}>
+              {windowMonths===1?'Mensal':`${windowMonths}M`}
+              <span style={{fontSize:9,color:T.textTer}}>▾</span>
             </button>
+            {showWindowMenu&&(<>
+              <div onClick={()=>setShowWindowMenu(false)} style={{position:'fixed',inset:0,zIndex:19}}/>
+              <Card style={{position:'absolute',top:'calc(100% + 6px)',left:'50%',transform:'translateX(-50%)',zIndex:20,padding:8,minWidth:170}}>
+                <div style={{display:'flex',flexDirection:'column',gap:3}}>
+                  {WINDOW_PRESETS.map(n=>(
+                    <button key={n} onClick={()=>{setCustomMode(false);onWindowChanged(n);setShowWindowMenu(false)}} style={{textAlign:'left',padding:'7px 10px',borderRadius:7,border:'none',cursor:'pointer',background:!customMode&&windowMonths===n?pal.accent:'transparent',color:!customMode&&windowMonths===n?'#0B0B12':T.text,fontSize:12,fontWeight:!customMode&&windowMonths===n?700:500}}>{n===1?'Mensal':`${n} meses`}</button>
+                  ))}
+                  <div style={{display:'flex',alignItems:'center',gap:6,padding:'7px 10px',borderRadius:7,background:customMode?pal.accent:'transparent'}}>
+                    <span style={{fontSize:12,fontWeight:customMode?700:500,color:customMode?'#0B0B12':T.text,flexShrink:0}}>Personalizado:</span>
+                    <input type="number" min={2} max={36} value={customInput} onFocus={()=>setCustomMode(true)}
+                      onChange={e=>{setCustomMode(true);setCustomInput(e.target.value)}}
+                      onBlur={()=>{ const n=Math.max(2,Math.min(36,Number(customInput)||windowMonths)); setCustomInput(String(n)); onWindowChanged(n) }}
+                      style={{width:36,background:'transparent',border:'none',borderBottom:`1px solid ${customMode?'#0B0B12':T.border}`,color:customMode?'#0B0B12':T.text,fontSize:12,fontWeight:700,textAlign:'center',padding:0}}/>
+                    <span style={{fontSize:11,color:customMode?'#0B0B12':T.textSec}}>meses</span>
+                  </div>
+                </div>
+              </Card>
+            </>)}
           </div>
 
           {!result || !result.hasData ? (
@@ -3885,7 +3939,7 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
                     const resolved = transferResolved(c)
                     const statusTxt = c.a.saude_override==='transferencia' ? '✓ Ignorada' : c.a.saude_override==='poupanca_investimento' ? '✓ Investimento' : c.a.saude_override==='guilt_free' ? '✓ Guilt-free' : c.a.saude_override==='fixos' ? '✓ Fixos' : (c.confidence==='alta' ? 'Alta confiança (auto)' : 'Média confiança')
                     return (
-                      <div key={c.id} onClick={()=>setEditTxn(c.a)} style={{padding:'10px 14px',borderBottom:i<windowCandidates.length-1?`1px solid ${T.border}`:'none',cursor:'pointer'}}>
+                      <div key={c.id} onClick={()=>setEditTxn({t:c.a,alta:c.confidence==='alta'})} style={{padding:'10px 14px',borderBottom:i<windowCandidates.length-1?`1px solid ${T.border}`:'none',cursor:'pointer'}}>
                         <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8,marginBottom:3}}>
                           <div style={{fontSize:11,color:T.text}}>{accountNome.get(c.a.account_id)}{c.b?` → ${accountNome.get(c.b.account_id)}`:''}</div>
                           <span style={{fontSize:9,fontWeight:600,color:resolved?'#4ADE80':(c.confidence==='alta'?T.textTer:'#FBBF24'),whiteSpace:'nowrap'}}>{statusTxt}</span>
@@ -3903,7 +3957,7 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
         </div>
       </div>
       {showReviewQueue&&<TransferReviewQueue candidates={pendingCandidates} accountNome={accountNome} onClose={()=>setShowReviewQueue(false)} onRefresh={onRefresh} pal={pal}/>}
-      {editTxn&&<TxnEditForm txn={editTxn} onClose={()=>setEditTxn(null)} onSaved={onRefresh} pal={pal} accounts={accounts}/>}
+      {editTxn&&<TxnEditForm txn={editTxn.t} isDetectedTransfer={editTxn.alta} onClose={()=>setEditTxn(null)} onSaved={onRefresh} pal={pal} accounts={accounts}/>}
     </div>
   )
 }
