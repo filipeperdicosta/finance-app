@@ -3912,7 +3912,7 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
                   const isSel = selectedBucket===b
                   return (
                     <div key={b} onClick={()=>{setSelectedBucket(isSel?null:b);setDetailView('categorias');setShowIncomeDetail(false)}} style={{background:T.surface2,borderRadius:12,padding:'12px 10px',cursor:'pointer',border:`1px solid ${isSel?pal.accent:T.border}`}}>
-                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:6,gap:4}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:6,gap:4,minHeight:24}}>
                         <div style={{fontSize:9.5,fontWeight:700,color:T.textSec,textTransform:'uppercase',letterSpacing:'0.04em',lineHeight:1.25}}>{BUCKET_LABELS[b]}</div>
                         <div style={{width:7,height:7,borderRadius:'50%',background:color,marginTop:3,flexShrink:0}}/>
                       </div>
