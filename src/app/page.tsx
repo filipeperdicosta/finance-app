@@ -1110,7 +1110,7 @@ const LoginScreen = ({onLogin}:{onLogin:()=>void}) => {
     if (error) { setErr(error.message); setLoading(false) } else onLogin()
   }
   return (
-    <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100vh',background:T.bg,padding:24,fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
+    <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100vh',background:`radial-gradient(ellipse 420px 340px at 50% 30%, rgba(74,222,128,0.16), transparent 70%), ${T.bg}`,padding:24,fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
       <div style={{width:'100%',maxWidth:360}}>
         <div style={{textAlign:'center',marginBottom:40}}>
           <div style={{display:'flex',justifyContent:'center',marginBottom:14}}><BioIcon size={56}/></div>
@@ -1132,7 +1132,7 @@ const LoginScreen = ({onLogin}:{onLogin:()=>void}) => {
                 style={{width:'100%',background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,padding:'10px 12px',color:T.text,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
             </div>
             {err&&<div style={{fontSize:12,color:T.red,marginBottom:12}}>{err}</div>}
-            <button type="submit" disabled={loading} style={{width:'100%',background:PAL.familiar.accent,color:'#0B0B12',border:'none',borderRadius:10,padding:'12px',fontSize:14,fontWeight:700,cursor:'pointer'}}>{loading?'A entrar…':'Entrar'}</button>
+            <button type="submit" disabled={loading} style={{width:'100%',background:T.green,color:'#0B0B12',border:'none',borderRadius:10,padding:'12px',fontSize:14,fontWeight:700,cursor:'pointer'}}>{loading?'A entrar…':'Entrar'}</button>
           </form>
         </Card>
       </div>
