@@ -4064,6 +4064,10 @@ const TABS = [
 export default function Page() {
   const [session, setSession] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  // Duração mínima do ecrã de loading — evita um flash ilegível quando os dados
+  // carregam depressa (sessão em cache, rede rápida); a marca precisa de tempo para se ler.
+  const [minSplashElapsed, setMinSplashElapsed] = useState(false)
+  useEffect(()=>{ const t = setTimeout(()=>setMinSplashElapsed(true), 1500); return ()=>clearTimeout(t) },[])
   const [accounts, setAccounts] = useState<Account[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [allTxns, setAllTxns] = useState<Transaction[]>([])
@@ -4133,12 +4137,13 @@ export default function Page() {
 
   const pal = PAL[tab]
 
-  if(loading) return (
+  if(loading||!minSplashElapsed) return (
     <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',background:T.bg,fontFamily:'system-ui'}}>
       <div style={{textAlign:'center'}}>
-        <div style={{display:'flex',justifyContent:'center',marginBottom:10}}><BioIcon size={44}/></div>
-        <div style={{fontSize:28,fontWeight:800,color:T.text,marginBottom:8}}>Bio<span style={{color:T.green}}>.</span></div>
-        <div style={{fontSize:13,color:T.textSec}}>A carregar…</div>
+        <div style={{display:'flex',justifyContent:'center',marginBottom:14}}><BioIcon size={56}/></div>
+        <div style={{fontSize:32,fontWeight:800,color:T.text,letterSpacing:'-0.03em'}}>Bio<span style={{color:T.green}}>.</span></div>
+        <div style={{fontSize:13,color:T.textSec,marginTop:8}}>Balance It Out</div>
+        <div style={{fontSize:12,color:T.textTer,marginTop:2}}>Controla as tuas finanças</div>
       </div>
     </div>
   )
