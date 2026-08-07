@@ -201,10 +201,16 @@ Critério de ordenação: frequência de valor entregue (mensal > anual) supera
 risco técnico bruto.
 
 1. **Saúde financeira** ✅ feita (ver secção acima)
-2. **Nome + logo novo** — actualmente "Balance it out", explorando "Bio"
-   como forma curta. Precisa de: decisão criativa (fora do scope técnico) +
-   depois `manifest.json`, `apple-touch-icon.png` (180×180), ícones
-   192×192/512×512, favicon, ligação no `layout.tsx`
+2. **Nome + logo novo** ✅ feito (2026-08-07) — app renomeada **Bio** ("Balance
+   It Out", acrónimo B-I-O, revelado só no ecrã de login/loading). Ícone:
+   pulso que se resolve em barras ascendentes, verde/turquesa, gerado por
+   código via `next/og` `ImageResponse` — `src/app/icon.svg` (favicon),
+   `apple-icon.tsx` (180×180), `icon-192.png/route.tsx` e
+   `icon-512.png/route.tsx` (manifest PWA). Componente `BioIcon` em
+   `page.tsx` reutilizado no cabeçalho (20px), login (56px) e loading
+   (56px). `manifest.json` e `layout.tsx` actualizados. Ecrã de loading tem
+   duração mínima de 1,5s (`minSplashElapsed`) para não piscar ilegível
+   quando os dados carregam depressa.
 3. **Excel na Drive (custos da casa)** — substitui trabalho manual mensal do
    Filipe. **Bloqueado**: precisa do ficheiro real (estrutura/colunas) e de
    alargar o scope OAuth do Drive de leitura para escrita (reconsentimento,
