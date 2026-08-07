@@ -48,6 +48,18 @@ const PAL: Record<string,{grad:string,accent:string,soft:string}> = {
   patrimonio: {grad:'linear-gradient(145deg,#17171d,#3a3a46)',accent:'#AEB6C6',soft:'#1c1c24'},
   saude:      {grad:'linear-gradient(145deg,#2b0f1f,#7c2d5a)',accent:'#F472B6',soft:'#2a1420'},
 }
+
+// Marca "Bio" — pulso que se resolve em barras ascendentes (vitalidade + crescimento financeiro)
+const BioIcon = ({size=20}:{size?:number}) => (
+  <div style={{width:size,height:size,borderRadius:size*0.22,background:'linear-gradient(145deg,#0a1a16,#0f2b28)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+    <svg width={size*0.75} height={size*0.75} viewBox="0 0 56 56">
+      <path d="M6 38h7l3-11 4 14 3-9 3 6" fill="none" stroke="#4ADE80" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round"/>
+      <rect x="30" y="30" width="4.5" height="8" rx="1" fill="#4ADE80"/>
+      <rect x="37" y="24" width="4.5" height="14" rx="1" fill="#5EEAD4"/>
+      <rect x="44" y="16" width="4.5" height="22" rx="1" fill="#5EEAD4"/>
+    </svg>
+  </div>
+)
 const tagPal = (tag:string) => tag==='investimento' ? PAL.imoveis : (PAL[tag] ?? PAL.pessoal)
 const PROP_GRAD = {pos:'linear-gradient(145deg,#042b1c,#0d5c38)',neg:'linear-gradient(145deg,#1c0808,#7f1d1d)'}
 const CAT_LIST = ['Receita','Groceries','Restauração','Compras','Saúde','Transportes','Lazer','Levantamentos','Habitação','Utilities','Subscrições','Investimentos','Comissões e Taxas','Transferências','Despesas Gerais']
@@ -1100,7 +1112,12 @@ const LoginScreen = ({onLogin}:{onLogin:()=>void}) => {
   return (
     <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100vh',background:T.bg,padding:24,fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
       <div style={{width:'100%',maxWidth:360}}>
-        <div style={{textAlign:'center',marginBottom:40}}><div style={{fontSize:32,fontWeight:800,color:T.text,letterSpacing:'-0.03em'}}>Finance<span style={{color:PAL.familiar.accent}}>.</span></div><div style={{fontSize:14,color:T.textSec,marginTop:8}}>Controlo financeiro pessoal</div></div>
+        <div style={{textAlign:'center',marginBottom:40}}>
+          <div style={{display:'flex',justifyContent:'center',marginBottom:14}}><BioIcon size={56}/></div>
+          <div style={{fontSize:32,fontWeight:800,color:T.text,letterSpacing:'-0.03em'}}>Bio<span style={{color:T.green}}>.</span></div>
+          <div style={{fontSize:13,color:T.textSec,marginTop:8}}>Balance It Out</div>
+          <div style={{fontSize:12,color:T.textTer,marginTop:2}}>Controla as tuas finanças</div>
+        </div>
         <Card style={{padding:24}}>
           {/* form real para que browsers/iOS/Android ofereçam guardar a password */}
           <form onSubmit={e=>{e.preventDefault();login()}} autoComplete="on">
@@ -4118,7 +4135,11 @@ export default function Page() {
 
   if(loading) return (
     <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',background:T.bg,fontFamily:'system-ui'}}>
-      <div style={{textAlign:'center'}}><div style={{fontSize:28,fontWeight:800,color:T.text,marginBottom:8}}>Finance<span style={{color:PAL.familiar.accent}}>.</span></div><div style={{fontSize:13,color:T.textSec}}>A carregar…</div></div>
+      <div style={{textAlign:'center'}}>
+        <div style={{display:'flex',justifyContent:'center',marginBottom:10}}><BioIcon size={44}/></div>
+        <div style={{fontSize:28,fontWeight:800,color:T.text,marginBottom:8}}>Bio<span style={{color:T.green}}>.</span></div>
+        <div style={{fontSize:13,color:T.textSec}}>A carregar…</div>
+      </div>
     </div>
   )
   if(!session) return <LoginScreen onLogin={()=>{setLoading(true);load();loadFull()}}/>
@@ -4133,7 +4154,10 @@ export default function Page() {
   return (
     <div style={{display:'flex',flexDirection:'column',height:'100vh',maxWidth:440,margin:'0 auto',background:T.bg,fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",sans-serif',color:T.text}}>
       <div style={{flexShrink:0,background:T.surface,borderBottom:`1px solid ${T.border}`,padding:'12px 16px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-        <div style={{fontSize:20,fontWeight:800,letterSpacing:'-0.03em'}}>Finance<span style={{color:pal.accent}}>.</span></div>
+        <div style={{display:'flex',alignItems:'center',gap:8}}>
+          <BioIcon size={20}/>
+          <div style={{fontSize:18,fontWeight:800,letterSpacing:'-0.03em'}}>Bio<span style={{color:T.green}}>.</span></div>
+        </div>
         <div style={{display:'flex',gap:8}}>
           <button onClick={()=>setShowImport(true)} style={{background:pal.soft,border:'none',borderRadius:10,padding:'7px 12px',display:'flex',alignItems:'center',gap:5,cursor:'pointer'}}><Upload size={13} color={pal.accent}/><span style={{fontSize:12,fontWeight:600,color:pal.accent}}>Importar</span></button>
           {suspeitasCount>0&&<button onClick={()=>setShowDuplicates(true)} style={{background:'rgba(251,191,36,0.15)',border:'none',borderRadius:10,padding:'7px 10px',cursor:'pointer',display:'flex',alignItems:'center',gap:4}}>

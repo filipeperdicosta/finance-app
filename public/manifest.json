@@ -1,7 +1,7 @@
 {
-  "name": "Finance App",
-  "short_name": "Finance",
-  "description": "Controlo financeiro pessoal e familiar",
+  "name": "Bio — Balance It Out",
+  "short_name": "Bio",
+  "description": "Controla as tuas finanças",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0B0B12",
