@@ -3406,6 +3406,41 @@ const IrsMappingScreen = ({resumos,ano,onClose}:{resumos:IrsImovelResumo[],ano:n
   )
 }
 
+// Fila de despesas sem Balde IRS, de todos os imóveis — mesmo padrão do AssignQueue de Imóveis.
+const IrsUnclassifiedQueue = ({txns,imoveis,accounts,ano,onClose,onRefresh}:{txns:Transaction[],imoveis:Imovel[],accounts:Account[],ano:number,onClose:()=>void,onRefresh:()=>void}) => {
+  const [editTxn,setEditTxn] = useState<Transaction|null>(null)
+  const imovelNome = (id:string|null) => imoveis.find(im=>im.id===id)?.nome ?? 'Imóvel'
+  return (
+    <div style={{position:'fixed',inset:0,background:T.bg,zIndex:96,overflowY:'auto'}}>
+      <div style={{maxWidth:440,margin:'0 auto'}}>
+        <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',background:T.surface,borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,zIndex:10}}>
+          <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ArrowLeft size={18} color={T.textSec}/></button>
+          <div style={{fontSize:16,fontWeight:700,color:T.text,flex:1}}>Por classificar ({txns.length}) — {ano}</div>
+        </div>
+        <div style={{padding:'16px 14px'}}>
+          <div style={{fontSize:13,color:T.textSec,marginBottom:16,lineHeight:1.5}}>Despesas dos teus imóveis ainda sem Balde IRS. Toca para abrir e escolher a categoria.</div>
+          {txns.length===0&&<Card><div style={{padding:32,textAlign:'center',color:T.textSec,fontSize:13}}>✓ Tudo classificado!</div></Card>}
+          {txns.map(t=>(
+            <Card key={t.id} style={{marginBottom:10,padding:'12px 14px',cursor:'pointer'}}>
+              <div onClick={()=>setEditTxn(t)} style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
+                <div style={{minWidth:0}}>
+                  <div style={{fontSize:13,fontWeight:600,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div>
+                  <div style={{fontSize:11,color:T.textTer,marginTop:2}}>{imovelNome(t.imovel_id)} · {t.data}</div>
+                </div>
+                <div style={{display:'flex',alignItems:'center',gap:6,flexShrink:0}}>
+                  <span style={{fontSize:13,fontWeight:700,fontFamily:T.mono,color:T.text}}>{dec(Math.abs(Number(t.valor)))}</span>
+                  <ChevronRight size={14} color={T.textTer}/>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      </div>
+      {editTxn&&<TxnEditForm txn={editTxn} onClose={()=>setEditTxn(null)} onSaved={onRefresh} pal={{accent:PAL.imoveis.accent,soft:PAL.imoveis.soft}} imoveis={imoveis} accounts={accounts}/>}
+    </div>
+  )
+}
+
 // ─────────────────────────────────────────────────────────────────
 // IRS — RESUMO E EXPLORAÇÃO DE CUSTOS
 // ─────────────────────────────────────────────────────────────────
@@ -3416,6 +3451,7 @@ const IrsResumoScreen = ({imoveis,transactions,accounts,onClose,onRefresh}:{imov
   const [editTxn,setEditTxn] = useState<Transaction|null>(null)
   const [configImovel,setConfigImovel] = useState<Imovel|null>(null)
   const [showMapping,setShowMapping] = useState(false)
+  const [showNaoClassificadas,setShowNaoClassificadas] = useState(false)
   const [taxaInputs,setTaxaInputs] = useState<Record<string,string>>({})
 
   const relevantes = imoveis.filter(im=>im.ativo)
@@ -3428,7 +3464,8 @@ const IrsResumoScreen = ({imoveis,transactions,accounts,onClose,onRefresh}:{imov
   // Despesas de imóveis sem Balde IRS atribuído — ficam FORA dos totais acima até serem
   // classificadas, por isso têm de aparecer sempre visíveis, nunca silenciosamente omitidas.
   const naoClassificadas = (imId:string) => transactions.filter(t=>t.imovel_id===imId && t.data.startsWith(String(ano)) && Number(t.valor)<0 && !t.subcategoria)
-  const totalNaoClassificadas = relevantes.reduce((s,im)=>s+naoClassificadas(im.id).length,0)
+  const allNaoClassificadas = useMemo(()=>relevantes.flatMap(im=>naoClassificadas(im.id)),[relevantes,transactions,ano])
+  const totalNaoClassificadas = allNaoClassificadas.length
 
   const saveTaxa = async (im:Imovel, valor:string) => {
     const n = Number(valor)
@@ -3465,10 +3502,11 @@ const IrsResumoScreen = ({imoveis,transactions,accounts,onClose,onRefresh}:{imov
           </Card>
 
           {totalNaoClassificadas>0&&(
-            <Card style={{marginBottom:16,padding:'13px 16px',background:PAL.imoveis.soft,border:`1px solid ${PAL.imoveis.accent}`}}>
-              <div style={{display:'flex',alignItems:'center',gap:12}}>
+            <Card style={{marginBottom:16,padding:'13px 16px',background:PAL.imoveis.soft,border:`1px solid ${PAL.imoveis.accent}`,cursor:'pointer'}}>
+              <div onClick={()=>setShowNaoClassificadas(true)} style={{display:'flex',alignItems:'center',gap:12}}>
                 <Inbox size={20} color={PAL.imoveis.accent}/>
-                <div style={{flex:1}}><div style={{fontSize:13,fontWeight:700,color:T.text}}>{totalNaoClassificadas} despesas por classificar</div><div style={{fontSize:11,color:T.textSec,marginTop:1}}>Não entram nos totais acima até teres o Balde IRS — abre o imóvel em baixo</div></div>
+                <div style={{flex:1}}><div style={{fontSize:13,fontWeight:700,color:T.text}}>{totalNaoClassificadas} despesas por classificar</div><div style={{fontSize:11,color:T.textSec,marginTop:1}}>Não entram nos totais acima até teres o Balde IRS</div></div>
+                <div style={{fontSize:12,color:PAL.imoveis.accent,fontWeight:600}}>Abrir →</div>
               </div>
             </Card>
           )}
@@ -3567,6 +3605,7 @@ const IrsResumoScreen = ({imoveis,transactions,accounts,onClose,onRefresh}:{imov
       </div>
       {configImovel&&<IrsConfigScreen imovel={configImovel} onClose={()=>setConfigImovel(null)} onSaved={onRefresh}/>}
       {showMapping&&<IrsMappingScreen resumos={resumos} ano={ano} onClose={()=>setShowMapping(false)}/>}
+      {showNaoClassificadas&&<IrsUnclassifiedQueue txns={allNaoClassificadas} imoveis={imoveis} accounts={accounts} ano={ano} onClose={()=>setShowNaoClassificadas(false)} onRefresh={onRefresh}/>}
       {editTxn&&<TxnEditForm txn={editTxn} onClose={()=>setEditTxn(null)} onSaved={onRefresh} pal={{accent:PAL.imoveis.accent,soft:PAL.imoveis.soft}} imoveis={imoveis} accounts={accounts}/>}
     </div>
   )
