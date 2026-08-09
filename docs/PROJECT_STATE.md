@@ -287,6 +287,13 @@ preenchimento — não a partir de blogs, para evitar erros de categoria/regime.
   `resumo.bruto`, desfeita a ponderação por `ownership_pct` — a renda paga
   é sempre 100%, não a tua quota) contra 150% do `IRS_LIMITE_RENDA_E6`
   aplicável, citando o art. 72º nº23 CIRS quando ultrapassado.
+- **Toggle 100% / Minha quota** (`IrsResumoScreen`, cabeçalho): por
+  defeito 100% do imóvel; ao ligar, mostra a tua quota (`ownership_pct`).
+  `computeIrsImovel` ganhou um 4º parâmetro `use100`. **Importante**: o
+  `IrsMappingScreen` e a validação de limite de renda no
+  `IrsConfigScreen` usam sempre `resumosQuota` (calculado à parte,
+  `use100=false` fixo) — nunca variam com este toggle, porque são os
+  valores que realmente vão para a declaração
 
 ### Ecrã Imóveis — extras (2026-08-10)
 - **Reordenar "por imóvel"**: causa raiz de a ordem parecer instável era
