@@ -761,6 +761,10 @@ const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis,accounts,isDetectedTransfe
   const [irsSubcategoria,setIrsSubcategoria] = useState(
     (txn.subcategoria && (IRS_SUBCATEGORIAS as readonly string[]).includes(txn.subcategoria)) ? txn.subcategoria : ''
   )
+  // Rendimento de um imóvel é renda por defeito (conta para o bruto do IRS) — só quando
+  // marcado explicitamente como "não é renda" (ex: reembolso de utilities pelo arrendatário)
+  // é que fica de fora, para não teres de classificar recibo a recibo.
+  const [naoRenda,setNaoRenda] = useState(txn.subcategoria==='nao_renda')
   const [saudeOverride,setSaudeOverride] = useState(txn.saude_override ?? '')
   const [saudeTouched,setSaudeTouched] = useState(!!txn.saude_override)
   const [saving,setSaving] = useState(false)
@@ -802,6 +806,7 @@ const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis,accounts,isDetectedTransfe
       fields.imovel_classificado = true
     }
     if(imovelId && tipo==='despesa') fields.subcategoria = irsSubcategoria || null
+    if(imovelId && tipo==='receita') fields.subcategoria = naoRenda ? 'nao_renda' : null
     await updateTransaction(txn.id, fields)
     // Aprendizagem: reforça/cria a regra com base na categoria escolhida manualmente
     // (regras de "Receita" não trazem grande valor preditivo, mas não fazem mal)
@@ -840,6 +845,7 @@ const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis,accounts,isDetectedTransfe
           )}
           {hasImoveis&&<Sel label="Imóvel associado" value={imovelId} onChange={setImovelId} options={[{value:'',label:'Geral (nenhum imóvel)'},...imoveis!.map(im=>({value:im.id,label:`🏠 ${im.nome}`}))]}/>}
           {imovelId&&tipo==='despesa'&&<Sel label="Balde IRS (Anexo F)" value={irsSubcategoria} onChange={setIrsSubcategoria} options={[{value:'',label:'Não classificado'},...IRS_SUBCATEGORIAS.map(c=>({value:c,label:IRS_SUBCATEGORIA_LABELS[c]}))]}/>}
+          {imovelId&&tipo==='receita'&&<Sel label="Tipo de rendimento (IRS)" value={naoRenda?'nao_renda':''} onChange={v=>setNaoRenda(v==='nao_renda')} options={[{value:'',label:'Renda'},{value:'nao_renda',label:'Não é renda (reembolso, etc.)'}]}/>}
           {inSaudeScope&&<div style={{marginBottom:14}}>
             <div style={{fontSize:11,color:T.textSec,fontWeight:600,marginBottom:5,textTransform:'uppercase',letterSpacing:'0.06em'}}>Saúde Financeira</div>
             <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
@@ -3232,7 +3238,9 @@ type IrsImovelResumo = {
 function computeIrsImovel(im:Imovel, transactions:Transaction[], ano:number): IrsImovelResumo {
   const pct = im.ownership_pct/100
   const anoTxns = transactions.filter(t=>t.imovel_id===im.id && t.data.startsWith(String(ano)))
-  const bruto = anoTxns.filter(t=>Number(t.valor)>0).reduce((s,t)=>s+Number(t.valor)*pct,0)
+  // Todo o rendimento do imóvel conta como renda por defeito — só fica de fora quando marcado
+  // explicitamente como "não é renda" (ex: reembolso de utilities pago pelo arrendatário).
+  const bruto = anoTxns.filter(t=>Number(t.valor)>0 && t.subcategoria!=='nao_renda').reduce((s,t)=>s+Number(t.valor)*pct,0)
   const gastosPorCategoria = {} as Record<IrsSubcategoria,number>
   IRS_SUBCATEGORIAS.forEach(c=>{ gastosPorCategoria[c]=0 })
   anoTxns.filter(t=>Number(t.valor)<0 && t.subcategoria && (IRS_SUBCATEGORIAS as readonly string[]).includes(t.subcategoria))
