@@ -221,6 +221,63 @@ legado. `page.tsx` — `AccountForm`, `changePct`.
 
 ---
 
+## IRS — Anexo F (rendimentos prediais) ✅
+
+Reporta os imóveis arrendados para o Anexo F do IRS (Categoria F). Pesquisa
+feita no PDF oficial do formulário (Portal das Finanças) e nas instruções de
+preenchimento — não a partir de blogs, para evitar erros de categoria/regime.
+
+### Estrutura
+- **3 ecrãs**, acedidos por um card "IRS — Rendimentos Prediais" no ecrã
+  Imóveis: `IrsConfigScreen` (dados fixos por imóvel — datas do contrato, nº
+  de arrendatários, identificação matricial, sugestão de regime), 
+  `IrsResumoScreen` (resumo agregado + casa a casa, drill-down por
+  categoria até à transação, taxa editável), `IrsMappingScreen` (facsímile
+  do formulário real, fundo claro de propósito, para transcrição directa)
+- Schema: `imoveis` ganhou `contrato_data_inicio/fim`, `num_arrendatarios`,
+  `freguesia_codigo`, `matricial_tipo/artigo/fraccao`, `irs_tipologia`,
+  `irs_taxa_override`. Categorização de gastos reaproveita
+  `transactions.subcategoria` (campo já existente, sem uso anterior) — pill
+  novo "Balde IRS" no `TxnEditForm`, só visível quando a transação tem
+  `imovel_id` e é despesa
+- **Regime (Quadro 4.1 vs 4.2)** calculado a partir da duração do contrato
+  (`sugerirRegimeIrs`) — não é um botão manual, é sugestão automática com
+  nota a lembrar da obrigação de comunicação à AT até 15/Fev para o 4.2
+  valer. `irs_taxa_override` permite corrigir a taxa manualmente por imóvel
+- **Conservação vs Valorização**: subcategoria própria `valorizacao`
+  (nunca soma para dedução — só obras de conservação/manutenção reais
+  contam). Distinção confirmada nas instruções oficiais (obras que
+  valorizam o imóvel, tipo piscina/painéis solares, não são dedutíveis
+  aqui — só relevantes para mais-valias na venda)
+- **Multi-arrendatário**: 1 linha por arrendatário no mapeamento (Quadro
+  4.1/4.2 só tem 1 campo de NIF por linha), renda e gastos divididos em
+  partes iguais — `buildIrsLinhas`. NIF de cada arrendatário não é
+  guardado pela app (simplificação pedida pelo Filipe) — preenche-se à mão
+  no Portal das Finanças
+- **Co-propriedade**: não gera linhas extra — usa o `ownership_pct` que já
+  existe em `imoveis` (mesmo campo do Património), aplicado antes da
+  divisão por arrendatários. Cada co-proprietário declara a sua quota na
+  própria declaração, separada
+- **Limite de renda 2024+** (Portaria 176/2019, escalão E6 — Lisboa,
+  único concelho relevante hoje): tabela 2024 confirmada no diploma
+  oficial (Portaria 53/2024), valores 2025/2026 **calculados por nós**
+  via coeficiente de actualização de rendas (não há despacho publicado
+  confirmado) — `IRS_LIMITE_RENDA_E6`. Só entra em jogo se o imóvel tiver
+  `irs_tipologia` definida e contrato 2024+
+
+### Taxa de IRS — por confirmar
+Tabela usada (por regime): não habitacional 28%, habitacional Quadro 4.1
+25%, Quadro 4.2 15%/10%/5% (5-10/10-20/20+ anos). **Não confirmámos** se o
+OE2026 mudou isto — várias fontes secundárias dizem que sim (25%→10% para
+"renda moderada"), mas a análise oficial da Ordem dos Contabilistas
+Certificados ao OE2026 não mostra nenhuma alteração ao artigo 72.º do CIRS
+além de uma cláusula sobre bombeiros, o que contradiz essas fontes. Ficou
+combinado avançar com a tabela acima (mais sólida) e o Filipe confirma à
+parte — avisa se for diferente. Taxa fica sempre editável por imóvel no
+ecrã de resumo, com aviso visível.
+
+---
+
 ## Roadmap acordado (ordem de prioridade)
 
 Critério de ordenação: frequência de valor entregue (mensal > anual) supera
@@ -241,11 +298,8 @@ risco técnico bruto.
    Filipe. **Bloqueado**: precisa do ficheiro real (estrutura/colunas) e de
    alargar o scope OAuth do Drive de leitura para escrita (reconsentimento,
    possível novo aviso "app não verificada" mais sensível que o actual)
-4. **Relatório IRS anual (conta Herança)** — substitui trabalho manual anual.
-   Precisa de subcategorias novas (IMI, Imposto de Selo, Taxas Autárquicas,
-   Condomínio, Manutenção/Obras, Seguros) que hoje não existem — tudo cai em
-   "Habitação" genérico. Requer reclassificação do histórico + relatório
-   por imóvel exportável
+4. **Relatório IRS anual (Anexo F — rendimentos prediais)** ✅ feito
+   (2026-08-09, ver secção própria abaixo)
 
 ### Backlog técnico (sem data)
 - **Modularizar `page.tsx`** (~3700 linhas) — combinado fazer numa sessão
