@@ -182,6 +182,18 @@ export async function unlinkContaImovel(account_id: string, imovel_id: string) {
   return supabase.from('conta_imovel').delete().eq('account_id', account_id).eq('imovel_id', imovel_id)
 }
 
+// Transações por classificar de contas de investimento/imóvel, sem limite de data —
+// `transactions` (loadAllData) só cobre os últimos ~6 meses, o que esconde silenciosamente
+// importações históricas mais antigas da fila "por associar".
+export async function loadUnclassifiedImovelTxns(accountIds: string[]): Promise<Transaction[]> {
+  if (accountIds.length === 0) return []
+  const { data } = await supabase.from('transactions').select('*')
+    .in('account_id', accountIds)
+    .eq('imovel_classificado', false)
+    .order('data', { ascending: false })
+  return (data ?? []) as Transaction[]
+}
+
 // ── Associar transação a imóvel ────────────────────────────────
 export async function assignTransactionToImovel(txnId: string, imovelId: string | null) {
   // imovelId null => marca como "geral" (classificada mas sem imóvel)

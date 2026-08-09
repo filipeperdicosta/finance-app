@@ -16,7 +16,7 @@ import {
   supabase, loadAllData, loadAllTransactions, saveAccount, deleteAccount, updateAccount,
   saveTransactions, updateTransaction, deleteTransaction, deleteTransactions, recategorizeTransactions,
   saveImovel, updateImovel, deleteImovel, linkContaImovel, unlinkContaImovel,
-  assignTransactionToImovel, assignTransactionsToImovel,
+  assignTransactionToImovel, assignTransactionsToImovel, loadUnclassifiedImovelTxns,
   loadCategoryRules, learnFromCategorization, matchRule, deleteCategoryRule, deleteCategoryRules, updateCategoryRule,
   loadSaudeRules, learnSaudeOverride, matchSaudeRule,
   getDriveConnectionStatus, disconnectDrive, getDriveAuthUrl, updateAccountDriveFolder, loadDriveFiles,
@@ -3628,6 +3628,16 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
   const [selImovel,setSelImovel] = useState<string|null>(null)
   const [monthOffset,setMonthOffset] = useState(0)
   const [showIrs,setShowIrs] = useState(false)
+  // Fila "por associar" sem limite de data — `transactions` só cobre os últimos ~6 meses
+  // (loadAllData), o que esconderia silenciosamente transações por classificar vindas de
+  // uma importação histórica mais antiga.
+  const [porAssociarAll,setPorAssociarAll] = useState<Transaction[]>([])
+  const reloadPorAssociar = useCallback(async()=>{
+    const ids = accounts.filter(a=>a.budget_tag==='investimento').map(a=>a.id)
+    setPorAssociarAll(await loadUnclassifiedImovelTxns(ids))
+  },[accounts])
+  useEffect(()=>{ reloadPorAssociar() },[reloadPorAssociar])
+  const refreshComQueue = async () => { await onRefresh(); await reloadPorAssociar() }
 
   const investAccounts = accounts.filter(a=>a.budget_tag==='investimento')
   const investAccountIds = new Set(investAccounts.map(a=>a.id))
@@ -3684,7 +3694,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
   ]
 
   // Fila por associar
-  const porAssociar = transactions.filter(t=>investAccountIds.has(t.account_id) && !t.imovel_classificado)
+  const porAssociar = porAssociarAll
 
   // Transações recentes filtradas por conta e imóvel
   const recentTxns = transactions.filter(t=>investAccountIds.has(t.account_id) && matchAcc(t) && matchImovel(t)).slice(0,8)
@@ -3840,7 +3850,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
       </div>
 
       {formOpen&&<ImovelForm initial={editing} accounts={accounts} linkedAccountIds={editing?linkedAccounts(editing.id):new Set()} onClose={()=>setFormOpen(false)} onSaved={onRefresh} pal={pal} imoveisLen={imoveis.length}/>}
-      {showQueue&&<AssignQueue txns={porAssociar} imoveis={imoveis} onClose={()=>setShowQueue(false)} onRefresh={onRefresh} pal={pal}/>}
+      {showQueue&&<AssignQueue txns={porAssociar} imoveis={imoveis} onClose={()=>setShowQueue(false)} onRefresh={refreshComQueue} pal={pal}/>}
       {editTxn&&<TxnEditForm txn={editTxn} onClose={()=>setEditTxn(null)} onSaved={onRefresh} pal={pal} imoveis={imoveis} accounts={accounts}/>}
       {showIrs&&<IrsResumoScreen imoveis={imoveis} transactions={transactions} accounts={accounts} onClose={()=>setShowIrs(false)} onRefresh={onRefresh}/>}
     </div>
