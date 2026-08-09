@@ -3414,7 +3414,11 @@ const IrsMappingScreen = ({resumos,ano,onClose}:{resumos:IrsImovelResumo[],ano:n
 // Fila de despesas sem Balde IRS, de todos os imóveis — mesmo padrão do AssignQueue de Imóveis.
 const IrsUnclassifiedQueue = ({txns,imoveis,accounts,ano,onClose,onRefresh}:{txns:Transaction[],imoveis:Imovel[],accounts:Account[],ano:number,onClose:()=>void,onRefresh:()=>void}) => {
   const [editTxn,setEditTxn] = useState<Transaction|null>(null)
+  const [busy,setBusy] = useState(false)
   const imovelNome = (id:string|null) => imoveis.find(im=>im.id===id)?.nome ?? 'Imóvel'
+  const assign = async (txnId:string, cat:IrsSubcategoria) => {
+    setBusy(true); await updateTransaction(txnId,{subcategoria:cat}); await onRefresh(); setBusy(false)
+  }
   return (
     <div style={{position:'fixed',inset:0,background:T.bg,zIndex:96,overflowY:'auto'}}>
       <div style={{maxWidth:440,margin:'0 auto'}}>
@@ -3423,11 +3427,11 @@ const IrsUnclassifiedQueue = ({txns,imoveis,accounts,ano,onClose,onRefresh}:{txn
           <div style={{fontSize:16,fontWeight:700,color:T.text,flex:1}}>Por classificar ({txns.length}) — {ano}</div>
         </div>
         <div style={{padding:'16px 14px'}}>
-          <div style={{fontSize:13,color:T.textSec,marginBottom:16,lineHeight:1.5}}>Despesas dos teus imóveis ainda sem Balde IRS. Toca para abrir e escolher a categoria.</div>
+          <div style={{fontSize:13,color:T.textSec,marginBottom:16,lineHeight:1.5}}>Despesas dos teus imóveis ainda sem Balde IRS. Toca directamente no balde certo.</div>
           {txns.length===0&&<Card><div style={{padding:32,textAlign:'center',color:T.textSec,fontSize:13}}>✓ Tudo classificado!</div></Card>}
           {txns.map(t=>(
-            <Card key={t.id} style={{marginBottom:10,padding:'12px 14px',cursor:'pointer'}}>
-              <div onClick={()=>setEditTxn(t)} style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
+            <Card key={t.id} style={{marginBottom:10,padding:'12px 14px'}}>
+              <div onClick={()=>setEditTxn(t)} style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8,cursor:'pointer',marginBottom:10}}>
                 <div style={{minWidth:0}}>
                   <div style={{fontSize:13,fontWeight:600,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div>
                   <div style={{fontSize:11,color:T.textTer,marginTop:2}}>{imovelNome(t.imovel_id)} · {t.data}</div>
@@ -3436,6 +3440,11 @@ const IrsUnclassifiedQueue = ({txns,imoveis,accounts,ano,onClose,onRefresh}:{txn
                   <span style={{fontSize:13,fontWeight:700,fontFamily:T.mono,color:T.text}}>{dec(Math.abs(Number(t.valor)))}</span>
                   <ChevronRight size={14} color={T.textTer}/>
                 </div>
+              </div>
+              <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+                {IRS_SUBCATEGORIAS.map(c=>(
+                  <button key={c} disabled={busy} onClick={()=>assign(t.id,c)} style={{background:PAL.imoveis.soft,border:`1px solid ${T.border}`,borderRadius:8,padding:'6px 11px',fontSize:12,fontWeight:600,color:PAL.imoveis.accent,cursor:'pointer'}}>{IRS_SUBCATEGORIA_LABELS[c]}</button>
+                ))}
               </div>
             </Card>
           ))}
