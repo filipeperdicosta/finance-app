@@ -244,11 +244,13 @@ preenchimento — não a partir de blogs, para evitar erros de categoria/regime.
   (`sugerirRegimeIrs`) — não é um botão manual, é sugestão automática com
   nota a lembrar da obrigação de comunicação à AT até 15/Fev para o 4.2
   valer. `irs_taxa_override` permite corrigir a taxa manualmente por imóvel
-- **Conservação vs Valorização**: subcategoria própria `valorizacao`
-  (nunca soma para dedução — só obras de conservação/manutenção reais
-  contam). Distinção confirmada nas instruções oficiais (obras que
-  valorizam o imóvel, tipo piscina/painéis solares, não são dedutíveis
-  aqui — só relevantes para mais-valias na venda)
+- **Conservação vs custos não dedutíveis**: subcategoria própria
+  `nao_dedutivel` (nunca soma para dedução — só obras de
+  conservação/manutenção reais contam). Cobre obras de valorização (tipo
+  piscina/painéis solares — só relevantes para mais-valias na venda, não
+  aqui) mas também qualquer outro custo não dedutível (ex: utilities) —
+  generalizado a pedido do Filipe (2026-08-09), inicialmente só cobria
+  valorização
 - **Multi-arrendatário**: 1 linha por arrendatário no mapeamento (Quadro
   4.1/4.2 só tem 1 campo de NIF por linha), renda e gastos divididos em
   partes iguais — `buildIrsLinhas`. NIF de cada arrendatário não é
@@ -257,22 +259,46 @@ preenchimento — não a partir de blogs, para evitar erros de categoria/regime.
 - **Co-propriedade**: não gera linhas extra — usa o `ownership_pct` que já
   existe em `imoveis` (mesmo campo do Património), aplicado antes da
   divisão por arrendatários. Cada co-proprietário declara a sua quota na
-  própria declaração, separada
+  própria declaração, separada — **os valores mostrados no ecrã de resumo
+  já são a quota do utilizador (ownership_pct), não a totalidade do
+  imóvel** (confirmado 2026-08-10, a pedido do Filipe)
+- **Rendimento não-renda**: campo "Tipo de rendimento (IRS)" no
+  `TxnEditForm`, só em receitas com imóvel associado — grava
+  `subcategoria='nao_renda'` quando marcado, excluído do `bruto` em
+  `computeIrsImovel`. Por defeito tudo é renda (sem necessidade de
+  classificar recibo a recibo); usado para reembolsos de utilities pagos
+  pelo arrendatário que não são rendimento predial (pedido do Filipe,
+  2026-08-09)
 - **Limite de renda 2024+** (Portaria 176/2019, escalão E6 — Lisboa,
-  único concelho relevante hoje): tabela 2024 confirmada no diploma
-  oficial (Portaria 53/2024), valores 2025/2026 **calculados por nós**
-  via coeficiente de actualização de rendas (não há despacho publicado
-  confirmado) — `IRS_LIMITE_RENDA_E6`. Só entra em jogo se o imóvel tiver
-  `irs_tipologia` definida e contrato 2024+
+  único concelho relevante hoje): condição **confirmada por research**
+  (2026-08-10, via informador.pt — texto do artigo) no **artigo 72º, nº 23
+  do CIRS** (aditado pela Lei nº 56/2023, "Mais Habitação"): as reduções
+  dos nº 3-5 não se aplicam a contratos de arrendamento habitacional
+  celebrados a partir de 1/Jan/2024 cuja renda mensal exceda em 50% os
+  limites gerais de preço por tipologia das tabelas 1 e 2 do anexo I da
+  Portaria 176/2019 — por isso `irs_tipologia` só é pedido no
+  `IrsConfigScreen` quando `contrato_data_inicio>=2024-01-01`. Tabela 2024
+  confirmada no diploma oficial (Portaria 53/2024), valores 2025/2026
+  **calculados por nós** via coeficiente de actualização de rendas (não há
+  despacho publicado confirmado) — `IRS_LIMITE_RENDA_E6`.
+  ⚠ **Gap conhecido**: `irs_tipologia` é guardado mas a app ainda **não
+  valida** a renda do imóvel contra `IRS_LIMITE_RENDA_E6` — não há aviso
+  se a renda ultrapassar o limite em >50% (caso em que o Quadro 4.2 nº23
+  deixaria de se aplicar e a app continuaria a sugeri-lo). Por implementar
+  se/quando o Filipe quiser esse aviso.
 
-### Taxa de IRS — por confirmar
+### Taxa de IRS
 Tabela usada (por regime): não habitacional 28%, habitacional Quadro 4.1
-25%, Quadro 4.2 15%/10%/5% (5-10/10-20/20+ anos). **Não confirmámos** se o
-OE2026 mudou isto — várias fontes secundárias dizem que sim (25%→10% para
-"renda moderada"), mas a análise oficial da Ordem dos Contabilistas
-Certificados ao OE2026 não mostra nenhuma alteração ao artigo 72.º do CIRS
-além de uma cláusula sobre bombeiros, o que contradiz essas fontes. Ficou
-combinado avançar com a tabela acima (mais sólida) e o Filipe confirma à
+25%, Quadro 4.2 15%/10%/5% (5-10/10-20/20+ anos). Os valores dos nº 3-5 do
+artigo 72º do CIRS foram **confirmados por research** (2026-08-10, via
+informador.pt): "redução de 10/15/20 pontos percentuais" sobre a taxa de
+25% — dá exactamente 15%/10%/5%, bate certo com a tabela usada.
+**Continua por confirmar** se o OE2026 alterou isto: a análise oficial da
+Ordem dos Contabilistas Certificados ao OE2026 não mostra nenhuma
+alteração ao artigo 72.º do CIRS além de uma cláusula sobre bombeiros, mas
+várias fontes secundárias (blogs) dizem que sim — nova taxa de 10% para
+"rendas moderadas" a partir de 2026, contradição ainda não resolvida entre
+fontes. Ficou combinado avançar com a tabela acima e o Filipe confirma à
 parte — avisa se for diferente. Taxa fica sempre editável por imóvel no
 ecrã de resumo, com aviso visível.
 
