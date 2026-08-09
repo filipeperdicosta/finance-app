@@ -758,6 +758,9 @@ const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis,accounts,isDetectedTransfe
   const [data,setData] = useState(txn.data)
   const [tipo,setTipo] = useState(txn.valor>=0?'receita':'despesa')
   const [imovelId,setImovelId] = useState(txn.imovel_id ?? '')
+  const [irsSubcategoria,setIrsSubcategoria] = useState(
+    (txn.subcategoria && (IRS_SUBCATEGORIAS as readonly string[]).includes(txn.subcategoria)) ? txn.subcategoria : ''
+  )
   const [saudeOverride,setSaudeOverride] = useState(txn.saude_override ?? '')
   const [saudeTouched,setSaudeTouched] = useState(!!txn.saude_override)
   const [saving,setSaving] = useState(false)
@@ -793,6 +796,7 @@ const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis,accounts,isDetectedTransfe
       fields.imovel_id = imovelId || null
       fields.imovel_classificado = true
     }
+    if(imovelId && tipo==='despesa') fields.subcategoria = irsSubcategoria || null
     await updateTransaction(txn.id, fields)
     // Aprendizagem: reforça/cria a regra com base na categoria escolhida manualmente
     // (regras de "Receita" não trazem grande valor preditivo, mas não fazem mal)
@@ -830,6 +834,7 @@ const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis,accounts,isDetectedTransfe
             <Sel label="Categoria" value={categoria} onChange={setCategoria} options={CAT_LIST.filter(c=>c!=='Receita').map(c=>({value:c,label:`${getCatStyle(c).icon} ${c}`}))}/>
           )}
           {hasImoveis&&<Sel label="Imóvel associado" value={imovelId} onChange={setImovelId} options={[{value:'',label:'Geral (nenhum imóvel)'},...imoveis!.map(im=>({value:im.id,label:`🏠 ${im.nome}`}))]}/>}
+          {imovelId&&tipo==='despesa'&&<Sel label="Balde IRS (Anexo F)" value={irsSubcategoria} onChange={setIrsSubcategoria} options={[{value:'',label:'Não classificado'},...IRS_SUBCATEGORIAS.map(c=>({value:c,label:IRS_SUBCATEGORIA_LABELS[c]}))]}/>}
           <div style={{marginBottom:14}}>
             <div style={{fontSize:11,color:T.textSec,fontWeight:600,marginBottom:5,textTransform:'uppercase',letterSpacing:'0.06em'}}>Saúde Financeira</div>
             <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
@@ -3152,6 +3157,393 @@ const AssignQueue = ({txns,imoveis,onClose,onRefresh,pal}:{txns:Transaction[],im
 }
 
 // ─────────────────────────────────────────────────────────────────
+// IRS — ANEXO F (rendimentos prediais)
+// ─────────────────────────────────────────────────────────────────
+const IRS_SUBCATEGORIAS = ['imi','imposto_selo','condominio','conservacao_manutencao','valorizacao','taxas_autarquicas','seguro','certificado_energetico','honorarios_profissionais','comissao_mediacao'] as const
+type IrsSubcategoria = typeof IRS_SUBCATEGORIAS[number]
+const IRS_SUBCATEGORIA_LABELS: Record<IrsSubcategoria,string> = {
+  imi:'IMI', imposto_selo:'Imposto do Selo', condominio:'Condomínio',
+  conservacao_manutencao:'Conservação e Manutenção', valorizacao:'Valorização (não dedutível)',
+  taxas_autarquicas:'Taxas Autárquicas', seguro:'Seguro', certificado_energetico:'Certificado Energético',
+  honorarios_profissionais:'Honorários Profissionais', comissao_mediacao:'Comissão de Mediação',
+}
+// Coluna do formulário oficial (Quadro 4.1/4.2) a que cada subcategoria corresponde —
+// tudo o que não tem coluna própria agrega em "outros". "valorizacao" nunca soma (não dedutível).
+const IRS_FORM_COLUMN: Partial<Record<IrsSubcategoria,'conservacao'|'condominio'|'imi'|'selo'|'taxas'|'outros'>> = {
+  imi:'imi', imposto_selo:'selo', condominio:'condominio', conservacao_manutencao:'conservacao',
+  taxas_autarquicas:'taxas', seguro:'outros', certificado_energetico:'outros',
+  honorarios_profissionais:'outros', comissao_mediacao:'outros',
+}
+const IRS_FORM_COLUMN_LABELS: Record<'conservacao'|'condominio'|'imi'|'selo'|'taxas'|'outros',string> = {
+  conservacao:'Conservação e Manutenção', condominio:'Condomínio', imi:'IMI',
+  selo:'Imposto do Selo', taxas:'Taxas Autárquicas', outros:'Outros',
+}
+const HABITACIONAL_TIPOS = new Set(['apartamento','moradia'])
+
+// Limites gerais de preço de renda por tipologia — Portaria 176/2019, Anexo I, escalão E6
+// (Lisboa — único concelho relevante hoje). Base 2024 (Portaria 53/2024) + coeficiente anual
+// de actualização das rendas (2025: 2,16%; 2026: 2,24%), arredondado ao euro acima, como a lei manda.
+// Calculado por nós — confirmar despacho oficial se/quando publicado.
+const IRS_LIMITE_RENDA_E6: Record<'2024'|'2025'|'2026', Record<'T0'|'T1'|'T2'|'T3'|'T4'|'T5', number>> = {
+  '2024': {T0:600, T1:900,  T2:1150, T3:1375, T4:1550, T5:1700},
+  '2025': {T0:613, T1:920,  T2:1175, T3:1405, T4:1584, T5:1737},
+  '2026': {T0:627, T1:941,  T2:1202, T3:1437, T4:1620, T5:1777},
+}
+
+// Duração aproximada do contrato, em anos
+function contratoDuracaoAnos(inicio:string|null, fim:string|null): number|null {
+  if(!inicio || !fim) return null
+  const ms = new Date(fim).getTime()-new Date(inicio).getTime()
+  if(!(ms>0)) return null
+  return ms/(365.25*86400000)
+}
+
+type IrsRegime = { quadro:'4.1'|'4.2', taxa:number, escalao:string|null, habitacional:boolean }
+// Sugestão de regime/taxa — o override manual (irs_taxa_override) vence sempre, mas o quadro
+// (4.1 vs 4.2) continua a ser calculado a partir da duração, para saberes que tabela usar.
+function sugerirRegimeIrs(im:Imovel): IrsRegime {
+  const habitacional = HABITACIONAL_TIPOS.has(im.tipo)
+  const anos = contratoDuracaoAnos(im.contrato_data_inicio, im.contrato_data_fim)
+  if(!habitacional || anos==null || anos<5){
+    return { quadro:'4.1', taxa: im.irs_taxa_override ?? (habitacional?25:28), escalao:null, habitacional }
+  }
+  let taxa=15, escalao='5 a 10 anos'
+  if(anos>=20){ taxa=5; escalao='20+ anos' }
+  else if(anos>=10){ taxa=10; escalao='10 a 20 anos' }
+  return { quadro:'4.2', taxa: im.irs_taxa_override ?? taxa, escalao, habitacional }
+}
+
+type IrsImovelResumo = {
+  imovel: Imovel
+  bruto: number
+  gastosPorCategoria: Record<IrsSubcategoria,number> // já ponderado pela % de propriedade
+  gastosDedutiveis: number
+  materiaColectavel: number
+  regime: IrsRegime
+  imposto: number
+  liquido: number
+}
+function computeIrsImovel(im:Imovel, transactions:Transaction[], ano:number): IrsImovelResumo {
+  const pct = im.ownership_pct/100
+  const anoTxns = transactions.filter(t=>t.imovel_id===im.id && t.data.startsWith(String(ano)))
+  const bruto = anoTxns.filter(t=>Number(t.valor)>0).reduce((s,t)=>s+Number(t.valor)*pct,0)
+  const gastosPorCategoria = {} as Record<IrsSubcategoria,number>
+  IRS_SUBCATEGORIAS.forEach(c=>{ gastosPorCategoria[c]=0 })
+  anoTxns.filter(t=>Number(t.valor)<0 && t.subcategoria && (IRS_SUBCATEGORIAS as readonly string[]).includes(t.subcategoria))
+    .forEach(t=>{ gastosPorCategoria[t.subcategoria as IrsSubcategoria] += Math.abs(Number(t.valor))*pct })
+  const gastosDedutiveis = IRS_SUBCATEGORIAS.filter(c=>c!=='valorizacao').reduce((s,c)=>s+gastosPorCategoria[c],0)
+  const materiaColectavel = Math.max(0, bruto-gastosDedutiveis)
+  const regime = sugerirRegimeIrs(im)
+  const imposto = materiaColectavel*(regime.taxa/100)
+  return { imovel:im, bruto, gastosPorCategoria, gastosDedutiveis, materiaColectavel, regime, imposto, liquido: bruto-gastosDedutiveis-imposto }
+}
+
+// Divide um resumo pelo nº de arrendatários — uma linha por arrendatário, como o formulário exige
+type IrsLinha = { imovel:Imovel, rendaLinha:number, gastos:Record<'conservacao'|'condominio'|'imi'|'selo'|'taxas'|'outros',number> }
+function buildIrsLinhas(resumo:IrsImovelResumo): IrsLinha[] {
+  const n = Math.max(1, resumo.imovel.num_arrendatarios||1)
+  const gastosCols: Record<'conservacao'|'condominio'|'imi'|'selo'|'taxas'|'outros',number> = {conservacao:0,condominio:0,imi:0,selo:0,taxas:0,outros:0}
+  IRS_SUBCATEGORIAS.forEach(c=>{
+    if(c==='valorizacao') return
+    const col = IRS_FORM_COLUMN[c] ?? 'outros'
+    gastosCols[col] += resumo.gastosPorCategoria[c]
+  })
+  return Array.from({length:n},():IrsLinha=>({
+    imovel: resumo.imovel,
+    rendaLinha: resumo.bruto/n,
+    gastos: {conservacao:gastosCols.conservacao/n, condominio:gastosCols.condominio/n, imi:gastosCols.imi/n, selo:gastosCols.selo/n, taxas:gastosCols.taxas/n, outros:gastosCols.outros/n},
+  }))
+}
+
+// ─────────────────────────────────────────────────────────────────
+// IRS — CONFIGURAÇÃO DO CONTRATO (por imóvel)
+// ─────────────────────────────────────────────────────────────────
+const IrsConfigScreen = ({imovel,onClose,onSaved}:{imovel:Imovel,onClose:()=>void,onSaved:()=>void}) => {
+  const [dataInicio,setDataInicio] = useState(imovel.contrato_data_inicio ?? '')
+  const [dataFim,setDataFim] = useState(imovel.contrato_data_fim ?? '')
+  const [numArrend,setNumArrend] = useState(String(imovel.num_arrendatarios||1))
+  const [freguesia,setFreguesia] = useState(imovel.freguesia_codigo ?? '')
+  const [tipoMatricial,setTipoMatricial] = useState<string>(imovel.matricial_tipo ?? 'U')
+  const [artigo,setArtigo] = useState(imovel.matricial_artigo ?? '')
+  const [fraccao,setFraccao] = useState(imovel.matricial_fraccao ?? '')
+  const [tipologia,setTipologia] = useState<string>(imovel.irs_tipologia ?? '')
+  const [saving,setSaving] = useState(false)
+
+  const regime = sugerirRegimeIrs({...imovel, contrato_data_inicio:dataInicio||null, contrato_data_fim:dataFim||null})
+  const anos = contratoDuracaoAnos(dataInicio||null, dataFim||null)
+  const anoComunicacao = dataInicio ? Number(dataInicio.slice(0,4))+1 : null
+  const precisaTipologia = regime.quadro==='4.2' && !!dataInicio && dataInicio>='2024-01-01'
+
+  const submit = async () => {
+    setSaving(true)
+    await updateImovel(imovel.id, {
+      contrato_data_inicio: dataInicio||null,
+      contrato_data_fim: dataFim||null,
+      num_arrendatarios: Math.max(1, Number(numArrend)||1),
+      freguesia_codigo: freguesia||null,
+      matricial_tipo: (tipoMatricial as 'U'|'R')||null,
+      matricial_artigo: artigo||null,
+      matricial_fraccao: fraccao||null,
+      irs_tipologia: (tipologia as Imovel['irs_tipologia'])||null,
+    })
+    await onSaved(); setSaving(false); onClose()
+  }
+
+  return (
+    <div style={{position:'fixed',inset:0,background:T.bg,zIndex:97,overflowY:'auto'}}>
+      <div style={{maxWidth:440,margin:'0 auto'}}>
+        <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',background:T.surface,borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,zIndex:10}}>
+          <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ArrowLeft size={18} color={T.textSec}/></button>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:15,fontWeight:700,color:T.text}}>Configuração — Contrato</div>
+            <div style={{fontSize:11,color:T.textTer,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{imovel.nome}</div>
+          </div>
+        </div>
+        <div style={{padding:'20px 18px'}}>
+          <div style={{display:'flex',gap:10}}>
+            <div style={{flex:1}}><DateInp label="Data de início" value={dataInicio} onChange={setDataInicio}/></div>
+            <div style={{flex:1}}><DateInp label="Data de fim" value={dataFim} onChange={setDataFim}/></div>
+          </div>
+          <Inp label="Nº de arrendatários" value={numArrend} onChange={setNumArrend} type="number"/>
+
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:10.5,color:T.textSec,fontWeight:600,marginBottom:5,textTransform:'uppercase',letterSpacing:'0.05em'}}>Sugestão automática</div>
+            <div style={{fontSize:13,fontWeight:600,color:T.text}}>Quadro {regime.quadro} — {regime.quadro==='4.2'?`Longa duração (${regime.escalao})`:(regime.habitacional?'Normal':'Não habitacional')}</div>
+            {anos!=null&&<div style={{fontSize:10.5,color:T.textTer,marginTop:2}}>Calculado a partir das datas: {anos.toFixed(1)} anos.</div>}
+            {regime.quadro==='4.2'&&<div style={{fontSize:10,color:T.textTer,marginTop:6,lineHeight:1.5}}>Para isto valer como longa duração, o contrato tem de estar comunicado no Portal das Finanças até 15/Fev/{anoComunicacao}. Confirma — senão, usa o Quadro 4.1.</div>}
+          </div>
+
+          {precisaTipologia&&(
+            <Sel label="Tipologia (limite de renda 2024+)" value={tipologia} onChange={setTipologia} options={[{value:'',label:'—'},...['T0','T1','T2','T3','T4','T5'].map(t=>({value:t,label:t}))]}/>
+          )}
+
+          <div style={{fontSize:11,color:T.textTer,fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:10,marginTop:16}}>Identificação matricial</div>
+          <div style={{display:'flex',gap:10}}>
+            <div style={{flex:1}}><Inp label="Freguesia (código)" value={freguesia} onChange={setFreguesia}/></div>
+            <div style={{flex:1}}><Sel label="Tipo" value={tipoMatricial} onChange={setTipoMatricial} options={[{value:'U',label:'U'},{value:'R',label:'R'}]}/></div>
+          </div>
+          <div style={{display:'flex',gap:10}}>
+            <div style={{flex:1}}><Inp label="Artigo" value={artigo} onChange={setArtigo}/></div>
+            <div style={{flex:1}}><Inp label="Fração/Secção" value={fraccao} onChange={setFraccao}/></div>
+          </div>
+          <div style={{fontSize:11,color:T.textSec,marginTop:-8,marginBottom:14,lineHeight:1.5}}>Está na caderneta predial / documento de cobrança do IMI.</div>
+
+          <Btn onClick={submit} variant="primary" accent={PAL.imoveis.accent} style={{width:'100%'}}>{saving?'A guardar…':'Guardar'}</Btn>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────
+// IRS — MAPEAMENTO PARA SUBMISSÃO (facsímile do Anexo F)
+// ─────────────────────────────────────────────────────────────────
+const IrsMappingScreen = ({resumos,ano,onClose}:{resumos:IrsImovelResumo[],ano:number,onClose:()=>void}) => {
+  const linhas41 = resumos.filter(r=>r.regime.quadro==='4.1').flatMap(buildIrsLinhas)
+  const linhas42 = resumos.filter(r=>r.regime.quadro==='4.2').flatMap(buildIrsLinhas)
+  const th: React.CSSProperties = {background:'#e4e4e0',border:'1px solid #999',padding:'5px 6px',fontSize:8.5,textTransform:'uppercase',letterSpacing:'0.02em',color:'#333'}
+  const td: React.CSSProperties = {border:'1px solid #999',padding:'4px 6px',textAlign:'center',fontFamily:T.mono,fontSize:10.5,color:'#111'}
+  const tdCampo: React.CSSProperties = {...td,background:'#e4e4e0',fontWeight:700,fontFamily:'inherit',fontSize:9}
+  const Table = ({title,linhas,cols}:{title:string,linhas:IrsLinha[],cols:{label:string,render:(l:IrsLinha)=>string}[]}) => (
+    <>
+      <div style={{fontSize:11,fontWeight:800,background:'#111',color:'#fff',display:'inline-block',padding:'3px 9px',margin:'14px 0 8px',letterSpacing:'0.03em'}}>{title}</div>
+      <div style={{overflowX:'auto',border:'1px solid #999',borderRadius:6,marginBottom:6}}>
+        <table style={{borderCollapse:'collapse',width:'100%',minWidth:600}}>
+          <thead><tr><th style={th}>Imóvel</th>{cols.map(c=><th key={c.label} style={th}>{c.label}</th>)}</tr></thead>
+          <tbody>
+            {linhas.length===0 ? (
+              <tr><td style={{...td,fontFamily:'inherit'}} colSpan={cols.length+1}>Sem imóveis neste quadro em {ano}.</td></tr>
+            ) : linhas.map((l,i)=>(
+              <tr key={i}>
+                <td style={{...tdCampo,textAlign:'left'}}>{l.imovel.nome}</td>
+                {cols.map(c=><td key={c.label} style={td}>{c.render(l)}</td>)}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  )
+  return (
+    <div style={{position:'fixed',inset:0,background:'#f4f4f2',zIndex:98,overflowY:'auto',fontFamily:"'Segoe UI',Arial,sans-serif"}}>
+      <div style={{maxWidth:820,margin:'0 auto',padding:'20px 18px 40px'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',borderBottom:'2px solid #111',paddingBottom:10,marginBottom:6}}>
+          <div>
+            <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',color:'#555',fontSize:13,marginBottom:8,padding:0}}>← Voltar</button>
+            <div style={{fontSize:10,letterSpacing:'0.04em',color:'#555'}}>MODELO 3 · ANEXO F · CATEGORIA F</div>
+            <div style={{fontSize:16,fontWeight:800,color:'#111',marginTop:2}}>Rendimentos Prediais — Ano {ano}</div>
+            <div style={{fontSize:11,color:'#555',marginTop:1}}>Valores calculados pela app, prontos a transcrever</div>
+          </div>
+        </div>
+        <Table title="QUADRO 4.1 — SEM REDUÇÃO DE TAXA" linhas={linhas41} cols={[
+          {label:'Freguesia',render:l=>l.imovel.freguesia_codigo||'—'},
+          {label:'Tipo',render:l=>l.imovel.matricial_tipo||'—'},
+          {label:'Artigo',render:l=>l.imovel.matricial_artigo||'—'},
+          {label:'Fração',render:l=>l.imovel.matricial_fraccao||'—'},
+          {label:'Renda Ilíquida',render:l=>dec(l.rendaLinha)},
+          {label:'Conservação',render:l=>dec(l.gastos.conservacao)},
+          {label:'Condomínio',render:l=>dec(l.gastos.condominio)},
+          {label:'IMI',render:l=>dec(l.gastos.imi)},
+          {label:'Selo',render:l=>dec(l.gastos.selo)},
+          {label:'Taxas',render:l=>dec(l.gastos.taxas)},
+          {label:'Outros',render:l=>dec(l.gastos.outros)},
+        ]}/>
+        <Table title="QUADRO 4.2 — LONGA DURAÇÃO (TAXA REDUZIDA)" linhas={linhas42} cols={[
+          {label:'Freguesia',render:l=>l.imovel.freguesia_codigo||'—'},
+          {label:'Tipo',render:l=>l.imovel.matricial_tipo||'—'},
+          {label:'Artigo',render:l=>l.imovel.matricial_artigo||'—'},
+          {label:'Fração',render:l=>l.imovel.matricial_fraccao||'—'},
+          {label:'Renda Ilíquida',render:l=>dec(l.rendaLinha)},
+          {label:'Conservação',render:l=>dec(l.gastos.conservacao)},
+          {label:'Condomínio',render:l=>dec(l.gastos.condominio)},
+          {label:'IMI',render:l=>dec(l.gastos.imi)},
+          {label:'Outros',render:l=>dec(l.gastos.outros)},
+        ]}/>
+        <div style={{fontSize:9.5,color:'#666',marginTop:6,lineHeight:1.5}}>"Outros" agrega Seguro, Certificado Energético, Honorários e Comissão de Mediação — sem coluna própria no formulário oficial. "Valorização" nunca soma (não dedutível).</div>
+        <div style={{background:'#fff3cd',border:'1px solid #d4a017',borderRadius:6,padding:'8px 12px',fontSize:10.5,color:'#664d03',marginTop:14}}>⚠ Cada imóvel com mais de 1 arrendatário aparece dividido em várias linhas (renda e gastos a dividir em partes iguais). Confirma o NIF de cada arrendatário directamente no Portal das Finanças.</div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────
+// IRS — RESUMO E EXPLORAÇÃO DE CUSTOS
+// ─────────────────────────────────────────────────────────────────
+const IrsResumoScreen = ({imoveis,transactions,accounts,onClose,onRefresh}:{imoveis:Imovel[],transactions:Transaction[],accounts:Account[],onClose:()=>void,onRefresh:()=>void}) => {
+  const [ano,setAno] = useState(new Date().getFullYear())
+  const [openId,setOpenId] = useState<string|null>(null)
+  const [openCat,setOpenCat] = useState<IrsSubcategoria|null>(null)
+  const [editTxn,setEditTxn] = useState<Transaction|null>(null)
+  const [configImovel,setConfigImovel] = useState<Imovel|null>(null)
+  const [showMapping,setShowMapping] = useState(false)
+  const [taxaInputs,setTaxaInputs] = useState<Record<string,string>>({})
+
+  const relevantes = imoveis.filter(im=>im.ativo)
+  const resumos = useMemo(()=>relevantes.map(im=>computeIrsImovel(im,transactions,ano)),[relevantes,transactions,ano])
+  const totalBruto = resumos.reduce((s,r)=>s+r.bruto,0)
+  const totalGastos = resumos.reduce((s,r)=>s+r.gastosDedutiveis,0)
+  const totalImposto = resumos.reduce((s,r)=>s+r.imposto,0)
+  const totalLiquido = resumos.reduce((s,r)=>s+r.liquido,0)
+  const ratio = totalBruto>0 ? (totalLiquido/totalBruto*100) : 0
+
+  const saveTaxa = async (im:Imovel, valor:string) => {
+    const n = Number(valor)
+    await updateImovel(im.id, { irs_taxa_override: isFinite(n)&&valor!=='' ? n : null })
+    await onRefresh()
+  }
+
+  return (
+    <div style={{position:'fixed',inset:0,background:T.bg,zIndex:95,overflowY:'auto'}}>
+      <div style={{maxWidth:440,margin:'0 auto'}}>
+        <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',background:T.surface,borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,zIndex:10}}>
+          <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ArrowLeft size={18} color={T.textSec}/></button>
+          <div style={{display:'flex',alignItems:'center',gap:6,flex:1}}>
+            <FileText size={16} color={PAL.imoveis.accent}/>
+            <div style={{fontSize:16,fontWeight:700,color:T.text}}>IRS — Rendimentos Prediais</div>
+          </div>
+        </div>
+        <div style={{padding:'16px 14px'}}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:10,marginBottom:14}}>
+            <button onClick={()=>setAno(a=>a-1)} style={{background:'none',border:'none',cursor:'pointer',color:T.textSec,fontSize:16}}>‹</button>
+            <span style={{fontSize:13,fontWeight:600,color:T.text}}>Ano fiscal {ano}</span>
+            <button onClick={()=>setAno(a=>Math.min(new Date().getFullYear(),a+1))} disabled={ano>=new Date().getFullYear()} style={{background:'none',border:'none',cursor:ano>=new Date().getFullYear()?'default':'pointer',color:ano>=new Date().getFullYear()?'rgba(255,255,255,0.15)':T.textSec,fontSize:16}}>›</button>
+          </div>
+
+          <Card style={{padding:16,marginBottom:16,background:'linear-gradient(145deg,#161b28,#1c2436)'}}>
+            <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0'}}><span style={{fontSize:11.5,color:T.textSec}}>Rendimento bruto total</span><span style={{fontSize:13,fontWeight:700,fontFamily:T.mono,color:T.text}}>{dec(totalBruto)}</span></div>
+            <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0'}}><span style={{fontSize:11.5,color:T.textSec}}>Gastos dedutíveis</span><span style={{fontSize:13,fontWeight:700,fontFamily:T.mono,color:T.textSec}}>− {dec(totalGastos)}</span></div>
+            <div style={{height:1,background:T.border,margin:'6px 0'}}/>
+            <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0'}}><span style={{fontSize:11.5,color:T.textSec}}>Imposto estimado (IRS)</span><span style={{fontSize:13,fontWeight:700,fontFamily:T.mono,color:T.red}}>− {dec(totalImposto)}</span></div>
+            <div style={{height:1,background:T.border,margin:'6px 0'}}/>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',padding:'4px 0'}}><span style={{fontSize:11.5,color:T.textSec}}>Rendimento líquido total</span><span style={{fontSize:20,fontWeight:700,fontFamily:T.mono,color:T.green}}>{dec(totalLiquido)}</span></div>
+            <div style={{textAlign:'right'}}><span style={{fontSize:10,fontWeight:700,color:ratio>=60?T.green:'#FBBF24',background:ratio>=60?'rgba(74,222,128,0.15)':'rgba(251,191,36,0.15)',padding:'2px 8px',borderRadius:10}}>{ratio.toFixed(1)}% líquido/bruto</span></div>
+            <div style={{fontSize:9.5,color:'#FBBF24',marginTop:8}}>⚠ Taxa por confirmar para 2026 — editável por imóvel abaixo.</div>
+          </Card>
+
+          {resumos.length===0&&<Card><div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem imóveis activos.</div></Card>}
+
+          {resumos.map(r=>{
+            const isOpen = openId===r.imovel.id
+            const taxaVal = taxaInputs[r.imovel.id] ?? String(r.regime.taxa)
+            return (
+              <Card key={r.imovel.id} style={{marginBottom:10,padding:'12px 14px',border:`1px solid ${isOpen?PAL.imoveis.accent:T.border}`}}>
+                <div onClick={()=>{setOpenId(isOpen?null:r.imovel.id);setOpenCat(null)}} style={{cursor:'pointer'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                    <span style={{fontSize:13,fontWeight:700,color:T.text}}>{r.imovel.nome}</span>
+                    <span style={{fontSize:13,fontWeight:700,fontFamily:T.mono,color:T.green}}>{dec(r.liquido)}</span>
+                  </div>
+                  <div style={{fontSize:10.5,color:T.textTer,marginTop:2}}>Rendas {dec(r.bruto)} · Gastos {dec(r.gastosDedutiveis)} · matéria colectável {dec(r.materiaColectavel)}</div>
+                </div>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',background:T.surface2,borderRadius:8,padding:'6px 10px',marginTop:6}}>
+                  <span style={{fontSize:10.5,color:T.textSec}}>Q{r.regime.quadro}{r.regime.escalao?` · ${r.regime.escalao}`:''} · taxa</span>
+                  <div style={{display:'flex',alignItems:'center',gap:4}}>
+                    <input value={taxaVal} onChange={e=>setTaxaInputs({...taxaInputs,[r.imovel.id]:e.target.value})} onBlur={()=>saveTaxa(r.imovel,taxaInputs[r.imovel.id]??String(r.regime.taxa))}
+                      style={{width:36,background:'none',border:'none',color:PAL.imoveis.accent,fontSize:12,fontWeight:700,fontFamily:T.mono,textAlign:'right'}}/>
+                    <span style={{fontSize:10.5,color:T.textSec}}>% → imposto {dec(r.imposto)}</span>
+                  </div>
+                </div>
+                <button onClick={()=>setConfigImovel(r.imovel)} style={{background:'none',border:'none',cursor:'pointer',color:T.textTer,fontSize:10.5,marginTop:6,padding:0}}>⚙ Configurar contrato / identificação</button>
+
+                {isOpen&&(
+                  <div style={{marginTop:10,borderTop:`1px solid ${T.border}`,paddingTop:8}}>
+                    {IRS_SUBCATEGORIAS.filter(c=>c!=='valorizacao').map(c=>{
+                      if(r.gastosPorCategoria[c]===0) return null
+                      const catOpen = openCat===c
+                      const catTxns = transactions.filter(t=>t.imovel_id===r.imovel.id && t.data.startsWith(String(ano)) && t.subcategoria===c)
+                      return (
+                        <div key={c}>
+                          <div onClick={()=>setOpenCat(catOpen?null:c)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',cursor:'pointer'}}>
+                            <span style={{fontSize:12,color:T.text}}>{IRS_SUBCATEGORIA_LABELS[c]}</span>
+                            <span style={{fontSize:12,fontFamily:T.mono,color:T.textSec}}>{dec(r.gastosPorCategoria[c])}</span>
+                          </div>
+                          {catOpen&&(
+                            <div style={{background:T.surface,borderRadius:8,padding:'6px 10px',marginBottom:6}}>
+                              {catTxns.length===0?(
+                                <div style={{fontSize:11,color:T.textTer,padding:'6px 0'}}>Sem transações.</div>
+                              ):catTxns.map(t=>(
+                                <div key={t.id} onClick={()=>setEditTxn(t)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:`1px solid ${T.border}`,cursor:'pointer',gap:8}}>
+                                  <div style={{minWidth:0}}><div style={{fontSize:11.5,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div><div style={{fontSize:10,color:T.textTer}}>{t.data}</div></div>
+                                  <div style={{display:'flex',alignItems:'center',gap:5,flexShrink:0}}><span style={{fontSize:11.5,fontFamily:T.mono,color:T.textSec}}>{dec(Math.abs(Number(t.valor)))}</span><ChevronRight size={12} color={T.textTer}/></div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                    {r.gastosPorCategoria.valorizacao>0&&(
+                      <div onClick={()=>setOpenCat(openCat==='valorizacao'?null:'valorizacao')} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',cursor:'pointer'}}>
+                        <span style={{fontSize:12,color:'#FBBF24'}}>{IRS_SUBCATEGORIA_LABELS.valorizacao}</span>
+                        <span style={{fontSize:12,fontFamily:T.mono,color:'#FBBF24'}}>{dec(r.gastosPorCategoria.valorizacao)}</span>
+                      </div>
+                    )}
+                    {openCat==='valorizacao'&&(
+                      <div style={{background:T.surface,borderRadius:8,padding:'6px 10px',marginBottom:6}}>
+                        {transactions.filter(t=>t.imovel_id===r.imovel.id && t.data.startsWith(String(ano)) && t.subcategoria==='valorizacao').map(t=>(
+                          <div key={t.id} onClick={()=>setEditTxn(t)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:`1px solid ${T.border}`,cursor:'pointer',gap:8}}>
+                            <div style={{minWidth:0}}><div style={{fontSize:11.5,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div><div style={{fontSize:10,color:T.textTer}}>{t.data}</div></div>
+                            <div style={{display:'flex',alignItems:'center',gap:5,flexShrink:0}}><span style={{fontSize:11.5,fontFamily:T.mono,color:T.textSec}}>{dec(Math.abs(Number(t.valor)))}</span><ChevronRight size={12} color={T.textTer}/></div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </Card>
+            )
+          })}
+
+          <Btn onClick={()=>setShowMapping(true)} variant="ghost" accent={PAL.imoveis.accent} style={{width:'100%',marginTop:6}}>Ver mapeamento para o IRS →</Btn>
+        </div>
+      </div>
+      {configImovel&&<IrsConfigScreen imovel={configImovel} onClose={()=>setConfigImovel(null)} onSaved={onRefresh}/>}
+      {showMapping&&<IrsMappingScreen resumos={resumos} ano={ano} onClose={()=>setShowMapping(false)}/>}
+      {editTxn&&<TxnEditForm txn={editTxn} onClose={()=>setEditTxn(null)} onSaved={onRefresh} pal={{accent:PAL.imoveis.accent,soft:PAL.imoveis.soft}} imoveis={imoveis} accounts={accounts}/>}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────
 // IMÓVEIS SCREEN — full management
 // ─────────────────────────────────────────────────────────────────
 const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,onViewAll}:{imoveis:Imovel[],transactions:Transaction[],accounts:Account[],contaImovel:ContaImovel[],pal:{grad:string,accent:string,soft:string},onRefresh:()=>void,onViewAll:(imovelId?:string)=>void}) => {
@@ -3162,6 +3554,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
   const [selAcc,setSelAcc] = useState<string|null>(null)
   const [selImovel,setSelImovel] = useState<string|null>(null)
   const [monthOffset,setMonthOffset] = useState(0)
+  const [showIrs,setShowIrs] = useState(false)
 
   const investAccounts = accounts.filter(a=>a.budget_tag==='investimento')
   const investAccountIds = new Set(investAccounts.map(a=>a.id))
@@ -3278,6 +3671,15 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
         </Card>
       )}
 
+      {/* IRS — Anexo F */}
+      <Card style={{marginBottom:16,padding:'13px 16px',cursor:'pointer'}}>
+        <div onClick={()=>setShowIrs(true)} style={{display:'flex',alignItems:'center',gap:12}}>
+          <FileText size={20} color={pal.accent}/>
+          <div style={{flex:1}}><div style={{fontSize:13,fontWeight:700,color:T.text}}>IRS — Rendimentos Prediais</div><div style={{fontSize:11,color:T.textSec,marginTop:1}}>Resumo de custos e mapeamento para o Anexo F</div></div>
+          <div style={{fontSize:12,color:pal.accent,fontWeight:600}}>Abrir →</div>
+        </div>
+      </Card>
+
       {/* ── POR IMÓVEL ── */}
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'0 2px',minHeight:26}}>
         <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase'}}>Por imóvel</span>
@@ -3367,6 +3769,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
       {formOpen&&<ImovelForm initial={editing} accounts={accounts} linkedAccountIds={editing?linkedAccounts(editing.id):new Set()} onClose={()=>setFormOpen(false)} onSaved={onRefresh} pal={pal} imoveisLen={imoveis.length}/>}
       {showQueue&&<AssignQueue txns={porAssociar} imoveis={imoveis} onClose={()=>setShowQueue(false)} onRefresh={onRefresh} pal={pal}/>}
       {editTxn&&<TxnEditForm txn={editTxn} onClose={()=>setEditTxn(null)} onSaved={onRefresh} pal={pal} imoveis={imoveis} accounts={accounts}/>}
+      {showIrs&&<IrsResumoScreen imoveis={imoveis} transactions={transactions} accounts={accounts} onClose={()=>setShowIrs(false)} onRefresh={onRefresh}/>}
     </div>
   )
 }

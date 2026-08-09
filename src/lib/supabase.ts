@@ -99,6 +99,16 @@ export type Imovel = {
   valorizacao: number
   valorizacao_data: string | null
   owner_user_id: string | null
+  // IRS — Anexo F
+  contrato_data_inicio: string | null
+  contrato_data_fim: string | null
+  num_arrendatarios: number
+  freguesia_codigo: string | null
+  matricial_tipo: 'U' | 'R' | null
+  matricial_artigo: string | null
+  matricial_fraccao: string | null
+  irs_tipologia: 'T0' | 'T1' | 'T2' | 'T3' | 'T4' | 'T5' | null
+  irs_taxa_override: number | null
 }
 
 export type ContaImovel = {
