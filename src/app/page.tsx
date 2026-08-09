@@ -10,7 +10,7 @@ import {
   ArrowLeft, Trash2, FileText, HardDrive, Zap, RefreshCw, Edit2, CreditCard,
   Filter, CheckSquare, Square, Tag, Calendar, SlidersHorizontal, Link2, Inbox,
   Sparkles, Target, BrainCircuit, Folder, ChevronRight, AlertTriangle, Bell,
-  Users, UserPlus, Mail, HeartPulse,
+  Users, UserPlus, Mail, HeartPulse, ChevronUp, ChevronDown,
 } from 'lucide-react'
 import {
   supabase, loadAllData, loadAllTransactions, saveAccount, deleteAccount, updateAccount,
@@ -3201,6 +3201,13 @@ const IRS_LIMITE_RENDA_E6: Record<'2024'|'2025'|'2026', Record<'T0'|'T1'|'T2'|'T
   '2025': {T0:613, T1:920,  T2:1175, T3:1405, T4:1584, T5:1737},
   '2026': {T0:627, T1:941,  T2:1202, T3:1437, T4:1620, T5:1777},
 }
+// Limite geral aplicável a um ano (tabela só cobre 2024-2026 — anos fora disso usam o
+// extremo mais próximo, por falta de despacho publicado).
+function limiteRendaAplicavel(tipologia:Imovel['irs_tipologia'], ano:number): number|null {
+  if(!tipologia) return null
+  const anoKey = String(Math.min(2026,Math.max(2024,ano))) as '2024'|'2025'|'2026'
+  return IRS_LIMITE_RENDA_E6[anoKey][tipologia]
+}
 
 // Duração aproximada do contrato, em anos — a data de fim é inclusiva (um contrato "de 5
 // anos" com início 14/07/2025 escreve-se com fim 13/07/2030, não 14/07/2030), por isso soma-se
@@ -3275,7 +3282,7 @@ function buildIrsLinhas(resumo:IrsImovelResumo): IrsLinha[] {
 // ─────────────────────────────────────────────────────────────────
 // IRS — CONFIGURAÇÃO DO CONTRATO (por imóvel)
 // ─────────────────────────────────────────────────────────────────
-const IrsConfigScreen = ({imovel,onClose,onSaved}:{imovel:Imovel,onClose:()=>void,onSaved:()=>void}) => {
+const IrsConfigScreen = ({imovel,resumo,ano,onClose,onSaved}:{imovel:Imovel,resumo?:IrsImovelResumo,ano:number,onClose:()=>void,onSaved:()=>void}) => {
   const [dataInicio,setDataInicio] = useState(imovel.contrato_data_inicio ?? '')
   const [dataFim,setDataFim] = useState(imovel.contrato_data_fim ?? '')
   const [numArrend,setNumArrend] = useState(String(imovel.num_arrendatarios||1))
@@ -3290,6 +3297,16 @@ const IrsConfigScreen = ({imovel,onClose,onSaved}:{imovel:Imovel,onClose:()=>voi
   const anos = contratoDuracaoAnos(dataInicio||null, dataFim||null)
   const anoComunicacao = dataInicio ? Number(dataInicio.slice(0,4))+1 : null
   const precisaTipologia = regime.quadro==='4.2' && !!dataInicio && dataInicio>='2024-01-01'
+
+  // Art. 72º nº23 CIRS: as reduções deixam de se aplicar se a renda mensal exceder em 50% o
+  // limite geral por tipologia (Portaria 176/2019). `resumo.bruto` já está ponderado pela
+  // ownership_pct — divide-se de volta para 100% (a renda paga pelo arrendatário é sempre a
+  // totalidade, não a tua quota) e usa-se a média mensal do ano como aproximação.
+  const pct = (imovel.ownership_pct||100)/100
+  const rendaMediaMensal = (resumo && pct>0) ? (resumo.bruto/pct)/12 : null
+  const limiteGeral = limiteRendaAplicavel(tipologia as Imovel['irs_tipologia'], ano)
+  const limiteMax = limiteGeral!=null ? limiteGeral*1.5 : null
+  const dentroDoLimite = (rendaMediaMensal!=null && limiteMax!=null) ? rendaMediaMensal<=limiteMax : null
 
   const submit = async () => {
     setSaving(true)
@@ -3331,7 +3348,21 @@ const IrsConfigScreen = ({imovel,onClose,onSaved}:{imovel:Imovel,onClose:()=>voi
           </div>
 
           {precisaTipologia&&(
-            <Sel label="Tipologia (limite de renda 2024+)" value={tipologia} onChange={setTipologia} options={[{value:'',label:'—'},...['T0','T1','T2','T3','T4','T5'].map(t=>({value:t,label:t}))]}/>
+            <>
+              <Sel label="Tipologia (limite de renda 2024+)" value={tipologia} onChange={setTipologia} options={[{value:'',label:'—'},...['T0','T1','T2','T3','T4','T5'].map(t=>({value:t,label:t}))]}/>
+              {tipologia&&limiteMax!=null&&!!rendaMediaMensal&&(
+                <div style={{background:dentroDoLimite?'rgba(74,222,128,0.1)':'rgba(248,113,113,0.1)',border:`1px solid ${dentroDoLimite?T.green:T.red}`,borderRadius:10,padding:'10px 12px',marginTop:-8,marginBottom:14}}>
+                  <div style={{fontSize:12,fontWeight:700,color:dentroDoLimite?T.green:T.red}}>{dentroDoLimite?'✓ Dentro do limite legal':'⚠ Acima do limite legal'}</div>
+                  <div style={{fontSize:10.5,color:T.textSec,marginTop:3,lineHeight:1.5}}>
+                    Renda média mensal ({dec(rendaMediaMensal??0)}) vs. limite de {dec(limiteMax)} (150% de {dec(limiteGeral??0)}, {tipologia} em {Math.min(2026,Math.max(2024,ano))}).
+                    {!dentroDoLimite&&' Acima disto, o art. 72º nº23 CIRS diz que o Quadro 4.2 deixa de se aplicar — usa o Quadro 4.1.'}
+                  </div>
+                </div>
+              )}
+              {tipologia&&!rendaMediaMensal&&(
+                <div style={{fontSize:10.5,color:T.textTer,marginTop:-8,marginBottom:14,lineHeight:1.5}}>Ainda sem rendas registadas em {ano} para calcular a renda média mensal.</div>
+              )}
+            </>
           )}
 
           <div style={{fontSize:11,color:T.textTer,fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:10,marginTop:16}}>Identificação matricial</div>
@@ -3647,7 +3678,7 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
           <Btn onClick={()=>setShowMapping(true)} variant="ghost" accent={PAL.imoveis.accent} style={{width:'100%',marginTop:6}}>Ver mapeamento para o IRS →</Btn>
         </div>
       </div>
-      {configImovel&&<IrsConfigScreen imovel={configImovel} onClose={()=>setConfigImovel(null)} onSaved={refreshAll}/>}
+      {configImovel&&<IrsConfigScreen imovel={configImovel} resumo={resumos.find(r=>r.imovel.id===configImovel.id)} ano={ano} onClose={()=>setConfigImovel(null)} onSaved={refreshAll}/>}
       {showMapping&&<IrsMappingScreen resumos={resumos} ano={ano} onClose={()=>setShowMapping(false)}/>}
       {showNaoClassificadas&&<IrsUnclassifiedQueue txns={allNaoClassificadas} imoveis={imoveis} accounts={accounts} ano={ano} onClose={()=>setShowNaoClassificadas(false)} onRefresh={refreshAll}/>}
       {editTxn&&<TxnEditForm txn={editTxn} onClose={()=>setEditTxn(null)} onSaved={refreshAll} pal={{accent:PAL.imoveis.accent,soft:PAL.imoveis.soft}} imoveis={imoveis} accounts={accounts}/>}
@@ -3667,6 +3698,18 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
   const [selImovel,setSelImovel] = useState<string|null>(null)
   const [monthOffset,setMonthOffset] = useState(0)
   const [showIrs,setShowIrs] = useState(false)
+  const [showQuota,setShowQuota] = useState(false)
+  // Reordena a lista "por imóvel" — `ordem` estava empatado a 5 em todos os imóveis, por isso
+  // a ordem de leitura da BD era instável; ao mover, renumera todos em sequência para ficar
+  // estável dali para a frente.
+  const moveImovel = async (idx:number, dir:-1|1) => {
+    const target = idx+dir
+    if(target<0 || target>=imoveis.length) return
+    const reordered = [...imoveis]
+    ;[reordered[idx],reordered[target]] = [reordered[target],reordered[idx]]
+    await Promise.all(reordered.map((im,i)=>updateImovel(im.id,{ordem:i})))
+    await onRefresh()
+  }
   // Fila "por associar" sem limite de data — `transactions` só cobre os últimos ~6 meses
   // (loadAllData), o que esconderia silenciosamente transações por classificar vindas de
   // uma importação histórica mais antiga.
@@ -3806,13 +3849,15 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'0 2px',minHeight:26}}>
         <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase'}}>Por imóvel</span>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          <button onClick={()=>setShowQuota(v=>!v)} title="100% do imóvel vs. a tua quota de propriedade" style={{background:showQuota?pal.accent:pal.soft,border:'none',borderRadius:8,padding:'4px 10px',cursor:'pointer'}}><span style={{fontSize:11,color:showQuota?'#0B0B12':pal.accent,fontWeight:600}}>{showQuota?'Minha quota':'100%'}</span></button>
           {selImovel&&<button onClick={()=>setSelImovel(null)} style={{display:'flex',alignItems:'center',gap:4,background:pal.soft,border:'none',borderRadius:8,padding:'3px 8px',cursor:'pointer'}}><span style={{fontSize:12,color:pal.accent,fontWeight:600}}>×</span><span style={{fontSize:11,color:pal.accent,fontWeight:600}}>Ver todos</span></button>}
           <button onClick={()=>{setEditing(null);setFormOpen(true)}} style={{display:'flex',alignItems:'center',gap:4,background:pal.soft,border:'none',borderRadius:8,padding:'4px 10px',cursor:'pointer'}}><Plus size={12} color={pal.accent}/><span style={{fontSize:11,color:pal.accent,fontWeight:600}}>Adicionar</span></button>
         </div>
       </div>
       {imoveis.length===0&&<Card style={{marginBottom:20}}><div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem imóveis ainda. Toca em "Adicionar" para criar o primeiro.</div></Card>}
-      {imoveis.map(im=>{
-        const renda=getImRenda(im.id), custo=getImCusto(im.id), res=renda-custo, pos=res>=0
+      {imoveis.map((im,idx)=>{
+        const quotaFactor = showQuota ? (im.ownership_pct||100)/100 : 1
+        const renda=getImRenda(im.id)*quotaFactor, custo=getImCusto(im.id)*quotaFactor, res=renda-custo, pos=res>=0
         const nLinks=contaImovel.filter(ci=>ci.imovel_id===im.id).length
         const temValoriz=(im.valorizacao||0)>0
         return (
@@ -3825,7 +3870,11 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
               <div style={{display:'flex',alignItems:'center',gap:8}}>
                 <div style={{textAlign:'right'}}>
                   <div style={{fontSize:19,fontWeight:700,color:pos?T.green:T.red,fontFamily:T.mono}}>{pos?'+ ':'− '}{dec(Math.abs(res))}</div>
-                  <div style={{fontSize:9,color:'rgba(255,255,255,0.28)',marginTop:1}}>resultado/mês</div>
+                  <div style={{fontSize:9,color:'rgba(255,255,255,0.28)',marginTop:1}}>resultado/mês{showQuota?` · ${im.ownership_pct}%`:''}</div>
+                </div>
+                <div style={{display:'flex',flexDirection:'column',gap:3}}>
+                  <button onClick={e=>{e.stopPropagation();moveImovel(idx,-1)}} disabled={idx===0} style={{background:'rgba(255,255,255,0.1)',border:'none',borderRadius:6,padding:2,cursor:idx===0?'default':'pointer',opacity:idx===0?0.3:1}}><ChevronUp size={12} color="#FFF"/></button>
+                  <button onClick={e=>{e.stopPropagation();moveImovel(idx,1)}} disabled={idx===imoveis.length-1} style={{background:'rgba(255,255,255,0.1)',border:'none',borderRadius:6,padding:2,cursor:idx===imoveis.length-1?'default':'pointer',opacity:idx===imoveis.length-1?0.3:1}}><ChevronDown size={12} color="#FFF"/></button>
                 </div>
                 <button onClick={e=>{e.stopPropagation();setEditing(im);setFormOpen(true)}} style={{background:'rgba(255,255,255,0.1)',border:'none',borderRadius:8,padding:6,cursor:'pointer'}}><Edit2 size={13} color="#FFF"/></button>
               </div>
