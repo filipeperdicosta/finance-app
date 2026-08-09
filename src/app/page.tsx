@@ -3282,7 +3282,7 @@ function buildIrsLinhas(resumo:IrsImovelResumo): IrsLinha[] {
 // ─────────────────────────────────────────────────────────────────
 // IRS — CONFIGURAÇÃO DO CONTRATO (por imóvel)
 // ─────────────────────────────────────────────────────────────────
-const IrsConfigScreen = ({imovel,resumo,ano,onClose,onSaved}:{imovel:Imovel,resumo?:IrsImovelResumo,ano:number,onClose:()=>void,onSaved:()=>void}) => {
+const IrsConfigScreen = ({imovel,onClose,onSaved}:{imovel:Imovel,onClose:()=>void,onSaved:()=>void}) => {
   const [dataInicio,setDataInicio] = useState(imovel.contrato_data_inicio ?? '')
   const [dataFim,setDataFim] = useState(imovel.contrato_data_fim ?? '')
   const [numArrend,setNumArrend] = useState(String(imovel.num_arrendatarios||1))
@@ -3297,16 +3297,6 @@ const IrsConfigScreen = ({imovel,resumo,ano,onClose,onSaved}:{imovel:Imovel,resu
   const anos = contratoDuracaoAnos(dataInicio||null, dataFim||null)
   const anoComunicacao = dataInicio ? Number(dataInicio.slice(0,4))+1 : null
   const precisaTipologia = regime.quadro==='4.2' && !!dataInicio && dataInicio>='2024-01-01'
-
-  // Art. 72º nº23 CIRS: as reduções deixam de se aplicar se a renda mensal exceder em 50% o
-  // limite geral por tipologia (Portaria 176/2019). `resumo.bruto` já está ponderado pela
-  // ownership_pct — divide-se de volta para 100% (a renda paga pelo arrendatário é sempre a
-  // totalidade, não a tua quota) e usa-se a média mensal do ano como aproximação.
-  const pct = (imovel.ownership_pct||100)/100
-  const rendaMediaMensal = (resumo && pct>0) ? (resumo.bruto/pct)/12 : null
-  const limiteGeral = limiteRendaAplicavel(tipologia as Imovel['irs_tipologia'], ano)
-  const limiteMax = limiteGeral!=null ? limiteGeral*1.5 : null
-  const dentroDoLimite = (rendaMediaMensal!=null && limiteMax!=null) ? rendaMediaMensal<=limiteMax : null
 
   const submit = async () => {
     setSaving(true)
@@ -3348,19 +3338,7 @@ const IrsConfigScreen = ({imovel,resumo,ano,onClose,onSaved}:{imovel:Imovel,resu
           </div>
 
           {precisaTipologia&&(
-            <>
-              <Sel label="Tipologia (limite de renda 2024+)" value={tipologia} onChange={setTipologia} options={[{value:'',label:'—'},...['T0','T1','T2','T3','T4','T5'].map(t=>({value:t,label:t}))]}/>
-              {tipologia&&limiteMax!=null&&!!rendaMediaMensal&&(
-                <div style={{fontSize:10.5,color:T.textTer,marginTop:-8,marginBottom:14,lineHeight:1.5}}>
-                  Renda média mensal registada em {ano} ({dec(rendaMediaMensal??0)}) vs. limite legal de {dec(limiteMax)} (150% de {dec(limiteGeral??0)}, {tipologia} em {Math.min(2026,Math.max(2024,ano))}) —{' '}
-                  <span style={{color:dentroDoLimite?T.green:T.red,fontWeight:600}}>{dentroDoLimite?'dentro do limite':'acima do limite'}</span>.
-                  {!dentroDoLimite&&' Acima disto, o art. 72º nº23 CIRS diz que o Quadro 4.2 deixa de se aplicar — usa o Quadro 4.1.'}
-                </div>
-              )}
-              {tipologia&&!rendaMediaMensal&&(
-                <div style={{fontSize:10.5,color:T.textTer,marginTop:-8,marginBottom:14,lineHeight:1.5}}>Ainda sem rendas registadas em {ano} para calcular a renda média mensal.</div>
-              )}
-            </>
+            <Sel label="Tipologia (limite de renda 2024+)" value={tipologia} onChange={setTipologia} options={[{value:'',label:'—'},...['T0','T1','T2','T3','T4','T5'].map(t=>({value:t,label:t}))]}/>
           )}
 
           <div style={{fontSize:11,color:T.textTer,fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:10,marginTop:16}}>Identificação matricial</div>
@@ -3600,11 +3578,14 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
             return (
               <Card key={r.imovel.id} style={{marginBottom:10,padding:'12px 14px',border:`1px solid ${isOpen?PAL.imoveis.accent:T.border}`}}>
                 <div onClick={()=>{setOpenId(isOpen?null:r.imovel.id);setOpenCat(null)}} style={{cursor:'pointer'}}>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
                     <span style={{fontSize:13,fontWeight:700,color:T.text}}>{r.imovel.nome}</span>
-                    <span style={{fontSize:13,fontWeight:700,fontFamily:T.mono,color:T.green}}>{dec(r.liquido)}</span>
+                    <div style={{textAlign:'right'}}>
+                      <div style={{fontSize:13,fontWeight:700,fontFamily:T.mono,color:T.green}}>{dec(r.liquido)}</div>
+                      <div style={{fontSize:9,color:T.textTer,marginTop:1}}>líquido</div>
+                    </div>
                   </div>
-                  <div style={{fontSize:10.5,color:T.textTer,marginTop:2}}>Rendas {dec(r.bruto)} · Gastos {dec(r.gastosDedutiveis)} · matéria colectável {dec(r.materiaColectavel)}</div>
+                  <div style={{fontSize:10.5,color:T.textTer,marginTop:2}}>Bruto {dec(r.bruto)} · Gastos {dec(r.gastosDedutiveis)} · matéria colectável {dec(r.materiaColectavel)}</div>
                 </div>
                 <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',background:T.surface2,borderRadius:8,padding:'6px 10px',marginTop:6}}>
                   <span style={{fontSize:10.5,color:T.textSec}}>Q{r.regime.quadro}{r.regime.escalao?` · ${r.regime.escalao}`:''} · taxa</span>
@@ -3615,6 +3596,31 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
                   </div>
                 </div>
                 <button onClick={()=>setConfigImovel(r.imovel)} style={{background:'none',border:'none',cursor:'pointer',color:T.textTer,fontSize:10.5,marginTop:6,padding:0}}>⚙ Configurar contrato / identificação</button>
+
+                {(()=>{
+                  // Art. 72º nº23 CIRS — usa sempre o bruto a 100% (resumos100), independente
+                  // do toggle "Minha quota": a renda paga é sempre a totalidade, não a tua
+                  // quota. Divide por 12 aqui (não no ecrã de configuração do contrato) porque
+                  // só aqui há o ano fiscal completo a contabilizar — a meio do ano em curso o
+                  // resultado é uma estimativa provisória, não o valor final.
+                  const precisaTipologia = r.regime.quadro==='4.2' && !!r.imovel.contrato_data_inicio && r.imovel.contrato_data_inicio>='2024-01-01'
+                  if(!precisaTipologia || !r.imovel.irs_tipologia) return null
+                  const bruto100 = resumos100.find(rr=>rr.imovel.id===r.imovel.id)?.bruto ?? 0
+                  if(!bruto100) return null
+                  const rendaMediaMensal = bruto100/12
+                  const limiteGeral = limiteRendaAplicavel(r.imovel.irs_tipologia, ano)
+                  if(limiteGeral==null) return null
+                  const limiteMax = limiteGeral*1.5
+                  const dentro = rendaMediaMensal<=limiteMax
+                  const anoEmCurso = ano===new Date().getFullYear()
+                  return (
+                    <div style={{fontSize:10,color:T.textTer,marginTop:6,lineHeight:1.5}}>
+                      Renda média mensal{anoEmCurso?' (provisória)':''} ({dec(rendaMediaMensal)}) vs. limite legal de {dec(limiteMax)} (150% de {dec(limiteGeral)}, {r.imovel.irs_tipologia}) —{' '}
+                      <span style={{color:dentro?T.green:T.red,fontWeight:600}}>{dentro?'dentro do limite':'acima do limite'}</span>.
+                      {!dentro&&' Acima disto, o art. 72º nº23 CIRS diz que o Quadro 4.2 deixa de se aplicar — usa o Quadro 4.1.'}
+                    </div>
+                  )
+                })()}
 
                 {isOpen&&(
                   <div style={{marginTop:10,borderTop:`1px solid ${T.border}`,paddingTop:8}}>
@@ -3684,7 +3690,7 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
           <Btn onClick={()=>setShowMapping(true)} variant="ghost" accent={PAL.imoveis.accent} style={{width:'100%',marginTop:6}}>Ver mapeamento para o IRS →</Btn>
         </div>
       </div>
-      {configImovel&&<IrsConfigScreen imovel={configImovel} resumo={resumosQuota.find(r=>r.imovel.id===configImovel.id)} ano={ano} onClose={()=>setConfigImovel(null)} onSaved={refreshAll}/>}
+      {configImovel&&<IrsConfigScreen imovel={configImovel} onClose={()=>setConfigImovel(null)} onSaved={refreshAll}/>}
       {showMapping&&<IrsMappingScreen resumos={resumosQuota} ano={ano} onClose={()=>setShowMapping(false)}/>}
       {showNaoClassificadas&&<IrsUnclassifiedQueue txns={allNaoClassificadas} imoveis={imoveis} accounts={accounts} ano={ano} onClose={()=>setShowNaoClassificadas(false)} onRefresh={refreshAll}/>}
       {editTxn&&<TxnEditForm txn={editTxn} onClose={()=>setEditTxn(null)} onSaved={refreshAll} pal={{accent:PAL.imoveis.accent,soft:PAL.imoveis.soft}} imoveis={imoveis} accounts={accounts}/>}
