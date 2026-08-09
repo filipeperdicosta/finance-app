@@ -3494,7 +3494,9 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
   // Despesas de imóveis sem Balde IRS atribuído — ficam FORA dos totais acima até serem
   // classificadas, por isso têm de aparecer sempre visíveis, nunca silenciosamente omitidas.
   const naoClassificadas = (imId:string) => yearTxns.filter(t=>t.imovel_id===imId && t.data.startsWith(String(ano)) && Number(t.valor)<0 && !t.subcategoria)
-  const allNaoClassificadas = useMemo(()=>relevantes.flatMap(im=>naoClassificadas(im.id)),[relevantes,yearTxns,ano])
+  // flatMap agrupa por imóvel primeiro — sem o sort a seguir, a lista ficaria ordenada por
+  // imóvel e só depois por data dentro de cada um, em vez de globalmente por data decrescente.
+  const allNaoClassificadas = useMemo(()=>relevantes.flatMap(im=>naoClassificadas(im.id)).sort((a,b)=>b.data.localeCompare(a.data)),[relevantes,yearTxns,ano])
   const totalNaoClassificadas = allNaoClassificadas.length
 
   const saveTaxa = async (im:Imovel, valor:string) => {
