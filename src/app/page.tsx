@@ -3202,10 +3202,13 @@ const IRS_LIMITE_RENDA_E6: Record<'2024'|'2025'|'2026', Record<'T0'|'T1'|'T2'|'T
   '2026': {T0:627, T1:941,  T2:1202, T3:1437, T4:1620, T5:1777},
 }
 
-// Duração aproximada do contrato, em anos
+// Duração aproximada do contrato, em anos — a data de fim é inclusiva (um contrato "de 5
+// anos" com início 14/07/2025 escreve-se com fim 13/07/2030, não 14/07/2030), por isso soma-se
+// 1 dia ao fim antes de calcular; senão um contrato de 5 anos certos ficava sempre a dar
+// 1 dia a menos que 5 anos.
 function contratoDuracaoAnos(inicio:string|null, fim:string|null): number|null {
   if(!inicio || !fim) return null
-  const ms = new Date(fim).getTime()-new Date(inicio).getTime()
+  const ms = (new Date(fim).getTime()+86400000) - new Date(inicio).getTime()
   if(!(ms>0)) return null
   return ms/(365.25*86400000)
 }
