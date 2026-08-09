@@ -3396,7 +3396,20 @@ const PatrimonioScreen = ({accounts,imoveis,transactions,pal}:{accounts:Account[
   const now=new Date()
   const refMonth = latestMonthWithData(transactions) ?? `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`
   const period = monthYearLabel(refMonth)
-  const trend=Array.from({length:5},(_,i)=>({m:getMonthLabel(i-4,refMonth),rec:totalBruto*(0.9+i*.025),desp:0,net:totalBruto*(0.9+i*.025)}))
+
+  // Tendência real: parte do saldo actual (a tua quota, mesmo cálculo do Hero) e recua
+  // mês a mês subtraindo o fluxo líquido ponderado desse mês — sem inventar nada, só soma
+  // as próprias transações, tal como os outros gráficos já fazem para receitas/despesas.
+  // Cartões ficam de fora (nunca entram no património agregado, ver accountSaldoTotal).
+  const relevantAccounts = accounts.filter(a=>(a.budget_tag==='pessoal'||a.budget_tag==='familiar'||a.budget_tag==='investimento')&&a.tipo!=='cartão')
+  const pctByAccountPatr = new Map(relevantAccounts.map(a=>[a.id,(a.my_ownership_pct??a.ownership_pct)/100]))
+  const relevantIdsPatr = new Set(relevantAccounts.map(a=>a.id))
+  const netFlowForMonth = (ym:string) => transactions.filter(t=>relevantIdsPatr.has(t.account_id)&&t.data.startsWith(ym))
+    .reduce((s,t)=>s+Number(t.valor)*(pctByAccountPatr.get(t.account_id)??1),0)
+  const monthsYM = Array.from({length:5},(_,i)=>shiftMonth(refMonth,i-4))
+  const balances:number[] = [0,0,0,0,minhaQuota]
+  for(let i=3;i>=0;i--) balances[i] = balances[i+1]-netFlowForMonth(monthsYM[i+1])
+  const trend = monthsYM.map((ym,i)=>({m:getMonthLabel(i-4,refMonth),rec:0,desp:0,net:balances[i]}))
   return (
     <div>
       <Hero pal={pal} title="Património — Saldos" period={period} mainValue={big(minhaQuota)} mainColor={minhaQuota<0?'#FCA5A5':'#FFF'} trend={trend} kpis={[{l:'Total bruto',v:big(totalBruto),c:'rgba(255,255,255,0.45)'},{l:'A tua quota',v:big(minhaQuota),c:'#FFF'},{l:'Contas',v:String(accounts.length),c:'rgba(255,255,255,0.7)'}]} sparkMode="patrimonio"/>
