@@ -767,6 +767,11 @@ const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis,accounts,isDetectedTransfe
   const [saudeRules,setSaudeRules] = useState<SaudeRule[]>([])
   useEffect(()=>{ loadSaudeRules().then(setSaudeRules) },[])
   const hasImoveis = imoveis && imoveis.length>0
+  // Fora do âmbito Saúde Financeira (computeSaudeFinanceiraMonth só soma contas
+  // 'pessoal'/'familiar') — contas de investimento/herança não entram em nenhum cálculo,
+  // por isso não faz sentido pedir uma classificação que nunca é usada.
+  const txnAccount = accounts?.find(a=>a.id===txn.account_id)
+  const inSaudeScope = !txnAccount || txnAccount.budget_tag==='pessoal' || txnAccount.budget_tag==='familiar'
 
   const saudeOptions = saudeOptionsFor(tipo,categoria)
   const ruleMatch = matchSaudeRule(descritivo,saudeRules)
@@ -835,7 +840,7 @@ const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis,accounts,isDetectedTransfe
           )}
           {hasImoveis&&<Sel label="Imóvel associado" value={imovelId} onChange={setImovelId} options={[{value:'',label:'Geral (nenhum imóvel)'},...imoveis!.map(im=>({value:im.id,label:`🏠 ${im.nome}`}))]}/>}
           {imovelId&&tipo==='despesa'&&<Sel label="Balde IRS (Anexo F)" value={irsSubcategoria} onChange={setIrsSubcategoria} options={[{value:'',label:'Não classificado'},...IRS_SUBCATEGORIAS.map(c=>({value:c,label:IRS_SUBCATEGORIA_LABELS[c]}))]}/>}
-          <div style={{marginBottom:14}}>
+          {inSaudeScope&&<div style={{marginBottom:14}}>
             <div style={{fontSize:11,color:T.textSec,fontWeight:600,marginBottom:5,textTransform:'uppercase',letterSpacing:'0.06em'}}>Saúde Financeira</div>
             <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
               {saudeOptions.map(o=>{
@@ -849,7 +854,7 @@ const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis,accounts,isDetectedTransfe
               })}
             </div>
             {!saudeTouched&&<div style={{fontSize:10,color:T.textTer,marginTop:6}}>{ruleMatch?'Sugestão de uma regra aprendida':'Sugestão heurística'} — ainda não confirmada, toca noutra opção para corrigir.</div>}
-          </div>
+          </div>}
           <DateInp label="Data" value={data} onChange={setData}/>
           <div style={{display:'flex',gap:10,marginTop:4}}>
             <Btn onClick={del} variant="danger" accent={pal.accent} style={{flex:1}}>Apagar</Btn>
