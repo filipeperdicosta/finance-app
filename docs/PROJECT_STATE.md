@@ -281,11 +281,24 @@ preenchimento — não a partir de blogs, para evitar erros de categoria/regime.
   confirmada no diploma oficial (Portaria 53/2024), valores 2025/2026
   **calculados por nós** via coeficiente de actualização de rendas (não há
   despacho publicado confirmado) — `IRS_LIMITE_RENDA_E6`.
-  ⚠ **Gap conhecido**: `irs_tipologia` é guardado mas a app ainda **não
-  valida** a renda do imóvel contra `IRS_LIMITE_RENDA_E6` — não há aviso
-  se a renda ultrapassar o limite em >50% (caso em que o Quadro 4.2 nº23
-  deixaria de se aplicar e a app continuaria a sugeri-lo). Por implementar
-  se/quando o Filipe quiser esse aviso.
+  ✅ **Implementado** (2026-08-10): `IrsConfigScreen` mostra agora um aviso
+  "Dentro do limite legal" / "Acima do limite legal" quando há Tipologia
+  seleccionada, comparando a renda média mensal do ano (derivada de
+  `resumo.bruto`, desfeita a ponderação por `ownership_pct` — a renda paga
+  é sempre 100%, não a tua quota) contra 150% do `IRS_LIMITE_RENDA_E6`
+  aplicável, citando o art. 72º nº23 CIRS quando ultrapassado.
+
+### Ecrã Imóveis — extras (2026-08-10)
+- **Reordenar "por imóvel"**: causa raiz de a ordem parecer instável era
+  todos os imóveis terem `ordem=5` (nunca diferenciado) — a query
+  `.order('ordem')` sem desempate dava ordem indefinida do Postgres.
+  Adicionados botões ▲▼ em cada cartão (`moveImovel`), que ao mover
+  renumeram `ordem` sequencialmente para todos os imóveis, resolvendo o
+  empate de vez
+- **Toggle 100% / Minha quota**: o cartão "por imóvel" (Renda/Custos/
+  Estado) sempre mostrou 100% do imóvel (nunca ponderava por
+  `ownership_pct`) — pedido do Filipe para manter esse default, mas com
+  toggle no cabeçalho da secção para ver a quota própria em alternativa
 
 ### Taxa de IRS
 Tabela usada (por regime): não habitacional 28%, habitacional Quadro 4.1
