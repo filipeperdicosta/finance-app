@@ -3245,8 +3245,8 @@ type IrsImovelResumo = {
   imposto: number
   liquido: number
 }
-function computeIrsImovel(im:Imovel, transactions:Transaction[], ano:number): IrsImovelResumo {
-  const pct = im.ownership_pct/100
+function computeIrsImovel(im:Imovel, transactions:Transaction[], ano:number, use100=false): IrsImovelResumo {
+  const pct = use100 ? 1 : im.ownership_pct/100
   const anoTxns = transactions.filter(t=>t.imovel_id===im.id && t.data.startsWith(String(ano)))
   // Todo o rendimento do imóvel conta como renda por defeito — só fica de fora quando marcado
   // explicitamente como "não é renda" (ex: reembolso de utilities pago pelo arrendatário).
@@ -3510,6 +3510,11 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
   const [showMapping,setShowMapping] = useState(false)
   const [showNaoClassificadas,setShowNaoClassificadas] = useState(false)
   const [taxaInputs,setTaxaInputs] = useState<Record<string,string>>({})
+  // 100% por defeito (visão geral do imóvel) vs. a tua quota (ownership_pct) — só afecta os
+  // totais/resumo mostrados aqui. O mapeamento para o IRS (`resumosQuota`) e a validação do
+  // limite de renda no `IrsConfigScreen` usam sempre a quota, nunca este toggle — é o que vai
+  // mesmo para a tua declaração, não pode variar com uma preferência de visualização.
+  const [showQuota,setShowQuota] = useState(false)
 
   const relevantes = imoveis.filter(im=>im.ativo)
   // O IRS precisa do ano fiscal completo (Jan–Dez); a lista de transações carregada
@@ -3527,7 +3532,9 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
   useEffect(()=>{ reloadYearTxns() },[reloadYearTxns])
   const refreshAll = async () => { await onRefresh(); await reloadYearTxns() }
 
-  const resumos = useMemo(()=>relevantes.map(im=>computeIrsImovel(im,yearTxns,ano)),[relevantes,yearTxns,ano])
+  const resumos100 = useMemo(()=>relevantes.map(im=>computeIrsImovel(im,yearTxns,ano,true)),[relevantes,yearTxns,ano])
+  const resumosQuota = useMemo(()=>relevantes.map(im=>computeIrsImovel(im,yearTxns,ano,false)),[relevantes,yearTxns,ano])
+  const resumos = showQuota ? resumosQuota : resumos100
   const totalBruto = resumos.reduce((s,r)=>s+r.bruto,0)
   const totalGastos = resumos.reduce((s,r)=>s+r.gastosDedutiveis,0)
   const totalImposto = resumos.reduce((s,r)=>s+r.imposto,0)
@@ -3552,10 +3559,11 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
       <div style={{maxWidth:440,margin:'0 auto'}}>
         <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',background:T.surface,borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,zIndex:10}}>
           <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ArrowLeft size={18} color={T.textSec}/></button>
-          <div style={{display:'flex',alignItems:'center',gap:6,flex:1}}>
+          <div style={{display:'flex',alignItems:'center',gap:6,flex:1,minWidth:0}}>
             <FileText size={16} color={PAL.imoveis.accent}/>
             <div style={{fontSize:16,fontWeight:700,color:T.text}}>IRS — Rendimentos Prediais</div>
           </div>
+          <button onClick={()=>setShowQuota(v=>!v)} title="100% do imóvel vs. a tua quota de propriedade — só afecta este resumo, o mapeamento é sempre a tua quota" style={{background:showQuota?PAL.imoveis.accent:PAL.imoveis.soft,border:'none',borderRadius:8,padding:'5px 10px',cursor:'pointer',flexShrink:0}}><span style={{fontSize:11,color:showQuota?'#0B0B12':PAL.imoveis.accent,fontWeight:600}}>{showQuota?'Minha quota':'100%'}</span></button>
         </div>
         <div style={{padding:'16px 14px'}}>
           <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:10,marginBottom:14}}>
@@ -3678,8 +3686,8 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
           <Btn onClick={()=>setShowMapping(true)} variant="ghost" accent={PAL.imoveis.accent} style={{width:'100%',marginTop:6}}>Ver mapeamento para o IRS →</Btn>
         </div>
       </div>
-      {configImovel&&<IrsConfigScreen imovel={configImovel} resumo={resumos.find(r=>r.imovel.id===configImovel.id)} ano={ano} onClose={()=>setConfigImovel(null)} onSaved={refreshAll}/>}
-      {showMapping&&<IrsMappingScreen resumos={resumos} ano={ano} onClose={()=>setShowMapping(false)}/>}
+      {configImovel&&<IrsConfigScreen imovel={configImovel} resumo={resumosQuota.find(r=>r.imovel.id===configImovel.id)} ano={ano} onClose={()=>setConfigImovel(null)} onSaved={refreshAll}/>}
+      {showMapping&&<IrsMappingScreen resumos={resumosQuota} ano={ano} onClose={()=>setShowMapping(false)}/>}
       {showNaoClassificadas&&<IrsUnclassifiedQueue txns={allNaoClassificadas} imoveis={imoveis} accounts={accounts} ano={ano} onClose={()=>setShowNaoClassificadas(false)} onRefresh={refreshAll}/>}
       {editTxn&&<TxnEditForm txn={editTxn} onClose={()=>setEditTxn(null)} onSaved={refreshAll} pal={{accent:PAL.imoveis.accent,soft:PAL.imoveis.soft}} imoveis={imoveis} accounts={accounts}/>}
     </div>
