@@ -3165,17 +3165,17 @@ const AssignQueue = ({txns,imoveis,onClose,onRefresh,pal}:{txns:Transaction[],im
 // IRS — ANEXO F (rendimentos prediais)
 // ─────────────────────────────────────────────────────────────────
 // Um balde por cada coluna real do Quadro 4001 do Anexo F, na mesma ordem do formulário,
-// + "valorizacao" (não existe no formulário — é interno, para separar obras que valorizam o
-// imóvel, que não são dedutíveis, das de conservação/manutenção, que são).
-const IRS_SUBCATEGORIAS = ['conservacao_manutencao','condominio','imi','imposto_selo','taxas_autarquicas','outros','valorizacao'] as const
+// + "nao_dedutivel" (não existe no formulário — é interno, para arrumar qualquer custo do
+// imóvel que não seja dedutível: obras de valorização, utilities, etc.).
+const IRS_SUBCATEGORIAS = ['conservacao_manutencao','condominio','imi','imposto_selo','taxas_autarquicas','outros','nao_dedutivel'] as const
 type IrsSubcategoria = typeof IRS_SUBCATEGORIAS[number]
 const IRS_SUBCATEGORIA_LABELS: Record<IrsSubcategoria,string> = {
   conservacao_manutencao:'Conservação e Manutenção', condominio:'Condomínio', imi:'IMI',
   imposto_selo:'Imposto do Selo', taxas_autarquicas:'Taxas Autárquicas', outros:'Outros',
-  valorizacao:'Valorização (não dedutível)',
+  nao_dedutivel:'Não dedutível',
 }
 // Coluna do formulário oficial (Quadro 4.1/4.2) a que cada subcategoria corresponde —
-// "valorizacao" nunca soma (não dedutível), por isso fica de fora.
+// "nao_dedutivel" nunca soma, por isso fica de fora.
 const IRS_FORM_COLUMN: Partial<Record<IrsSubcategoria,'conservacao'|'condominio'|'imi'|'selo'|'taxas'|'outros'>> = {
   conservacao_manutencao:'conservacao', condominio:'condominio', imi:'imi',
   imposto_selo:'selo', taxas_autarquicas:'taxas', outros:'outros',
@@ -3237,7 +3237,7 @@ function computeIrsImovel(im:Imovel, transactions:Transaction[], ano:number): Ir
   IRS_SUBCATEGORIAS.forEach(c=>{ gastosPorCategoria[c]=0 })
   anoTxns.filter(t=>Number(t.valor)<0 && t.subcategoria && (IRS_SUBCATEGORIAS as readonly string[]).includes(t.subcategoria))
     .forEach(t=>{ gastosPorCategoria[t.subcategoria as IrsSubcategoria] += Math.abs(Number(t.valor))*pct })
-  const gastosDedutiveis = IRS_SUBCATEGORIAS.filter(c=>c!=='valorizacao').reduce((s,c)=>s+gastosPorCategoria[c],0)
+  const gastosDedutiveis = IRS_SUBCATEGORIAS.filter(c=>c!=='nao_dedutivel').reduce((s,c)=>s+gastosPorCategoria[c],0)
   const materiaColectavel = Math.max(0, bruto-gastosDedutiveis)
   const regime = sugerirRegimeIrs(im)
   const imposto = materiaColectavel*(regime.taxa/100)
@@ -3250,7 +3250,7 @@ function buildIrsLinhas(resumo:IrsImovelResumo): IrsLinha[] {
   const n = Math.max(1, resumo.imovel.num_arrendatarios||1)
   const gastosCols: Record<'conservacao'|'condominio'|'imi'|'selo'|'taxas'|'outros',number> = {conservacao:0,condominio:0,imi:0,selo:0,taxas:0,outros:0}
   IRS_SUBCATEGORIAS.forEach(c=>{
-    if(c==='valorizacao') return
+    if(c==='nao_dedutivel') return
     const col = IRS_FORM_COLUMN[c] ?? 'outros'
     gastosCols[col] += resumo.gastosPorCategoria[c]
   })
@@ -3568,7 +3568,7 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
 
                 {isOpen&&(
                   <div style={{marginTop:10,borderTop:`1px solid ${T.border}`,paddingTop:8}}>
-                    {IRS_SUBCATEGORIAS.filter(c=>c!=='valorizacao').map(c=>{
+                    {IRS_SUBCATEGORIAS.filter(c=>c!=='nao_dedutivel').map(c=>{
                       if(r.gastosPorCategoria[c]===0) return null
                       const catOpen = openCat===c
                       const catTxns = yearTxns.filter(t=>t.imovel_id===r.imovel.id && t.data.startsWith(String(ano)) && t.subcategoria===c)
@@ -3593,15 +3593,15 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
                         </div>
                       )
                     })}
-                    {r.gastosPorCategoria.valorizacao>0&&(
-                      <div onClick={()=>setOpenCat(openCat==='valorizacao'?null:'valorizacao')} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',cursor:'pointer'}}>
-                        <span style={{fontSize:12,color:'#FBBF24'}}>{IRS_SUBCATEGORIA_LABELS.valorizacao}</span>
-                        <span style={{fontSize:12,fontFamily:T.mono,color:'#FBBF24'}}>{dec(r.gastosPorCategoria.valorizacao)}</span>
+                    {r.gastosPorCategoria.nao_dedutivel>0&&(
+                      <div onClick={()=>setOpenCat(openCat==='nao_dedutivel'?null:'nao_dedutivel')} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',cursor:'pointer'}}>
+                        <span style={{fontSize:12,color:'#FBBF24'}}>{IRS_SUBCATEGORIA_LABELS.nao_dedutivel}</span>
+                        <span style={{fontSize:12,fontFamily:T.mono,color:'#FBBF24'}}>{dec(r.gastosPorCategoria.nao_dedutivel)}</span>
                       </div>
                     )}
-                    {openCat==='valorizacao'&&(
+                    {openCat==='nao_dedutivel'&&(
                       <div style={{background:T.surface,borderRadius:8,padding:'6px 10px',marginBottom:6}}>
-                        {yearTxns.filter(t=>t.imovel_id===r.imovel.id && t.data.startsWith(String(ano)) && t.subcategoria==='valorizacao').map(t=>(
+                        {yearTxns.filter(t=>t.imovel_id===r.imovel.id && t.data.startsWith(String(ano)) && t.subcategoria==='nao_dedutivel').map(t=>(
                           <div key={t.id} onClick={()=>setEditTxn(t)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:`1px solid ${T.border}`,cursor:'pointer',gap:8}}>
                             <div style={{minWidth:0}}><div style={{fontSize:11.5,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div><div style={{fontSize:10,color:T.textTer}}>{t.data}</div></div>
                             <div style={{display:'flex',alignItems:'center',gap:5,flexShrink:0}}><span style={{fontSize:11.5,fontFamily:T.mono,color:T.textSec}}>{dec(Math.abs(Number(t.valor)))}</span><ChevronRight size={12} color={T.textTer}/></div>
