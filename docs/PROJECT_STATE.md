@@ -281,18 +281,23 @@ preenchimento — não a partir de blogs, para evitar erros de categoria/regime.
   confirmada no diploma oficial (Portaria 53/2024), valores 2025/2026
   **calculados por nós** via coeficiente de actualização de rendas (não há
   despacho publicado confirmado) — `IRS_LIMITE_RENDA_E6`.
-  ✅ **Implementado** (2026-08-10): `IrsConfigScreen` mostra agora um aviso
-  "Dentro do limite legal" / "Acima do limite legal" quando há Tipologia
-  seleccionada, comparando a renda média mensal do ano (derivada de
-  `resumo.bruto`, desfeita a ponderação por `ownership_pct` — a renda paga
-  é sempre 100%, não a tua quota) contra 150% do `IRS_LIMITE_RENDA_E6`
-  aplicável, citando o art. 72º nº23 CIRS quando ultrapassado.
+  ✅ **Implementado** (2026-08-10), depois **movido** (mesmo dia): o aviso
+  "dentro do limite"/"acima do limite" (citando o art. 72º nº23 CIRS)
+  vive agora no cartão de cada imóvel em `IrsResumoScreen`, não no
+  `IrsConfigScreen` — o Filipe corrigiu a assunção original: dividir o
+  bruto do ano por 12 só faz sentido quando o ano fiscal está completo
+  (o `IrsResumoScreen` é onde isso se aplica de facto — o `IrsConfigScreen`
+  não tem essa garantia, e a meio de 2026 dava sempre uma média
+  sub-avaliada). Usa sempre `resumos100` (bruto a 100%, nunca a quota, já
+  que a renda paga é sempre a totalidade) independente do toggle
+  100%/quota do ecrã; mostra "(provisória)" quando `ano` é o ano corrente,
+  já que mesmo aqui o valor só fica definitivo com o ano encerrado
 - **Toggle 100% / Minha quota** (`IrsResumoScreen`, cabeçalho): por
   defeito 100% do imóvel; ao ligar, mostra a tua quota (`ownership_pct`).
   `computeIrsImovel` ganhou um 4º parâmetro `use100`. **Importante**: o
-  `IrsMappingScreen` e a validação de limite de renda no
-  `IrsConfigScreen` usam sempre `resumosQuota` (calculado à parte,
-  `use100=false` fixo) — nunca variam com este toggle, porque são os
+  `IrsMappingScreen` e o aviso de limite de renda usam sempre
+  `resumos100`/`resumosQuota` conforme o caso (nunca a variável `resumos`
+  do toggle) — não podem variar com uma preferência de visualização, são os
   valores que realmente vão para a declaração
 
 ### Ecrã Imóveis — extras (2026-08-10)
