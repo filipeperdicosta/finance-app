@@ -3164,20 +3164,21 @@ const AssignQueue = ({txns,imoveis,onClose,onRefresh,pal}:{txns:Transaction[],im
 // ─────────────────────────────────────────────────────────────────
 // IRS — ANEXO F (rendimentos prediais)
 // ─────────────────────────────────────────────────────────────────
-const IRS_SUBCATEGORIAS = ['imi','imposto_selo','condominio','conservacao_manutencao','valorizacao','taxas_autarquicas','seguro','certificado_energetico','honorarios_profissionais','comissao_mediacao'] as const
+// Um balde por cada coluna real do Quadro 4001 do Anexo F, na mesma ordem do formulário,
+// + "valorizacao" (não existe no formulário — é interno, para separar obras que valorizam o
+// imóvel, que não são dedutíveis, das de conservação/manutenção, que são).
+const IRS_SUBCATEGORIAS = ['conservacao_manutencao','condominio','imi','imposto_selo','taxas_autarquicas','outros','valorizacao'] as const
 type IrsSubcategoria = typeof IRS_SUBCATEGORIAS[number]
 const IRS_SUBCATEGORIA_LABELS: Record<IrsSubcategoria,string> = {
-  imi:'IMI', imposto_selo:'Imposto do Selo', condominio:'Condomínio',
-  conservacao_manutencao:'Conservação e Manutenção', valorizacao:'Valorização (não dedutível)',
-  taxas_autarquicas:'Taxas Autárquicas', seguro:'Seguro', certificado_energetico:'Certificado Energético',
-  honorarios_profissionais:'Honorários Profissionais', comissao_mediacao:'Comissão de Mediação',
+  conservacao_manutencao:'Conservação e Manutenção', condominio:'Condomínio', imi:'IMI',
+  imposto_selo:'Imposto do Selo', taxas_autarquicas:'Taxas Autárquicas', outros:'Outros',
+  valorizacao:'Valorização (não dedutível)',
 }
 // Coluna do formulário oficial (Quadro 4.1/4.2) a que cada subcategoria corresponde —
-// tudo o que não tem coluna própria agrega em "outros". "valorizacao" nunca soma (não dedutível).
+// "valorizacao" nunca soma (não dedutível), por isso fica de fora.
 const IRS_FORM_COLUMN: Partial<Record<IrsSubcategoria,'conservacao'|'condominio'|'imi'|'selo'|'taxas'|'outros'>> = {
-  imi:'imi', imposto_selo:'selo', condominio:'condominio', conservacao_manutencao:'conservacao',
-  taxas_autarquicas:'taxas', seguro:'outros', certificado_energetico:'outros',
-  honorarios_profissionais:'outros', comissao_mediacao:'outros',
+  conservacao_manutencao:'conservacao', condominio:'condominio', imi:'imi',
+  imposto_selo:'selo', taxas_autarquicas:'taxas', outros:'outros',
 }
 const IRS_FORM_COLUMN_LABELS: Record<'conservacao'|'condominio'|'imi'|'selo'|'taxas'|'outros',string> = {
   conservacao:'Conservação e Manutenção', condominio:'Condomínio', imi:'IMI',
