@@ -87,6 +87,32 @@ Ecrã "Ver todas as transações" → Filtros: campo de texto livre, substring
 case-insensitive sobre `descritivo` (ex: "cartão" apanha todos os pagamentos
 de cartão de crédito). `Filters.descricao`, `FilterSheet` — page.tsx.
 
+### Marca "Bio" (rebrand, 2026-08-07)
+App renomeada de "Finance"/"Balance it out" para **Bio** — acrónimo de
+"Balance It Out" (B-I-O), revelado só no ecrã de login/loading (o resto da
+app usa só "Bio", curto). Ícone: pulso que se resolve em barras ascendentes,
+verde/turquesa, gerado por código via `next/og` `ImageResponse` —
+`src/app/icon.svg` (favicon), `apple-icon.tsx` (180×180),
+`icon-192.png/route.tsx` e `icon-512.png/route.tsx` (manifest PWA).
+Componente `BioIcon` reutilizado no cabeçalho (20px), login (56px) e
+loading (56px). Ecrã de login: glow verde ambiente atrás do ícone + botão
+"Entrar" verde (era laranja, sobra da paleta antiga) — sem bordas coloridas
+no cartão, por preferência do Filipe. Loading tem duração mínima de 1,5s
+(`minSplashElapsed`) para não piscar ilegível quando os dados carregam
+depressa.
+
+### Tendência do Património — bug corrigido (2026-08-09)
+O gráfico de 5 meses do ecrã Património **não usava dados reais** — era uma
+rampa sintética (`totalBruto * (0.9 + i*0.025)`), por isso o ponto mais
+recente batia com "Total Bruto" e não com "A tua quota" (Hero mostra a
+quota). Corrigido: agora reconstrói o saldo real de cada mês partindo da
+quota actual (`minhaQuota`) e recuando mês a mês, subtraindo o fluxo líquido
+ponderado desse mês (soma das transações × `my_ownership_pct`, contas
+pessoal/familiar/investimento, cartões sempre excluídos — mesma regra do
+`accountSaldoTotal`). Sem histórico inventado, só soma das transações reais,
+tal como os outros gráficos de tendência já fazem para receitas/despesas.
+`PatrimonioScreen` — page.tsx.
+
 ---
 
 ## Saúde Financeira ✅
