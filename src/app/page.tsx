@@ -3351,12 +3351,10 @@ const IrsConfigScreen = ({imovel,resumo,ano,onClose,onSaved}:{imovel:Imovel,resu
             <>
               <Sel label="Tipologia (limite de renda 2024+)" value={tipologia} onChange={setTipologia} options={[{value:'',label:'—'},...['T0','T1','T2','T3','T4','T5'].map(t=>({value:t,label:t}))]}/>
               {tipologia&&limiteMax!=null&&!!rendaMediaMensal&&(
-                <div style={{background:dentroDoLimite?'rgba(74,222,128,0.1)':'rgba(248,113,113,0.1)',border:`1px solid ${dentroDoLimite?T.green:T.red}`,borderRadius:10,padding:'10px 12px',marginTop:-8,marginBottom:14}}>
-                  <div style={{fontSize:12,fontWeight:700,color:dentroDoLimite?T.green:T.red}}>{dentroDoLimite?'✓ Dentro do limite legal':'⚠ Acima do limite legal'}</div>
-                  <div style={{fontSize:10.5,color:T.textSec,marginTop:3,lineHeight:1.5}}>
-                    Renda média mensal ({dec(rendaMediaMensal??0)}) vs. limite de {dec(limiteMax)} (150% de {dec(limiteGeral??0)}, {tipologia} em {Math.min(2026,Math.max(2024,ano))}).
-                    {!dentroDoLimite&&' Acima disto, o art. 72º nº23 CIRS diz que o Quadro 4.2 deixa de se aplicar — usa o Quadro 4.1.'}
-                  </div>
+                <div style={{fontSize:10.5,color:T.textTer,marginTop:-8,marginBottom:14,lineHeight:1.5}}>
+                  Renda média mensal registada em {ano} ({dec(rendaMediaMensal??0)}) vs. limite legal de {dec(limiteMax)} (150% de {dec(limiteGeral??0)}, {tipologia} em {Math.min(2026,Math.max(2024,ano))}) —{' '}
+                  <span style={{color:dentroDoLimite?T.green:T.red,fontWeight:600}}>{dentroDoLimite?'dentro do limite':'acima do limite'}</span>.
+                  {!dentroDoLimite&&' Acima disto, o art. 72º nº23 CIRS diz que o Quadro 4.2 deixa de se aplicar — usa o Quadro 4.1.'}
                 </div>
               )}
               {tipologia&&!rendaMediaMensal&&(
