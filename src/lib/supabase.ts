@@ -194,6 +194,19 @@ export async function loadUnclassifiedImovelTxns(accountIds: string[]): Promise<
   return (data ?? []) as Transaction[]
 }
 
+// Transações de imóveis para um ano fiscal completo (Jan–Dez) — o IRS precisa do ano inteiro,
+// mas `transactions` (loadAllData) só cobre os últimos ~6 meses, o que sub-reportaria totais
+// e escondia despesas por classificar de meses mais antigos do ano.
+export async function loadImovelTxnsForYear(imovelIds: string[], ano: number): Promise<Transaction[]> {
+  if (imovelIds.length === 0) return []
+  const { data } = await supabase.from('transactions').select('*')
+    .in('imovel_id', imovelIds)
+    .gte('data', `${ano}-01-01`)
+    .lte('data', `${ano}-12-31`)
+    .order('data', { ascending: false })
+  return (data ?? []) as Transaction[]
+}
+
 // ── Associar transação a imóvel ────────────────────────────────
 export async function assignTransactionToImovel(txnId: string, imovelId: string | null) {
   // imovelId null => marca como "geral" (classificada mas sem imóvel)

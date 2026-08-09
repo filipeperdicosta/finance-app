@@ -16,7 +16,7 @@ import {
   supabase, loadAllData, loadAllTransactions, saveAccount, deleteAccount, updateAccount,
   saveTransactions, updateTransaction, deleteTransaction, deleteTransactions, recategorizeTransactions,
   saveImovel, updateImovel, deleteImovel, linkContaImovel, unlinkContaImovel,
-  assignTransactionToImovel, assignTransactionsToImovel, loadUnclassifiedImovelTxns,
+  assignTransactionToImovel, assignTransactionsToImovel, loadUnclassifiedImovelTxns, loadImovelTxnsForYear,
   loadCategoryRules, learnFromCategorization, matchRule, deleteCategoryRule, deleteCategoryRules, updateCategoryRule,
   loadSaudeRules, learnSaudeOverride, matchSaudeRule,
   getDriveConnectionStatus, disconnectDrive, getDriveAuthUrl, updateAccountDriveFolder, loadDriveFiles,
@@ -3449,7 +3449,7 @@ const IrsUnclassifiedQueue = ({txns,imoveis,accounts,ano,onClose,onRefresh}:{txn
 // ─────────────────────────────────────────────────────────────────
 // IRS — RESUMO E EXPLORAÇÃO DE CUSTOS
 // ─────────────────────────────────────────────────────────────────
-const IrsResumoScreen = ({imoveis,transactions,accounts,onClose,onRefresh}:{imoveis:Imovel[],transactions:Transaction[],accounts:Account[],onClose:()=>void,onRefresh:()=>void}) => {
+const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],accounts:Account[],onClose:()=>void,onRefresh:()=>void}) => {
   const [ano,setAno] = useState(new Date().getFullYear())
   const [openId,setOpenId] = useState<string|null>(null)
   const [openCat,setOpenCat] = useState<IrsSubcategoria|'nao_classificadas'|null>(null)
@@ -3460,7 +3460,22 @@ const IrsResumoScreen = ({imoveis,transactions,accounts,onClose,onRefresh}:{imov
   const [taxaInputs,setTaxaInputs] = useState<Record<string,string>>({})
 
   const relevantes = imoveis.filter(im=>im.ativo)
-  const resumos = useMemo(()=>relevantes.map(im=>computeIrsImovel(im,transactions,ano)),[relevantes,transactions,ano])
+  // O IRS precisa do ano fiscal completo (Jan–Dez); a lista de transações carregada
+  // globalmente (loadAllData) só cobre os últimos ~6 meses, o que sub-reportava totais e
+  // escondia despesas por classificar de meses mais antigos do ano — por isso este ecrã vai
+  // sempre buscar o ano inteiro directamente à BD, à parte do resto da app.
+  const imovelIdsKey = relevantes.map(im=>im.id).join(',')
+  const [yearTxns,setYearTxns] = useState<Transaction[]>([])
+  const [loadingYear,setLoadingYear] = useState(true)
+  const reloadYearTxns = useCallback(async()=>{
+    setLoadingYear(true)
+    setYearTxns(await loadImovelTxnsForYear(imovelIdsKey?imovelIdsKey.split(','):[], ano))
+    setLoadingYear(false)
+  },[imovelIdsKey,ano])
+  useEffect(()=>{ reloadYearTxns() },[reloadYearTxns])
+  const refreshAll = async () => { await onRefresh(); await reloadYearTxns() }
+
+  const resumos = useMemo(()=>relevantes.map(im=>computeIrsImovel(im,yearTxns,ano)),[relevantes,yearTxns,ano])
   const totalBruto = resumos.reduce((s,r)=>s+r.bruto,0)
   const totalGastos = resumos.reduce((s,r)=>s+r.gastosDedutiveis,0)
   const totalImposto = resumos.reduce((s,r)=>s+r.imposto,0)
@@ -3468,8 +3483,8 @@ const IrsResumoScreen = ({imoveis,transactions,accounts,onClose,onRefresh}:{imov
   const ratio = totalBruto>0 ? (totalLiquido/totalBruto*100) : 0
   // Despesas de imóveis sem Balde IRS atribuído — ficam FORA dos totais acima até serem
   // classificadas, por isso têm de aparecer sempre visíveis, nunca silenciosamente omitidas.
-  const naoClassificadas = (imId:string) => transactions.filter(t=>t.imovel_id===imId && t.data.startsWith(String(ano)) && Number(t.valor)<0 && !t.subcategoria)
-  const allNaoClassificadas = useMemo(()=>relevantes.flatMap(im=>naoClassificadas(im.id)),[relevantes,transactions,ano])
+  const naoClassificadas = (imId:string) => yearTxns.filter(t=>t.imovel_id===imId && t.data.startsWith(String(ano)) && Number(t.valor)<0 && !t.subcategoria)
+  const allNaoClassificadas = useMemo(()=>relevantes.flatMap(im=>naoClassificadas(im.id)),[relevantes,yearTxns,ano])
   const totalNaoClassificadas = allNaoClassificadas.length
 
   const saveTaxa = async (im:Imovel, valor:string) => {
@@ -3495,7 +3510,8 @@ const IrsResumoScreen = ({imoveis,transactions,accounts,onClose,onRefresh}:{imov
             <button onClick={()=>setAno(a=>Math.min(new Date().getFullYear(),a+1))} disabled={ano>=new Date().getFullYear()} style={{background:'none',border:'none',cursor:ano>=new Date().getFullYear()?'default':'pointer',color:ano>=new Date().getFullYear()?'rgba(255,255,255,0.15)':T.textSec,fontSize:16}}>›</button>
           </div>
 
-          <Card style={{padding:16,marginBottom:16,background:'linear-gradient(145deg,#161b28,#1c2436)'}}>
+          {loadingYear&&<Card style={{padding:24,marginBottom:16,textAlign:'center'}}><span style={{fontSize:12,color:T.textSec}}>A carregar {ano}…</span></Card>}
+          {!loadingYear&&<Card style={{padding:16,marginBottom:16,background:'linear-gradient(145deg,#161b28,#1c2436)'}}>
             <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0'}}><span style={{fontSize:11.5,color:T.textSec}}>Rendimento bruto total</span><span style={{fontSize:13,fontWeight:700,fontFamily:T.mono,color:T.text}}>{dec(totalBruto)}</span></div>
             <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0'}}><span style={{fontSize:11.5,color:T.textSec}}>Gastos dedutíveis</span><span style={{fontSize:13,fontWeight:700,fontFamily:T.mono,color:T.textSec}}>− {dec(totalGastos)}</span></div>
             <div style={{height:1,background:T.border,margin:'6px 0'}}/>
@@ -3504,7 +3520,7 @@ const IrsResumoScreen = ({imoveis,transactions,accounts,onClose,onRefresh}:{imov
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',padding:'4px 0'}}><span style={{fontSize:11.5,color:T.textSec}}>Rendimento líquido total</span><span style={{fontSize:20,fontWeight:700,fontFamily:T.mono,color:T.green}}>{dec(totalLiquido)}</span></div>
             <div style={{textAlign:'right'}}><span style={{fontSize:10,fontWeight:700,color:ratio>=60?T.green:'#FBBF24',background:ratio>=60?'rgba(74,222,128,0.15)':'rgba(251,191,36,0.15)',padding:'2px 8px',borderRadius:10}}>{ratio.toFixed(1)}% líquido/bruto</span></div>
             <div style={{fontSize:9.5,color:'#FBBF24',marginTop:8}}>⚠ Taxa por confirmar para 2026 — editável por imóvel abaixo.</div>
-          </Card>
+          </Card>}
 
           {totalNaoClassificadas>0&&(
             <Card style={{marginBottom:16,padding:'13px 16px',background:PAL.imoveis.soft,border:`1px solid ${PAL.imoveis.accent}`,cursor:'pointer'}}>
@@ -3545,7 +3561,7 @@ const IrsResumoScreen = ({imoveis,transactions,accounts,onClose,onRefresh}:{imov
                     {IRS_SUBCATEGORIAS.filter(c=>c!=='valorizacao').map(c=>{
                       if(r.gastosPorCategoria[c]===0) return null
                       const catOpen = openCat===c
-                      const catTxns = transactions.filter(t=>t.imovel_id===r.imovel.id && t.data.startsWith(String(ano)) && t.subcategoria===c)
+                      const catTxns = yearTxns.filter(t=>t.imovel_id===r.imovel.id && t.data.startsWith(String(ano)) && t.subcategoria===c)
                       return (
                         <div key={c}>
                           <div onClick={()=>setOpenCat(catOpen?null:c)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',cursor:'pointer'}}>
@@ -3575,7 +3591,7 @@ const IrsResumoScreen = ({imoveis,transactions,accounts,onClose,onRefresh}:{imov
                     )}
                     {openCat==='valorizacao'&&(
                       <div style={{background:T.surface,borderRadius:8,padding:'6px 10px',marginBottom:6}}>
-                        {transactions.filter(t=>t.imovel_id===r.imovel.id && t.data.startsWith(String(ano)) && t.subcategoria==='valorizacao').map(t=>(
+                        {yearTxns.filter(t=>t.imovel_id===r.imovel.id && t.data.startsWith(String(ano)) && t.subcategoria==='valorizacao').map(t=>(
                           <div key={t.id} onClick={()=>setEditTxn(t)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:`1px solid ${T.border}`,cursor:'pointer',gap:8}}>
                             <div style={{minWidth:0}}><div style={{fontSize:11.5,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div><div style={{fontSize:10,color:T.textTer}}>{t.data}</div></div>
                             <div style={{display:'flex',alignItems:'center',gap:5,flexShrink:0}}><span style={{fontSize:11.5,fontFamily:T.mono,color:T.textSec}}>{dec(Math.abs(Number(t.valor)))}</span><ChevronRight size={12} color={T.textTer}/></div>
@@ -3608,10 +3624,10 @@ const IrsResumoScreen = ({imoveis,transactions,accounts,onClose,onRefresh}:{imov
           <Btn onClick={()=>setShowMapping(true)} variant="ghost" accent={PAL.imoveis.accent} style={{width:'100%',marginTop:6}}>Ver mapeamento para o IRS →</Btn>
         </div>
       </div>
-      {configImovel&&<IrsConfigScreen imovel={configImovel} onClose={()=>setConfigImovel(null)} onSaved={onRefresh}/>}
+      {configImovel&&<IrsConfigScreen imovel={configImovel} onClose={()=>setConfigImovel(null)} onSaved={refreshAll}/>}
       {showMapping&&<IrsMappingScreen resumos={resumos} ano={ano} onClose={()=>setShowMapping(false)}/>}
-      {showNaoClassificadas&&<IrsUnclassifiedQueue txns={allNaoClassificadas} imoveis={imoveis} accounts={accounts} ano={ano} onClose={()=>setShowNaoClassificadas(false)} onRefresh={onRefresh}/>}
-      {editTxn&&<TxnEditForm txn={editTxn} onClose={()=>setEditTxn(null)} onSaved={onRefresh} pal={{accent:PAL.imoveis.accent,soft:PAL.imoveis.soft}} imoveis={imoveis} accounts={accounts}/>}
+      {showNaoClassificadas&&<IrsUnclassifiedQueue txns={allNaoClassificadas} imoveis={imoveis} accounts={accounts} ano={ano} onClose={()=>setShowNaoClassificadas(false)} onRefresh={refreshAll}/>}
+      {editTxn&&<TxnEditForm txn={editTxn} onClose={()=>setEditTxn(null)} onSaved={refreshAll} pal={{accent:PAL.imoveis.accent,soft:PAL.imoveis.soft}} imoveis={imoveis} accounts={accounts}/>}
     </div>
   )
 }
@@ -3852,7 +3868,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
       {formOpen&&<ImovelForm initial={editing} accounts={accounts} linkedAccountIds={editing?linkedAccounts(editing.id):new Set()} onClose={()=>setFormOpen(false)} onSaved={onRefresh} pal={pal} imoveisLen={imoveis.length}/>}
       {showQueue&&<AssignQueue txns={porAssociar} imoveis={imoveis} onClose={()=>setShowQueue(false)} onRefresh={refreshComQueue} pal={pal}/>}
       {editTxn&&<TxnEditForm txn={editTxn} onClose={()=>setEditTxn(null)} onSaved={onRefresh} pal={pal} imoveis={imoveis} accounts={accounts}/>}
-      {showIrs&&<IrsResumoScreen imoveis={imoveis} transactions={transactions} accounts={accounts} onClose={()=>setShowIrs(false)} onRefresh={onRefresh}/>}
+      {showIrs&&<IrsResumoScreen imoveis={imoveis} accounts={accounts} onClose={()=>setShowIrs(false)} onRefresh={onRefresh}/>}
     </div>
   )
 }
