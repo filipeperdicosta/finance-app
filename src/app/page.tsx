@@ -3412,7 +3412,7 @@ const IrsMappingScreen = ({resumos,ano,onClose}:{resumos:IrsImovelResumo[],ano:n
 const IrsResumoScreen = ({imoveis,transactions,accounts,onClose,onRefresh}:{imoveis:Imovel[],transactions:Transaction[],accounts:Account[],onClose:()=>void,onRefresh:()=>void}) => {
   const [ano,setAno] = useState(new Date().getFullYear())
   const [openId,setOpenId] = useState<string|null>(null)
-  const [openCat,setOpenCat] = useState<IrsSubcategoria|null>(null)
+  const [openCat,setOpenCat] = useState<IrsSubcategoria|'nao_classificadas'|null>(null)
   const [editTxn,setEditTxn] = useState<Transaction|null>(null)
   const [configImovel,setConfigImovel] = useState<Imovel|null>(null)
   const [showMapping,setShowMapping] = useState(false)
@@ -3425,6 +3425,10 @@ const IrsResumoScreen = ({imoveis,transactions,accounts,onClose,onRefresh}:{imov
   const totalImposto = resumos.reduce((s,r)=>s+r.imposto,0)
   const totalLiquido = resumos.reduce((s,r)=>s+r.liquido,0)
   const ratio = totalBruto>0 ? (totalLiquido/totalBruto*100) : 0
+  // Despesas de imóveis sem Balde IRS atribuído — ficam FORA dos totais acima até serem
+  // classificadas, por isso têm de aparecer sempre visíveis, nunca silenciosamente omitidas.
+  const naoClassificadas = (imId:string) => transactions.filter(t=>t.imovel_id===imId && t.data.startsWith(String(ano)) && Number(t.valor)<0 && !t.subcategoria)
+  const totalNaoClassificadas = relevantes.reduce((s,im)=>s+naoClassificadas(im.id).length,0)
 
   const saveTaxa = async (im:Imovel, valor:string) => {
     const n = Number(valor)
@@ -3459,6 +3463,15 @@ const IrsResumoScreen = ({imoveis,transactions,accounts,onClose,onRefresh}:{imov
             <div style={{textAlign:'right'}}><span style={{fontSize:10,fontWeight:700,color:ratio>=60?T.green:'#FBBF24',background:ratio>=60?'rgba(74,222,128,0.15)':'rgba(251,191,36,0.15)',padding:'2px 8px',borderRadius:10}}>{ratio.toFixed(1)}% líquido/bruto</span></div>
             <div style={{fontSize:9.5,color:'#FBBF24',marginTop:8}}>⚠ Taxa por confirmar para 2026 — editável por imóvel abaixo.</div>
           </Card>
+
+          {totalNaoClassificadas>0&&(
+            <Card style={{marginBottom:16,padding:'13px 16px',background:PAL.imoveis.soft,border:`1px solid ${PAL.imoveis.accent}`}}>
+              <div style={{display:'flex',alignItems:'center',gap:12}}>
+                <Inbox size={20} color={PAL.imoveis.accent}/>
+                <div style={{flex:1}}><div style={{fontSize:13,fontWeight:700,color:T.text}}>{totalNaoClassificadas} despesas por classificar</div><div style={{fontSize:11,color:T.textSec,marginTop:1}}>Não entram nos totais acima até teres o Balde IRS — abre o imóvel em baixo</div></div>
+              </div>
+            </Card>
+          )}
 
           {resumos.length===0&&<Card><div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem imóveis activos.</div></Card>}
 
@@ -3520,6 +3533,22 @@ const IrsResumoScreen = ({imoveis,transactions,accounts,onClose,onRefresh}:{imov
                     {openCat==='valorizacao'&&(
                       <div style={{background:T.surface,borderRadius:8,padding:'6px 10px',marginBottom:6}}>
                         {transactions.filter(t=>t.imovel_id===r.imovel.id && t.data.startsWith(String(ano)) && t.subcategoria==='valorizacao').map(t=>(
+                          <div key={t.id} onClick={()=>setEditTxn(t)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:`1px solid ${T.border}`,cursor:'pointer',gap:8}}>
+                            <div style={{minWidth:0}}><div style={{fontSize:11.5,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div><div style={{fontSize:10,color:T.textTer}}>{t.data}</div></div>
+                            <div style={{display:'flex',alignItems:'center',gap:5,flexShrink:0}}><span style={{fontSize:11.5,fontFamily:T.mono,color:T.textSec}}>{dec(Math.abs(Number(t.valor)))}</span><ChevronRight size={12} color={T.textTer}/></div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {naoClassificadas(r.imovel.id).length>0&&(
+                      <div onClick={()=>setOpenCat(openCat==='nao_classificadas'?null:'nao_classificadas')} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',cursor:'pointer'}}>
+                        <span style={{fontSize:12,color:PAL.imoveis.accent}}>Por classificar ({naoClassificadas(r.imovel.id).length})</span>
+                        <ChevronRight size={12} color={PAL.imoveis.accent} style={{transform:openCat==='nao_classificadas'?'rotate(90deg)':'none'}}/>
+                      </div>
+                    )}
+                    {openCat==='nao_classificadas'&&(
+                      <div style={{background:T.surface,borderRadius:8,padding:'6px 10px',marginBottom:6}}>
+                        {naoClassificadas(r.imovel.id).map(t=>(
                           <div key={t.id} onClick={()=>setEditTxn(t)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:`1px solid ${T.border}`,cursor:'pointer',gap:8}}>
                             <div style={{minWidth:0}}><div style={{fontSize:11.5,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div><div style={{fontSize:10,color:T.textTer}}>{t.data}</div></div>
                             <div style={{display:'flex',alignItems:'center',gap:5,flexShrink:0}}><span style={{fontSize:11.5,fontFamily:T.mono,color:T.textSec}}>{dec(Math.abs(Number(t.valor)))}</span><ChevronRight size={12} color={T.textTer}/></div>
