@@ -7,7 +7,7 @@ export async function POST(req: NextRequest) {
   let body: any = {}
   try {
     body = await req.json()
-    const { user_id, account_uid: filterUid } = body
+    const { user_id, account_uid: filterUid, date_from: forcedDateFrom } = body
     if (!user_id) return NextResponse.json({ error: 'user_id em falta' }, { status: 400 })
 
     const supabaseAdmin = getSupabaseAdmin()
@@ -48,10 +48,12 @@ export async function POST(req: NextRequest) {
         }
 
         // 2) Determinar janela de datas: 90 dias se conta vazia, 14 dias se já tem dados
+        // — excepto quando um pull pontual pede uma data_from explícita para uma única conta
+        // (backfill manual, não usado pelo sync automático nem exposto na UI).
         const { count: existingCount } = await supabaseAdmin
           .from('transactions').select('*', { count: 'exact', head: true }).eq('account_id', ebAcc.account_id)
         const days = (existingCount ?? 0) > 0 ? 14 : 90
-        const dateFrom = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+        const dateFrom = (forcedDateFrom && filterUid) ? forcedDateFrom : new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
 
         let newTxns = 0
         try {
