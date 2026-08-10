@@ -3,6 +3,7 @@ import { getValidAccessToken, getSupabaseAdmin, createNotification } from '@/lib
 import { parseStatementWithGemini, detectMimeType, categorizeSingleTransaction, txnHash } from '@/lib/geminiParse'
 import { getT212Configs, getT212Portfolio } from '@/lib/t212'
 import { getEnableBankingBalance, getEnableBankingTransactions, getMccCategory, getKeywordCategory } from '@/lib/enableBanking'
+import { syncLedgerAutoForAllUsers } from '@/lib/ledgerSync'
 
 // Verificação automática diária: para CADA utilizador com Drive ligada,
 // percorre as suas contas com pasta associada, identifica ficheiros novos
@@ -397,6 +398,19 @@ export async function GET(req: NextRequest) {
           meta: { results },
         })
       }
+    }
+
+    // ── LedgerAuto: sincroniza a sheet "LedgerAuto" para quem já ligou um ficheiro ──
+    // syncLedgerAuto ignora silenciosamente (sem erro/notificação) quem ainda não ligou —
+    // por isso é seguro correr para todos os utilizadores, não só quem tem config.
+    try {
+      const ledgerResults = await syncLedgerAutoForAllUsers()
+      const withConfig = ledgerResults.filter(r => r.result.message !== 'LedgerAuto não ligado — nada a fazer')
+      if (withConfig.length > 0) {
+        console.log('Cron LedgerAuto:', JSON.stringify(withConfig))
+      }
+    } catch (err: any) {
+      console.error('Cron LedgerAuto exception:', err.message)
     }
 
     return NextResponse.json({ ok: true, ...summary, duration_sec: durationSec })
