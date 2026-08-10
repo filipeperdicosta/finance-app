@@ -3649,8 +3649,8 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
 
           <Btn onClick={()=>setShowMapping(true)} variant="ghost" accent={PAL.imoveis.accent} style={{width:'100%',marginTop:6}}>Ver mapeamento para o IRS →</Btn>
 
-          <div style={{marginTop:16,paddingTop:14,borderTop:`1px solid ${T.border}`}}>
-            <div style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:8}}>LedgerAuto</div>
+          <Card style={{marginTop:10,padding:'13px 14px'}}>
+            <div style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:8}}>Sincronização com o Excel</div>
             {ledgerConfig ? (
               <>
                 <div style={{fontSize:11,color:T.textSec,marginBottom:8}}>Ligado{ledgerConfig.last_synced_at?` · última sincronização ${new Date(ledgerConfig.last_synced_at).toLocaleString('pt-PT')}`:' · ainda sem sincronizar'}</div>
@@ -3658,12 +3658,12 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
               </>
             ):(
               <>
-                <div style={{fontSize:11,color:T.textSec,marginBottom:8}}>Sincroniza as despesas/rendas já classificadas para IRS com uma sheet "LedgerAuto" no teu ficheiro de controlo.</div>
+                <div style={{fontSize:11,color:T.textSec,marginBottom:8}}>Sincroniza as despesas/rendas já classificadas para IRS com o teu ficheiro de controlo.</div>
                 <Btn onClick={ligarLedger} variant="ghost" accent={PAL.imoveis.accent} style={{width:'100%'}}>{ledgerBusy?'…':'Ligar ficheiro do IRS'}</Btn>
               </>
             )}
             {ledgerMsg&&<div style={{fontSize:10.5,color:T.textTer,marginTop:6,lineHeight:1.5}}>{ledgerMsg}</div>}
-          </div>
+          </Card>
         </div>
       </div>
       {configImovel&&<IrsConfigScreen imovel={configImovel} onClose={()=>setConfigImovel(null)} onSaved={refreshAll}/>}
