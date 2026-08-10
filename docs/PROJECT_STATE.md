@@ -389,32 +389,57 @@ risco técnico bruto.
    duração mínima de 1,5s (`minSplashElapsed`) para não piscar ilegível
    quando os dados carregam depressa.
 3. **"LedgerAuto" — sincronização automática com o Excel de controlo do
-   Filipe** — substitui trabalho manual mensal. **Em pausa, à espera de 1
-   decisão** (2026-08-10, "decidimos amanhã de cabeça fresca" — ver plano
-   detalhado em `C:\Users\Filipe\.claude\plans\validated-dazzling-waterfall.md`
-   se ainda existir; resumo abaixo para não se perder):
-   - Ficheiro identificado e estrutura confirmada: "Controlo Financeiro
-     v1.0.xlsx" na Drive do Filipe (já ligada, achado via a própria API de
-     leitura já existente, sem precisar perguntar). Sheet "Ledger" (manual):
-     Data/Mês/Trimestre/Ano/Património/Tipo de Movimento (Renda, Condomínio,
-     IMI, Outras dedutíveis, Outras não dedutíveis)/Movimento (€, sempre
-     100%)/Comentário. Vamos escrever numa sheet nova "LedgerAuto" no mesmo
-     ficheiro, mesmas colunas, para o Filipe montar a própria pivot de
-     comparação ao lado da "Análise" manual
-   - Mapeamento app→Ledger já confirmado (ver plano) — só entram transações
-     já classificadas para IRS (com imóvel + balde), tudo o resto fica de
-     fora
-   - Decisões já fechadas: converter o ficheiro para Google Sheets nativo
-     (não fica .xlsx — mais seguro para escritas cirúrgicas via Sheets API
-     sem arriscar fórmulas/pivot); sync por reconciliação completa (não
-     deltas); gatilho = cron diário + botão manual, mesmo padrão do EB/T212
-   - **Decisão pendente**: âmbito do scope OAuth de escrita —
-     `drive.file`+Picker (só este ficheiro, mais seguro, exige o Filipe
-     configurar a Picker API no Google Cloud Console) vs. scope largo
-     `spreadsheets` (todas as Sheets dele, zero configuração extra).
-     Confirmado que não há mais nada no roadmap que precise de acesso a
-     Drive/Sheets além disto — não há vantagem em pedir já o scope largo
-     "para poupar trabalho futuro"
+   Filipe** — substitui trabalho manual mensal. **Código feito e em
+   produção (2026-08-10); falta só o setup manual do Filipe no Google Cloud
+   antes de poder ser testado de ponta a ponta.**
+   - Decisão de scope tomada: **`drive.file` + Google Picker** (acesso de
+     escrita limitado só ao ficheiro escolhido — não a toda a Drive),
+     preferido por segurança face ao scope largo `spreadsheets`
+   - Ficheiro: "Controlo Financeiro v1.0.xlsx" (achado via a própria API de
+     leitura já existente). Sheet "Ledger" (manual): Data/Mês/Trimestre/Ano/
+     Património/Tipo de Movimento (Renda, Condomínio, IMI, Outras
+     dedutíveis, Outras não dedutíveis)/Movimento (€, sempre 100%)/
+     Comentário. A app escreve numa sheet nova **"LedgerAuto"** no mesmo
+     ficheiro (criada automaticamente no 1º sync, com cabeçalho), mesmas
+     colunas + 1 coluna extra "ID interno" (rastreabilidade) — o Filipe
+     monta a própria pivot de comparação ao lado da "Análise" manual
+   - Mapeamento app→Ledger em `ledgerTipoMovimento` (`src/lib/irs.ts`): só
+     entram transações já classificadas para IRS (imóvel + balde válido);
+     receitas `nao_renda` e despesas sem balde ficam de fora
+   - **Arquitectura implementada**:
+     - `src/lib/irs.ts` — lógica de IRS extraída de `page.tsx` (antes só
+       client-side) para ficheiro puro sem React, reutilizável no servidor
+     - `src/lib/ledgerSync.ts` — motor de sync: reescreve por completo o
+       intervalo de dados da sheet "LedgerAuto" a cada corrida (mais simples
+       e idempotente que diff linha-a-linha; volume pequeno não justifica a
+       complexidade)
+     - `src/app/api/drive/ledger-sync/route.ts` — chamado pelo botão manual
+     - `src/app/api/auth/google/token/route.ts` — devolve um access token
+       Drive válido ao cliente, só para inicializar o Picker (nunca
+       persistido; mesmo padrão de confiança no `user_id` do resto da app)
+     - `src/app/api/cron/check-drive/route.ts` — hook novo no fim, chama
+       `syncLedgerAutoForAllUsers()`; ignora silenciosamente quem ainda não
+       ligou nenhum ficheiro (sem notificação de erro)
+     - `IrsResumoScreen`: secção "LedgerAuto" no fundo — botão "Ligar
+       ficheiro do IRS" (abre o Picker) quando não ligado; "Sincronizar
+       agora" + hora da última sincronização quando já ligado
+     - Tabela `ledger_auto_config` (`user_id` único, `spreadsheet_id`,
+       `sheet_title`, `linked_at`, `last_synced_at`) — enquanto não existir
+       linha, o sync fica inerte (é o "interruptor" natural pedido pelo
+       Filipe: código pronto, sem efeito até ele ligar)
+     - Scope OAuth alargado em `src/app/api/auth/google/route.ts`:
+       `drive.readonly` (mantido, extractos bancários) + `drive.file` (novo)
+   - **Falta (Filipe, fora do meu controlo)**: converter o ficheiro para
+     Google Sheets nativo (Ficheiro → Guardar como Google Sheets — em
+     curso); activar a Picker API + criar `NEXT_PUBLIC_GOOGLE_PICKER_API_KEY`
+     no Google Cloud Console (ainda não guiado); reconectar a Drive depois
+     do scope novo estar em produção; escolher o ficheiro convertido no
+     Picker
+   - ⚠ Risco técnico não 100% confirmado: `drive.file` deve ser suficiente
+     também para a Sheets API em ficheiros seleccionados via esta app —
+     por confirmar no primeiro sync real
+   - ⚠ A app pode ter menos histórico de transações do que a Ledger manual
+     (que começa em 2024) — LedgerAuto só reflecte o que já está carregado
 4. **Relatório IRS anual (Anexo F — rendimentos prediais)** ✅ feito
    (2026-08-09, ver secção própria abaixo)
 
