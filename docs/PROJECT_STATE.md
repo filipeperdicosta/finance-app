@@ -239,11 +239,26 @@ preenchimento — não a partir de blogs, para evitar erros de categoria/regime.
   `irs_taxa_override`. Categorização de gastos reaproveita
   `transactions.subcategoria` (campo já existente, sem uso anterior) — pill
   novo "Balde IRS" no `TxnEditForm`, só visível quando a transação tem
-  `imovel_id` e é despesa
+  `imovel_id` e é despesa. `IRS_SUBCATEGORIAS` tem **7 baldes**: as 6
+  colunas reais do Quadro 4001 do Anexo F (Conservação e Manutenção,
+  Condomínio, IMI, Imposto do Selo, Taxas Autárquicas, Outros) + Não
+  dedutível — simplificado de 10 (2026-08-09, a pedido do Filipe: "porque
+  colocas 10 baldes se o IRS pede estes?"); os 4 removidos (Seguro,
+  Certificado Energético, Honorários, Comissão) caíam todos em "Outros" no
+  mapeamento de qualquer forma, granularidade sem uso real. Fila "Por
+  classificar" (`IrsUnclassifiedQueue`) mostra os baldes como pills
+  clicáveis directamente na lista (mesmo padrão do `AssignQueue` de
+  imóveis), sem precisar de abrir o popup completo
 - **Regime (Quadro 4.1 vs 4.2)** calculado a partir da duração do contrato
   (`sugerirRegimeIrs`) — não é um botão manual, é sugestão automática com
   nota a lembrar da obrigação de comunicação à AT até 15/Fev para o 4.2
-  valer. `irs_taxa_override` permite corrigir a taxa manualmente por imóvel
+  valer. `irs_taxa_override` permite corrigir a taxa manualmente por imóvel.
+  `contratoDuracaoAnos` conta a data de fim **inclusive** (+1 dia antes de
+  subtrair) — um contrato "de 5 anos" com início 14/07/2025 escreve-se com
+  fim 13/07/2030, não 14/07/2030 (convenção normal de contratos PT); sem o
+  +1 dia, um contrato de 5 anos certos dava sempre 1 dia a menos que 5 anos
+  e caía incorrectamente no Quadro 4.1 (bug real, apanhado pelo Filipe
+  2026-08-09)
 - **Conservação vs custos não dedutíveis**: subcategoria própria
   `nao_dedutivel` (nunca soma para dedução — só obras de
   conservação/manutenção reais contam). Cobre obras de valorização (tipo
@@ -300,6 +315,34 @@ preenchimento — não a partir de blogs, para evitar erros de categoria/regime.
   do toggle) — não podem variar com uma preferência de visualização, são os
   valores que realmente vão para a declaração
 
+### Bugs resolvidos (IRS/Imóveis, 2026-08-09/10)
+- **Janela de 6 meses escondia dados**: `loadAllData()` só carrega
+  transações dos últimos ~6 meses (optimização para o resto da app). A fila
+  "por associar" (Imóveis) e **todos os totais do ecrã de IRS**
+  (`IrsResumoScreen`) dependiam dessa mesma lista — em Agosto, Jan/Fev
+  ficavam invisíveis na fila e sub-reportados nos totais de bruto/gastos/
+  imposto, sem aviso nenhum. Apanhado pelo Filipe ("só vejo coisas até
+  março"). **Fix**: `loadUnclassifiedImovelTxns` (fila, sem limite de data)
+  e `loadImovelTxnsForYear` (IRS, ano fiscal completo Jan-Dez) — ambas em
+  `supabase.ts`, vão buscar directamente à BD em vez de depender da lista
+  já carregada em memória
+- **Ordenação da fila de IRS**: `allNaoClassificadas` juntava as transações
+  por imóvel primeiro (`flatMap`) e só depois por data — com mais de 1
+  imóvel isso quebrava a ordem cronológica global. Fix: `.sort()` final por
+  data decrescente
+- **Duração do contrato "de 5 anos" a dar 4.997 anos**: ver bullet acima
+  (`contratoDuracaoAnos`) — fim exclusivo em vez de inclusivo
+- **Pull histórico Enable Banking (conta Herança MBCP)**: tentativa de
+  puxar transacções desde 01/01/2026 via `date_from` (parâmetro novo,
+  opcional, em `/api/enablebanking/sync`, só usado quando pedido
+  explicitamente com 1 conta — nunca pelo sync automático/UI) devolveu
+  **0 transacções novas** — a mais antiga na BD continua 2026-03-31. Não
+  ficou claro se é limite do PSD2/banco ou se a conta real não teve
+  movimentos antes disso (conta só foi criada na app a 17/06/2026). O
+  Filipe resolveu importando Jan/Fev por outra via (upload manual) — o
+  parâmetro `date_from` ficou no código, inerte, para o caso de precisar
+  outra vez
+
 ### Ecrã Imóveis — extras (2026-08-10)
 - **Reordenar "por imóvel"**: causa raiz de a ordem parecer instável era
   todos os imóveis terem `ordem=5` (nunca diferenciado) — a query
@@ -345,10 +388,33 @@ risco técnico bruto.
    (56px). `manifest.json` e `layout.tsx` actualizados. Ecrã de loading tem
    duração mínima de 1,5s (`minSplashElapsed`) para não piscar ilegível
    quando os dados carregam depressa.
-3. **Excel na Drive (custos da casa)** — substitui trabalho manual mensal do
-   Filipe. **Bloqueado**: precisa do ficheiro real (estrutura/colunas) e de
-   alargar o scope OAuth do Drive de leitura para escrita (reconsentimento,
-   possível novo aviso "app não verificada" mais sensível que o actual)
+3. **"LedgerAuto" — sincronização automática com o Excel de controlo do
+   Filipe** — substitui trabalho manual mensal. **Em pausa, à espera de 1
+   decisão** (2026-08-10, "decidimos amanhã de cabeça fresca" — ver plano
+   detalhado em `C:\Users\Filipe\.claude\plans\validated-dazzling-waterfall.md`
+   se ainda existir; resumo abaixo para não se perder):
+   - Ficheiro identificado e estrutura confirmada: "Controlo Financeiro
+     v1.0.xlsx" na Drive do Filipe (já ligada, achado via a própria API de
+     leitura já existente, sem precisar perguntar). Sheet "Ledger" (manual):
+     Data/Mês/Trimestre/Ano/Património/Tipo de Movimento (Renda, Condomínio,
+     IMI, Outras dedutíveis, Outras não dedutíveis)/Movimento (€, sempre
+     100%)/Comentário. Vamos escrever numa sheet nova "LedgerAuto" no mesmo
+     ficheiro, mesmas colunas, para o Filipe montar a própria pivot de
+     comparação ao lado da "Análise" manual
+   - Mapeamento app→Ledger já confirmado (ver plano) — só entram transações
+     já classificadas para IRS (com imóvel + balde), tudo o resto fica de
+     fora
+   - Decisões já fechadas: converter o ficheiro para Google Sheets nativo
+     (não fica .xlsx — mais seguro para escritas cirúrgicas via Sheets API
+     sem arriscar fórmulas/pivot); sync por reconciliação completa (não
+     deltas); gatilho = cron diário + botão manual, mesmo padrão do EB/T212
+   - **Decisão pendente**: âmbito do scope OAuth de escrita —
+     `drive.file`+Picker (só este ficheiro, mais seguro, exige o Filipe
+     configurar a Picker API no Google Cloud Console) vs. scope largo
+     `spreadsheets` (todas as Sheets dele, zero configuração extra).
+     Confirmado que não há mais nada no roadmap que precise de acesso a
+     Drive/Sheets além disto — não há vantagem em pedir já o scope largo
+     "para poupar trabalho futuro"
 4. **Relatório IRS anual (Anexo F — rendimentos prediais)** ✅ feito
    (2026-08-09, ver secção própria abaixo)
 
