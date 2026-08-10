@@ -28,9 +28,10 @@ import {
   findUserByEmail, inviteUserToAccount, loadPendingInvites, acceptInvite, rejectInvite,
   loadAccountPendingInvites, cancelInvite,
   countSuspiciousDuplicates, loadSuspiciousDuplicates, resolveDuplicate, keepBothTransactions,
+  getLedgerAutoConfig, saveLedgerAutoConfig, syncLedgerAuto, getGoogleAccessToken,
   type Account, type Transaction, type Imovel, type ContaImovel, type CategoryRule, type SaudeRule,
   type DriveToken, type DriveFile, type AppNotification, type T212Config,
-  type Profile, type AccountMember, type AccountInvite, type SuspiciousPair,
+  type Profile, type AccountMember, type AccountInvite, type SuspiciousPair, type LedgerAutoConfig,
 } from '@/lib/supabase'
 import {
   IRS_SUBCATEGORIAS, IRS_SUBCATEGORIA_LABELS, limiteRendaAplicavel, contratoDuracaoAnos,
@@ -3368,6 +3369,45 @@ const IrsUnclassifiedQueue = ({txns,imoveis,accounts,ano,onClose,onRefresh}:{txn
 }
 
 // ─────────────────────────────────────────────────────────────────
+// LedgerAuto — Google Picker (selecção do ficheiro a ligar)
+// ─────────────────────────────────────────────────────────────────
+declare global { interface Window { gapi?: any; google?: any } }
+
+let gapiPickerLoad: Promise<void> | null = null
+function loadGapiPicker(): Promise<void> {
+  if (window.google?.picker) return Promise.resolve()
+  if (gapiPickerLoad) return gapiPickerLoad
+  gapiPickerLoad = new Promise((resolve, reject) => {
+    const script = document.createElement('script')
+    script.src = 'https://apis.google.com/js/api.js'
+    script.onload = () => window.gapi.load('picker', { callback: () => resolve() })
+    script.onerror = () => reject(new Error('Falha ao carregar o Google Picker'))
+    document.body.appendChild(script)
+  })
+  return gapiPickerLoad
+}
+
+// Abre o Picker filtrado a Google Sheets; devolve o ID do ficheiro escolhido, ou null se
+// cancelado. `accessToken` tem de ter o scope drive.file (ver /api/auth/google/route.ts).
+async function openLedgerPicker(accessToken: string, apiKey: string): Promise<string|null> {
+  await loadGapiPicker()
+  const { picker } = window.google
+  return new Promise(resolve => {
+    const view = new picker.DocsView(picker.ViewId.SPREADSHEETS)
+    const built = new picker.PickerBuilder()
+      .addView(view)
+      .setOAuthToken(accessToken)
+      .setDeveloperKey(apiKey)
+      .setCallback((data:any) => {
+        if (data.action === picker.Action.PICKED) resolve(data.docs[0].id)
+        else if (data.action === picker.Action.CANCEL) resolve(null)
+      })
+      .build()
+    built.setVisible(true)
+  })
+}
+
+// ─────────────────────────────────────────────────────────────────
 // IRS — RESUMO E EXPLORAÇÃO DE CUSTOS
 // ─────────────────────────────────────────────────────────────────
 const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],accounts:Account[],onClose:()=>void,onRefresh:()=>void}) => {
@@ -3384,6 +3424,33 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
   // limite de renda no `IrsConfigScreen` usam sempre a quota, nunca este toggle — é o que vai
   // mesmo para a tua declaração, não pode variar com uma preferência de visualização.
   const [showQuota,setShowQuota] = useState(false)
+  // LedgerAuto — sincronização com a Ledger manual do Filipe (Excel/Sheets)
+  const [ledgerConfig,setLedgerConfig] = useState<LedgerAutoConfig|null>(null)
+  const [ledgerBusy,setLedgerBusy] = useState(false)
+  const [ledgerMsg,setLedgerMsg] = useState<string|null>(null)
+  useEffect(()=>{ getLedgerAutoConfig().then(setLedgerConfig) },[])
+  const ligarLedger = async () => {
+    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_PICKER_API_KEY
+    if(!apiKey){ setLedgerMsg('Chave do Picker ainda não configurada — ver Fase 0 do plano.'); return }
+    setLedgerBusy(true); setLedgerMsg(null)
+    try{
+      const token = await getGoogleAccessToken()
+      if(!token){ setLedgerMsg('Reconecta a Drive primeiro (Definições) para apanhar a permissão nova.'); return }
+      const fileId = await openLedgerPicker(token, apiKey)
+      if(!fileId){ setLedgerBusy(false); return }
+      await saveLedgerAutoConfig(fileId)
+      setLedgerConfig(await getLedgerAutoConfig())
+      setLedgerMsg('Ficheiro ligado. Toca em "Sincronizar agora" para a 1ª sincronização.')
+    }catch(err:any){ setLedgerMsg(err.message ?? 'Erro ao ligar o ficheiro') }
+    setLedgerBusy(false)
+  }
+  const sincronizarLedger = async () => {
+    setLedgerBusy(true); setLedgerMsg(null)
+    const result = await syncLedgerAuto()
+    setLedgerMsg(result.error ?? result.message ?? 'Sincronizado.')
+    setLedgerConfig(await getLedgerAutoConfig())
+    setLedgerBusy(false)
+  }
 
   const relevantes = imoveis.filter(im=>im.ativo)
   // O IRS precisa do ano fiscal completo (Jan–Dez); a lista de transações carregada
@@ -3581,6 +3648,22 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
           })}
 
           <Btn onClick={()=>setShowMapping(true)} variant="ghost" accent={PAL.imoveis.accent} style={{width:'100%',marginTop:6}}>Ver mapeamento para o IRS →</Btn>
+
+          <div style={{marginTop:16,paddingTop:14,borderTop:`1px solid ${T.border}`}}>
+            <div style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:8}}>LedgerAuto</div>
+            {ledgerConfig ? (
+              <>
+                <div style={{fontSize:11,color:T.textSec,marginBottom:8}}>Ligado{ledgerConfig.last_synced_at?` · última sincronização ${new Date(ledgerConfig.last_synced_at).toLocaleString('pt-PT')}`:' · ainda sem sincronizar'}</div>
+                <Btn onClick={sincronizarLedger} variant="ghost" accent={PAL.imoveis.accent} style={{width:'100%'}}>{ledgerBusy?'A sincronizar…':'Sincronizar agora'}</Btn>
+              </>
+            ):(
+              <>
+                <div style={{fontSize:11,color:T.textSec,marginBottom:8}}>Sincroniza as despesas/rendas já classificadas para IRS com uma sheet "LedgerAuto" no teu ficheiro de controlo.</div>
+                <Btn onClick={ligarLedger} variant="ghost" accent={PAL.imoveis.accent} style={{width:'100%'}}>{ledgerBusy?'…':'Ligar ficheiro do IRS'}</Btn>
+              </>
+            )}
+            {ledgerMsg&&<div style={{fontSize:10.5,color:T.textTer,marginTop:6,lineHeight:1.5}}>{ledgerMsg}</div>}
+          </div>
         </div>
       </div>
       {configImovel&&<IrsConfigScreen imovel={configImovel} onClose={()=>setConfigImovel(null)} onSaved={refreshAll}/>}

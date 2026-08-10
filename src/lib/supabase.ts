@@ -622,6 +622,16 @@ export async function saveLedgerAutoConfig(spreadsheetId: string) {
     .upsert({ user_id: user.id, spreadsheet_id: spreadsheetId, sheet_title: 'LedgerAuto' }, { onConflict: 'user_id' })
 }
 
+// Access token Drive só para inicializar o Google Picker client-side (nunca persistido).
+export async function getGoogleAccessToken(): Promise<string | null> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
+  const res = await fetch(`/api/auth/google/token?user_id=${user.id}`)
+  if (!res.ok) return null
+  const data = await res.json()
+  return data.access_token ?? null
+}
+
 export async function syncLedgerAuto() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Não autenticado' }
