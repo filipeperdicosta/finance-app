@@ -18,7 +18,11 @@ export async function GET(req: NextRequest) {
     client_id: clientId,
     redirect_uri: redirectUri,
     response_type: 'code',
-    scope: 'https://www.googleapis.com/auth/drive.readonly',
+    // drive.readonly: extractos bancários (PDF), navegação ampla de pastas.
+    // drive.file: acesso de escrita, mas só a ficheiros que o utilizador seleccione
+    // explicitamente via Picker nesta app (ex: a sheet "LedgerAuto" do IRS) — nunca a
+    // toda a Drive, ao contrário de um scope 'spreadsheets' largo.
+    scope: 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file',
     access_type: 'offline',     // necessário para receber refresh_token
     prompt: 'consent',          // força mostrar o consentimento (garante refresh_token mesmo em re-ligações)
     state: userId,
