@@ -3398,6 +3398,10 @@ async function openLedgerPicker(accessToken: string, apiKey: string): Promise<st
       .addView(view)
       .setOAuthToken(accessToken)
       .setDeveloperKey(apiKey)
+      // Nº do projecto Google Cloud (prefixo do GOOGLE_CLIENT_ID, antes do "-") — sem isto o
+      // scope drive.file não fica realmente associado à app; o ficheiro parece escolhido mas
+      // nunca fica autorizado (dá 403 PERMISSION_DENIED na Sheets API depois).
+      .setAppId('24867721995')
       .setCallback((data:any) => {
         if (data.action === picker.Action.PICKED) resolve(data.docs[0].id)
         else if (data.action === picker.Action.CANCEL) resolve(null)
