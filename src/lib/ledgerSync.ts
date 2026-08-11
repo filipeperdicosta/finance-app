@@ -9,17 +9,23 @@ import { ledgerTipoMovimento } from './irs'
 import type { Transaction } from './supabase'
 
 const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets'
-const MESES_PT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez']
-const HEADER = ['Data','Mês','Trimestre','Ano','Património','Tipo de Movimento','Movimento','Comentário','ID interno (não editar)']
+// A Ledger manual do Filipe segue sempre este layout: linha 1 = filtros/resumo (dele, nunca
+// tocamos), linha 2 = cabeçalhos, linha 3+ = dados. As colunas B/C/D (Mês/Trimestre/Ano) são
+// sempre fórmulas a partir da própria coluna A da mesma linha.
+const HEADER_ROW = 2
+const FIRST_DATA_ROW = 3
+const HEADER_FULL = ['Data','Mês','Trimestre','Ano','Património','Tipo de Movimento','Movimento','Comentário','Descrição da transação','ID interno (transação)']
+// Só as 2 colunas novas — nunca reescrevemos A2:H2, que já existem e pertencem ao Filipe.
+const HEADER_NEW_COLS = ['Descrição da transação','ID interno (transação)']
 
-function mesLabel(dataIso: string): string {
-  const [ano, mes] = dataIso.split('-')
-  return `${MESES_PT[Number(mes)-1]}./${ano.slice(2)}`
+function mesFormula(row: number): string {
+  return `=INDEX({"jan";"fev";"mar";"abr";"mai";"jun";"jul";"ago";"set";"out";"nov";"dez"},MONTH(A${row}))&"./"&TEXT(A${row},"yy")`
 }
-function trimestreLabel(dataIso: string): string {
-  const [ano, mes] = dataIso.split('-')
-  const t = Math.ceil(Number(mes)/3)
-  return `${ano.slice(2)}T${t}`
+function trimestreFormula(row: number): string {
+  return `=TEXT(A${row},"yy")&"T"&ROUNDUP(MONTH(A${row})/3,0)`
+}
+function anoFormula(row: number): string {
+  return `=YEAR(A${row})`
 }
 
 async function sheetsFetch(path: string, accessToken: string, options: RequestInit = {}) {
@@ -34,27 +40,38 @@ async function sheetsFetch(path: string, accessToken: string, options: RequestIn
   return res.json()
 }
 
-// Garante que a sheet "LedgerAuto" existe no ficheiro (cria-a, com cabeçalho, se for a
-// primeira sincronização) — devolve o título real usado.
+// Garante que a sheet "LedgerAuto" existe no ficheiro — cria-a (com o cabeçalho completo na
+// linha 2, layout igual à Ledger manual) só se for mesmo a primeira vez. Se já existir (caso
+// normal — o Filipe cria-a manualmente a partir da Ledger, com histórico próprio), nunca
+// tocamos nas colunas A-H já existentes; só garantimos os cabeçalhos das 2 colunas novas.
 async function ensureSheetExists(spreadsheetId: string, sheetTitle: string, accessToken: string) {
   const meta = await sheetsFetch(`/${spreadsheetId}?fields=sheets.properties.title`, accessToken)
   const exists = (meta.sheets ?? []).some((s: any) => s.properties?.title === sheetTitle)
-  if (exists) return
-  await sheetsFetch(`/${spreadsheetId}:batchUpdate`, accessToken, {
-    method: 'POST',
-    body: JSON.stringify({ requests: [{ addSheet: { properties: { title: sheetTitle } } }] }),
-  })
-  await sheetsFetch(`/${spreadsheetId}/values/${encodeURIComponent(sheetTitle)}!A1?valueInputOption=USER_ENTERED`, accessToken, {
+  const range = encodeURIComponent(sheetTitle)
+  if (!exists) {
+    await sheetsFetch(`/${spreadsheetId}:batchUpdate`, accessToken, {
+      method: 'POST',
+      body: JSON.stringify({ requests: [{ addSheet: { properties: { title: sheetTitle } } }] }),
+    })
+    await sheetsFetch(`/${spreadsheetId}/values/${range}!A${HEADER_ROW}?valueInputOption=USER_ENTERED`, accessToken, {
+      method: 'PUT',
+      body: JSON.stringify({ values: [HEADER_FULL] }),
+    })
+    return
+  }
+  await sheetsFetch(`/${spreadsheetId}/values/${range}!I${HEADER_ROW}:J${HEADER_ROW}?valueInputOption=USER_ENTERED`, accessToken, {
     method: 'PUT',
-    body: JSON.stringify({ values: [HEADER] }),
+    body: JSON.stringify({ values: [HEADER_NEW_COLS] }),
   })
 }
 
 type SyncResult = { ok: boolean; message: string; rows?: number }
 
-// Reconciliação por reescrita completa: mais simples e idempotente do que um diff
-// linha-a-linha (mesmo resultado sempre, independente do estado anterior da sheet) — o
-// volume (algumas centenas de transações) não justifica a complexidade de um diff cirúrgico.
+// Reconciliação por reescrita completa da região que a app gere — mas só dessa região.
+// A coluna J (ID interno) é a marca de posse: qualquer linha com um ID lá foi escrita por
+// nós, qualquer linha sem ID é histórico manual do Filipe e NUNCA é tocada. A fronteira é
+// sempre recalculada a partir do que já está na sheet, por isso é seguro mesmo que o Filipe
+// adicione mais histórico manual entretanto.
 export async function syncLedgerAuto(userId: string): Promise<SyncResult> {
   const supabaseAdmin = getSupabaseAdmin()
 
@@ -71,24 +88,36 @@ export async function syncLedgerAuto(userId: string): Promise<SyncResult> {
   ])
   const nomeCurto = new Map((imoveis ?? []).map((im: any) => [im.id, String(im.nome).split(' ')[0]]))
 
-  const linhas = (txns ?? [])
+  const desejadas = (txns ?? [])
     .map((t: Transaction) => {
       const tipo = ledgerTipoMovimento(t)
       if (!tipo) return null
       const patrimonio = nomeCurto.get(t.imovel_id as string) ?? '?'
-      return [t.data, mesLabel(t.data), trimestreLabel(t.data), t.data.slice(0, 4), patrimonio, tipo, Number(t.valor), t.descritivo ?? '', t.id]
+      return { data: t.data, patrimonio, tipo, valor: Number(t.valor), descritivo: t.descritivo ?? '', id: t.id }
     })
-    .filter((r): r is (string | number)[] => r !== null)
-    .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+    .filter((r): r is NonNullable<typeof r> => r !== null)
+    .sort((a, b) => a.data.localeCompare(b.data))
 
   await ensureSheetExists(config.spreadsheet_id, config.sheet_title, accessToken)
-
   const sheetRange = encodeURIComponent(config.sheet_title)
-  // Limpa tudo abaixo do cabeçalho antes de reescrever — remove linhas de transações que
-  // deixaram de ser relevantes (reclassificadas, desassociadas do imóvel, apagadas).
-  await sheetsFetch(`/${config.spreadsheet_id}/values/${sheetRange}!A2:I50000:clear`, accessToken, { method: 'POST' })
-  if (linhas.length > 0) {
-    await sheetsFetch(`/${config.spreadsheet_id}/values/${sheetRange}!A2?valueInputOption=USER_ENTERED`, accessToken, {
+
+  // Fronteira: última linha (a partir da FIRST_DATA_ROW) sem ID na coluna J → é a última
+  // linha protegida. Tudo depois disso é nosso.
+  const existing = await sheetsFetch(`/${config.spreadsheet_id}/values/${sheetRange}!A${FIRST_DATA_ROW}:J50000`, accessToken)
+  const existingRows: string[][] = existing.values ?? []
+  let lastProtectedOffset = -1
+  existingRows.forEach((row, i) => { if (!row[9]) lastProtectedOffset = i })
+  const firstManagedRow = FIRST_DATA_ROW + lastProtectedOffset + 1
+
+  // Limpa só a partir da fronteira — nunca antes dela.
+  await sheetsFetch(`/${config.spreadsheet_id}/values/${sheetRange}!A${firstManagedRow}:J50000:clear`, accessToken, { method: 'POST' })
+
+  if (desejadas.length > 0) {
+    const linhas = desejadas.map((t, i) => {
+      const row = firstManagedRow + i
+      return [t.data, mesFormula(row), trimestreFormula(row), anoFormula(row), t.patrimonio, t.tipo, t.valor, '', t.descritivo, t.id]
+    })
+    await sheetsFetch(`/${config.spreadsheet_id}/values/${sheetRange}!A${firstManagedRow}?valueInputOption=USER_ENTERED`, accessToken, {
       method: 'PUT',
       body: JSON.stringify({ values: linhas }),
     })
@@ -96,7 +125,7 @@ export async function syncLedgerAuto(userId: string): Promise<SyncResult> {
 
   await supabaseAdmin.from('ledger_auto_config').update({ last_synced_at: new Date().toISOString() }).eq('user_id', userId)
 
-  return { ok: true, message: `${linhas.length} linhas sincronizadas`, rows: linhas.length }
+  return { ok: true, message: `${desejadas.length} linhas sincronizadas (a partir da linha ${firstManagedRow})`, rows: desejadas.length }
 }
 
 // Corre a sincronização para todos os users que já ligaram um ficheiro — usado pelo cron.
