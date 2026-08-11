@@ -3655,6 +3655,7 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
               <>
                 <div style={{fontSize:11,color:T.textSec,marginBottom:8}}>Ligado{ledgerConfig.last_synced_at?` · última sincronização ${new Date(ledgerConfig.last_synced_at).toLocaleString('pt-PT')}`:' · ainda sem sincronizar'}</div>
                 <Btn onClick={sincronizarLedger} variant="ghost" accent={PAL.imoveis.accent} style={{width:'100%'}}>{ledgerBusy?'A sincronizar…':'Sincronizar agora'}</Btn>
+                <button onClick={ligarLedger} disabled={ledgerBusy} style={{background:'none',border:'none',cursor:'pointer',color:T.textTer,fontSize:10.5,marginTop:8,padding:0}}>Trocar ficheiro</button>
               </>
             ):(
               <>
