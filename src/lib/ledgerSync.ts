@@ -67,11 +67,11 @@ async function ensureSheetExists(spreadsheetId: string, sheetTitle: string, acce
 
 type SyncResult = { ok: boolean; message: string; rows?: number }
 
-// Reconciliação por reescrita completa da região que a app gere — mas só dessa região.
-// A coluna J (ID interno) é a marca de posse: qualquer linha com um ID lá foi escrita por
-// nós, qualquer linha sem ID é histórico manual do Filipe e NUNCA é tocada. A fronteira é
-// sempre recalculada a partir do que já está na sheet, por isso é seguro mesmo que o Filipe
-// adicione mais histórico manual entretanto.
+// Reconciliação por reescrita completa da região que a app gere — mas só dessa região. A
+// fronteira é por ANO (coluna D), recalculada a cada sincronização a partir do que já está
+// na sheet: nunca tocamos em linhas de anos anteriores ao ano mais antigo que a app tem para
+// sincronizar. A coluna J (ID interno) fica só para rastreabilidade — não decide o que é
+// tocado, para funcionar mesmo na primeira sincronização, sem nenhum ID ainda gravado.
 export async function syncLedgerAuto(userId: string): Promise<SyncResult> {
   const supabaseAdmin = getSupabaseAdmin()
 
@@ -98,30 +98,41 @@ export async function syncLedgerAuto(userId: string): Promise<SyncResult> {
     .filter((r): r is NonNullable<typeof r> => r !== null)
     .sort((a, b) => a.data.localeCompare(b.data))
 
+  if (desejadas.length === 0) {
+    return { ok: true, message: 'Sem transações classificadas para IRS ainda — nada para sincronizar.', rows: 0 }
+  }
+
   await ensureSheetExists(config.spreadsheet_id, config.sheet_title, accessToken)
   const sheetRange = encodeURIComponent(config.sheet_title)
 
-  // Fronteira: última linha (a partir da FIRST_DATA_ROW) sem ID na coluna J → é a última
-  // linha protegida. Tudo depois disso é nosso.
-  const existing = await sheetsFetch(`/${config.spreadsheet_id}/values/${sheetRange}!A${FIRST_DATA_ROW}:J50000`, accessToken)
-  const existingRows: string[][] = existing.values ?? []
+  // Fronteira por ANO, não por ID: a coluna D já é uma fórmula "=YEAR(A...)" em todas as
+  // linhas (incluindo as manuais do Filipe), por isso lemos o valor calculado em vez da
+  // coluna A em bruto — evita depender do formato de exibição da data (DD/MM/AAAA vs ISO).
+  // Última linha com ano ANTERIOR ao ano mais antigo que a app tem para sincronizar → é a
+  // última linha protegida. Tudo depois disso é gerido por nós. Isto funciona mesmo na
+  // primeira sincronização (sem nenhum ID ainda gravado) e ajusta-se sozinho se um dia a
+  // app passar a ter histórico de anos mais antigos.
+  const earliestYear = Math.min(...desejadas.map(t => Number(t.data.slice(0, 4))))
+  const existing = await sheetsFetch(`/${config.spreadsheet_id}/values/${sheetRange}!D${FIRST_DATA_ROW}:D50000`, accessToken)
+  const existingYears: string[][] = existing.values ?? []
   let lastProtectedOffset = -1
-  existingRows.forEach((row, i) => { if (!row[9]) lastProtectedOffset = i })
+  existingYears.forEach((row, i) => {
+    const y = Number(row[0])
+    if (Number.isFinite(y) && y < earliestYear) lastProtectedOffset = i
+  })
   const firstManagedRow = FIRST_DATA_ROW + lastProtectedOffset + 1
 
   // Limpa só a partir da fronteira — nunca antes dela.
   await sheetsFetch(`/${config.spreadsheet_id}/values/${sheetRange}!A${firstManagedRow}:J50000:clear`, accessToken, { method: 'POST' })
 
-  if (desejadas.length > 0) {
-    const linhas = desejadas.map((t, i) => {
-      const row = firstManagedRow + i
-      return [t.data, mesFormula(row), trimestreFormula(row), anoFormula(row), t.patrimonio, t.tipo, t.valor, '', t.descritivo, t.id]
-    })
-    await sheetsFetch(`/${config.spreadsheet_id}/values/${sheetRange}!A${firstManagedRow}?valueInputOption=USER_ENTERED`, accessToken, {
-      method: 'PUT',
-      body: JSON.stringify({ values: linhas }),
-    })
-  }
+  const linhas = desejadas.map((t, i) => {
+    const row = firstManagedRow + i
+    return [t.data, mesFormula(row), trimestreFormula(row), anoFormula(row), t.patrimonio, t.tipo, t.valor, '', t.descritivo, t.id]
+  })
+  await sheetsFetch(`/${config.spreadsheet_id}/values/${sheetRange}!A${firstManagedRow}?valueInputOption=USER_ENTERED`, accessToken, {
+    method: 'PUT',
+    body: JSON.stringify({ values: linhas }),
+  })
 
   await supabaseAdmin.from('ledger_auto_config').update({ last_synced_at: new Date().toISOString() }).eq('user_id', userId)
 
