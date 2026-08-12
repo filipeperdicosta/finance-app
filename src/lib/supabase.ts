@@ -643,6 +643,42 @@ export async function syncLedgerAuto() {
   return res.json()
 }
 
+// ── Custos Casa (sync débitos directos da conta Familiar → Google Sheets) ──
+export type CustosCasaConfig = {
+  spreadsheet_id: string
+  sheet_title: string
+  linked_at: string
+  last_synced_at: string | null
+}
+
+export async function getCustosCasaConfig(): Promise<CustosCasaConfig | null> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
+  const { data } = await supabase.from('custos_casa_config')
+    .select('spreadsheet_id,sheet_title,linked_at,last_synced_at').eq('user_id', user.id).maybeSingle()
+  return (data as CustosCasaConfig) ?? null
+}
+
+// Grava o ficheiro escolhido pelo Filipe no Picker — upsert porque religar substitui a
+// ligação anterior.
+export async function saveCustosCasaConfig(spreadsheetId: string) {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: { message: 'Não autenticado' } as any }
+  return supabase.from('custos_casa_config')
+    .upsert({ user_id: user.id, spreadsheet_id: spreadsheetId, sheet_title: 'CustosCasa' }, { onConflict: 'user_id' })
+}
+
+export async function syncCustosCasa() {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Não autenticado' }
+  const res = await fetch('/api/drive/custos-casa-sync', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: user.id }),
+  })
+  return res.json()
+}
+
 export async function linkEnableBankingAccount(accountUid: string, appAccountId: string) {
   return supabase.from('enablebanking_accounts')
     .update({ account_id: appAccountId })

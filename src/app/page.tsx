@@ -29,9 +29,10 @@ import {
   loadAccountPendingInvites, cancelInvite,
   countSuspiciousDuplicates, loadSuspiciousDuplicates, resolveDuplicate, keepBothTransactions,
   getLedgerAutoConfig, saveLedgerAutoConfig, syncLedgerAuto, getGoogleAccessToken,
+  getCustosCasaConfig, saveCustosCasaConfig, syncCustosCasa,
   type Account, type Transaction, type Imovel, type ContaImovel, type CategoryRule, type SaudeRule,
   type DriveToken, type DriveFile, type AppNotification, type T212Config,
-  type Profile, type AccountMember, type AccountInvite, type SuspiciousPair, type LedgerAutoConfig,
+  type Profile, type AccountMember, type AccountInvite, type SuspiciousPair, type LedgerAutoConfig, type CustosCasaConfig,
 } from '@/lib/supabase'
 import {
   IRS_SUBCATEGORIAS, IRS_SUBCATEGORIA_LABELS, limiteRendaAplicavel, contratoDuracaoAnos,
@@ -2352,6 +2353,34 @@ const DriveSettingsScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
   const [checkResult,setCheckResult] = useState<{contasComNovidades:number,contas:number}|null>(null)
   // Fila de contas com ficheiros novos por rever — uma de cada vez, sequencialmente
   const [reviewQueue,setReviewQueue] = useState<Account[]>([])
+  // Custos Casa — sincronização dos débitos directos da conta Familiar (Renda/Seguros/
+  // Condomínio/Água/Luz/Gás/TV) com a sheet "CustosCasa" do Filipe
+  const [custosCasaConfig,setCustosCasaConfig] = useState<CustosCasaConfig|null>(null)
+  const [custosCasaBusy,setCustosCasaBusy] = useState(false)
+  const [custosCasaMsg,setCustosCasaMsg] = useState<string|null>(null)
+  useEffect(()=>{ getCustosCasaConfig().then(setCustosCasaConfig) },[])
+  const ligarCustosCasa = async () => {
+    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_PICKER_API_KEY
+    if(!apiKey){ setCustosCasaMsg('Chave do Picker ainda não configurada.'); return }
+    setCustosCasaBusy(true); setCustosCasaMsg(null)
+    try{
+      const token = await getGoogleAccessToken()
+      if(!token){ setCustosCasaMsg('Reconecta a Drive primeiro para apanhar a permissão de escrita.'); return }
+      const fileId = await openLedgerPicker(token, apiKey)
+      if(!fileId){ setCustosCasaBusy(false); return }
+      await saveCustosCasaConfig(fileId)
+      setCustosCasaConfig(await getCustosCasaConfig())
+      setCustosCasaMsg('Ficheiro ligado. Toca em "Sincronizar agora" para a 1ª sincronização.')
+    }catch(err:any){ setCustosCasaMsg(err.message ?? 'Erro ao ligar o ficheiro') }
+    setCustosCasaBusy(false)
+  }
+  const sincronizarCustosCasa = async () => {
+    setCustosCasaBusy(true); setCustosCasaMsg(null)
+    const result = await syncCustosCasa()
+    setCustosCasaMsg(result.error ?? result.message ?? 'Sincronizado.')
+    setCustosCasaConfig(await getCustosCasaConfig())
+    setCustosCasaBusy(false)
+  }
 
   const load = useCallback(async()=>{ const s = await getDriveConnectionStatus(); setStatus(s) },[])
   useEffect(()=>{ load() },[load])
@@ -2518,6 +2547,23 @@ const DriveSettingsScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
               <div style={{marginTop:16,fontSize:11,color:T.textTer,lineHeight:1.6,padding:'0 4px'}}>
                 ℹ️ A pasta de cada conta também pode ser configurada directamente no ecrã de editar conta.
               </div>
+
+              <Card style={{marginTop:16,padding:'13px 14px'}}>
+                <div style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:8}}>Custos Casa</div>
+                {custosCasaConfig ? (
+                  <>
+                    <div style={{fontSize:11,color:T.textSec,marginBottom:8}}>Ligado{custosCasaConfig.last_synced_at?` · última sincronização ${new Date(custosCasaConfig.last_synced_at).toLocaleString('pt-PT')}`:' · ainda sem sincronizar'}</div>
+                    <Btn onClick={sincronizarCustosCasa} variant="ghost" accent={pal.accent} style={{width:'100%'}}>{custosCasaBusy?'A sincronizar…':'Sincronizar agora'}</Btn>
+                    <button onClick={ligarCustosCasa} disabled={custosCasaBusy} style={{background:'none',border:'none',cursor:'pointer',color:T.textTer,fontSize:10.5,marginTop:8,padding:0}}>Trocar ficheiro</button>
+                  </>
+                ):(
+                  <>
+                    <div style={{fontSize:11,color:T.textSec,marginBottom:8}}>Sincroniza Renda/Seguros/Condomínio/Água/Luz/Gás/TV da conta Familiar com a tua sheet de controlo de custos da casa.</div>
+                    <Btn onClick={ligarCustosCasa} variant="ghost" accent={pal.accent} style={{width:'100%'}}>{custosCasaBusy?'…':'Ligar ficheiro de Custos Casa'}</Btn>
+                  </>
+                )}
+                {custosCasaMsg&&<div style={{fontSize:10.5,color:T.textTer,marginTop:6,lineHeight:1.5}}>{custosCasaMsg}</div>}
+              </Card>
             </>
           )}
         </div>

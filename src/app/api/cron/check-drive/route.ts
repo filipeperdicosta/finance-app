@@ -4,6 +4,7 @@ import { parseStatementWithGemini, detectMimeType, categorizeSingleTransaction, 
 import { getT212Configs, getT212Portfolio } from '@/lib/t212'
 import { getEnableBankingBalance, getEnableBankingTransactions, getMccCategory, getKeywordCategory } from '@/lib/enableBanking'
 import { syncLedgerAutoForAllUsers } from '@/lib/ledgerSync'
+import { syncCustosCasaForAllUsers } from '@/lib/custosCasaSync'
 
 // Verificação automática diária: para CADA utilizador com Drive ligada,
 // percorre as suas contas com pasta associada, identifica ficheiros novos
@@ -411,6 +412,17 @@ export async function GET(req: NextRequest) {
       }
     } catch (err: any) {
       console.error('Cron LedgerAuto exception:', err.message)
+    }
+
+    // ── Custos Casa: sincroniza a sheet "CustosCasa" para quem já ligou um ficheiro ──
+    try {
+      const custosCasaResults = await syncCustosCasaForAllUsers()
+      const withConfig = custosCasaResults.filter(r => r.result.message !== 'Custos Casa não ligado — nada a fazer')
+      if (withConfig.length > 0) {
+        console.log('Cron Custos Casa:', JSON.stringify(withConfig))
+      }
+    } catch (err: any) {
+      console.error('Cron Custos Casa exception:', err.message)
     }
 
     return NextResponse.json({ ok: true, ...summary, duration_sec: durationSec })
