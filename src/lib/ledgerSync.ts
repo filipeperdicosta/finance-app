@@ -115,14 +115,18 @@ export async function syncLedgerAuto(userId: string): Promise<SyncResult> {
   if (!accessToken) return { ok: false, message: 'Drive não ligada ou token inválido' }
 
   const [{ data: imoveis }, { data: txns }] = await Promise.all([
-    supabaseAdmin.from('imoveis').select('id,nome'),
+    supabaseAdmin.from('imoveis').select('id,nome,ativo'),
     supabaseAdmin.from('transactions').select('*').not('imovel_id', 'is', null) as unknown as Promise<{ data: Transaction[] }>,
   ])
   const nomeCurto = new Map((imoveis ?? []).map((im: any) => [im.id, String(im.nome).split(' ')[0]]))
+  // Imóveis sem renda activa (ex: Casal) não interessam para IRS, mas o Filipe quer sempre
+  // acompanhar os custos — por isso entram sempre em "Outras não dedutíveis", sem precisar
+  // de classificação manual por balde (ver ledgerTipoMovimento).
+  const semRendaSet = new Set((imoveis ?? []).filter((im: any) => !im.ativo).map((im: any) => im.id))
 
   const desejadas = (txns ?? [])
     .map((t: Transaction) => {
-      const tipo = ledgerTipoMovimento(t)
+      const tipo = ledgerTipoMovimento(t, semRendaSet.has(t.imovel_id as string))
       if (!tipo) return null
       const patrimonio = nomeCurto.get(t.imovel_id as string) ?? '?'
       return { data: t.data, patrimonio, tipo, valor: Number(t.valor), descritivo: t.descritivo ?? '', id: t.id }

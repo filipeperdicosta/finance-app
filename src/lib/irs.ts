@@ -124,7 +124,12 @@ export type LedgerTipoMovimento = 'Renda'|'Condomínio'|'IMI'|'Outras dedutívei
 // quando a transacção não deve entrar na LedgerAuto (ainda não classificada para IRS, ou
 // receita marcada como não-renda). Mesma regra de inclusão/exclusão usada em computeIrsImovel,
 // só que aqui devolve o balde "achatado" da Ledger em vez do balde detalhado da app.
-export function ledgerTipoMovimento(t: Transaction): LedgerTipoMovimento | null {
+// `semRendaActiva` — imóvel sem renda activa (Imovel.ativo=false, ex: Casal): não é relevante
+// para IRS, mas o Filipe quer sempre acompanhar os custos, por isso toda a transacção cai em
+// "Outras não dedutíveis" sem precisar de classificação manual por balde (pedido do Filipe,
+// 2026-08-12 — "opção C").
+export function ledgerTipoMovimento(t: Transaction, semRendaActiva = false): LedgerTipoMovimento | null {
+  if (semRendaActiva) return 'Outras não dedutíveis'
   const valor = Number(t.valor)
   if (valor > 0) {
     return t.subcategoria === 'nao_renda' ? null : 'Renda'
