@@ -127,11 +127,18 @@ async function extendTableRange(spreadsheetId: string, sheetTitle: string, lastR
 
 type SyncResult = { ok: boolean; message: string; rows?: number }
 
-// Reconciliação por reescrita completa da região que a app gere — mas só dessa região. A
-// fronteira é por ANO (coluna D), recalculada a cada sincronização a partir do que já está
-// na sheet: nunca tocamos em linhas de anos anteriores ao ano mais antigo que a app tem para
-// sincronizar. A coluna J (ID interno) fica só para rastreabilidade — não decide o que é
-// tocado, para funcionar mesmo na primeira sincronização, sem nenhum ID ainda gravado.
+// Reconciliação por DELTA da região que a app gere — mas só dessa região. A fronteira é por
+// ANO (coluna D), recalculada a cada sincronização a partir do que já está na sheet: nunca
+// tocamos em linhas de anos anteriores ao ano mais antigo que a app tem para sincronizar.
+// Dentro da região gerida, emparelhamos por ID (coluna J) com o que já está na sheet:
+//   1) linhas cujos valores mudaram → actualizadas só nessas células (nunca em B/C/D, que são
+//      fórmulas, nem em H, que é do Filipe — por isso comentários manuais sobrevivem);
+//   2) linhas cuja transação deixou de ser relevante → removidas (deleteDimension);
+//   3) transações novas → acrescentadas sempre ao FUNDO da região gerida, não na posição
+//      cronológica correcta — reordenar por ordem de data deslocaria os índices de linha de
+//      tudo o resto, o que exigiria muito mais lógica para um ganho só estético; se a ordem
+//      cronológica estrita importar nalgum momento, o Filipe reordena manualmente (pedido
+//      dele, 2026-08-12).
 export async function syncLedgerAuto(userId: string): Promise<SyncResult> {
   const supabaseAdmin = getSupabaseAdmin()
 
@@ -177,39 +184,103 @@ export async function syncLedgerAuto(userId: string): Promise<SyncResult> {
   // primeira sincronização (sem nenhum ID ainda gravado) e ajusta-se sozinho se um dia a
   // app passar a ter histórico de anos mais antigos.
   const earliestYear = Math.min(...desejadas.map(t => Number(t.data.slice(0, 4))))
-  const existing = await sheetsFetch(`/${config.spreadsheet_id}/values/${sheetRange}!D${FIRST_DATA_ROW}:D50000`, accessToken)
-  const existingYears: string[][] = existing.values ?? []
+  const existingD = await sheetsFetch(`/${config.spreadsheet_id}/values/${sheetRange}!D${FIRST_DATA_ROW}:D50000`, accessToken)
+  const existingYears: string[][] = existingD.values ?? []
   let lastProtectedOffset = -1
   existingYears.forEach((row, i) => {
     const y = Number(row[0])
     if (Number.isFinite(y) && y < earliestYear) lastProtectedOffset = i
   })
   const firstManagedRow = FIRST_DATA_ROW + lastProtectedOffset + 1
-  // Última linha que já existia (com dados) antes desta sincronização — usada a seguir para
-  // saber quais das linhas que vamos escrever são genuinamente novas (por formatar).
-  const oldLastRow = existingYears.length > 0 ? FIRST_DATA_ROW + existingYears.length - 1 : FIRST_DATA_ROW - 1
 
-  // Limpa só a partir da fronteira — nunca antes dela.
-  await sheetsFetch(`/${config.spreadsheet_id}/values/${sheetRange}!A${firstManagedRow}:J50000:clear`, accessToken, { method: 'POST' })
-
-  const linhas = desejadas.map((t, i) => {
-    const row = firstManagedRow + i
-    return [t.data, mesFormula(row), trimestreFormula(row), anoFormula(row), t.patrimonio, t.tipo, t.valor, '', t.descritivo, t.id]
+  // Lê a região gerida por nós, completa (A:J), para emparelhar por ID com o que já lá está.
+  const managedRaw = await sheetsFetch(`/${config.spreadsheet_id}/values/${sheetRange}!A${firstManagedRow}:J50000`, accessToken)
+  const managedRows: string[][] = managedRaw.values ?? []
+  type LinhaExistente = { row: number; data: string; patrimonio: string; tipo: string; valor: number; descritivo: string }
+  const existingById = new Map<string, LinhaExistente>()
+  managedRows.forEach((r, i) => {
+    const id = r[9]
+    if (!id) return
+    existingById.set(id, {
+      row: firstManagedRow + i,
+      data: r[0] ?? '', patrimonio: r[4] ?? '', tipo: r[5] ?? '',
+      valor: Number(r[6] ?? 0), descritivo: r[8] ?? '',
+    })
   })
-  await sheetsFetch(`/${config.spreadsheet_id}/values/${sheetRange}!A${firstManagedRow}?valueInputOption=USER_ENTERED`, accessToken, {
-    method: 'PUT',
-    body: JSON.stringify({ values: linhas }),
-  })
+  const regionLastRow = managedRows.length > 0 ? firstManagedRow + managedRows.length - 1 : firstManagedRow - 1
 
-  const lastRow = firstManagedRow + desejadas.length - 1
-  if (lastRow > oldLastRow && oldLastRow >= FIRST_DATA_ROW) {
-    await copyFormatForNewRows(config.spreadsheet_id, config.sheet_title, oldLastRow, oldLastRow + 1, lastRow, accessToken)
+  // 1) Actualizações — só as células das linhas cujos valores realmente mudaram.
+  const valueUpdates: { range: string; values: any[][] }[] = []
+  let updatedCount = 0
+  for (const t of desejadas) {
+    const ex = existingById.get(t.id)
+    if (!ex) continue
+    if (ex.data === t.data && ex.patrimonio === t.patrimonio && ex.tipo === t.tipo && ex.valor === t.valor && ex.descritivo === t.descritivo) continue
+    valueUpdates.push({ range: `${sheetRange}!A${ex.row}`, values: [[t.data]] })
+    valueUpdates.push({ range: `${sheetRange}!E${ex.row}:G${ex.row}`, values: [[t.patrimonio, t.tipo, t.valor]] })
+    valueUpdates.push({ range: `${sheetRange}!I${ex.row}`, values: [[t.descritivo]] })
+    updatedCount++
   }
-  await extendTableRange(config.spreadsheet_id, config.sheet_title, lastRow, accessToken)
+  if (valueUpdates.length > 0) {
+    await sheetsFetch(`/${config.spreadsheet_id}/values:batchUpdate`, accessToken, {
+      method: 'POST',
+      body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data: valueUpdates }),
+    })
+  }
+
+  // 2) Remoções — transações que já não são relevantes (desclassificadas, apagadas, etc.).
+  const desiredIds = new Set(desejadas.map(t => t.id))
+  const rowsToDelete: number[] = []
+  existingById.forEach((ex, id) => {
+    if (!desiredIds.has(id)) rowsToDelete.push(ex.row)
+  })
+  rowsToDelete.sort((a, b) => b - a) // descendente: cada delete usa índices originais, sem invalidar os seguintes
+  if (rowsToDelete.length > 0) {
+    const meta = await sheetsFetch(`/${config.spreadsheet_id}?fields=sheets.properties(sheetId,title)`, accessToken)
+    const sheetId = (meta.sheets ?? []).find((s: any) => s.properties?.title === config.sheet_title)?.properties?.sheetId
+    if (sheetId !== undefined) {
+      await sheetsFetch(`/${config.spreadsheet_id}:batchUpdate`, accessToken, {
+        method: 'POST',
+        body: JSON.stringify({
+          requests: rowsToDelete.map(row => ({
+            deleteDimension: { range: { sheetId, dimension: 'ROWS', startIndex: row - 1, endIndex: row } },
+          })),
+        }),
+      })
+    }
+  }
+
+  // 3) Novas — acrescentadas ao fundo da região gerida (ver nota acima da função).
+  const newItems = desejadas.filter(t => !existingById.has(t.id))
+  const afterDeleteLastRow = regionLastRow - rowsToDelete.length
+  let finalLastRow = afterDeleteLastRow
+  if (newItems.length > 0) {
+    const appendStartRow = afterDeleteLastRow + 1
+    const linhas = newItems.map((t, i) => {
+      const row = appendStartRow + i
+      return [t.data, mesFormula(row), trimestreFormula(row), anoFormula(row), t.patrimonio, t.tipo, t.valor, '', t.descritivo, t.id]
+    })
+    await sheetsFetch(`/${config.spreadsheet_id}/values/${sheetRange}!A${appendStartRow}?valueInputOption=USER_ENTERED`, accessToken, {
+      method: 'PUT',
+      body: JSON.stringify({ values: linhas }),
+    })
+    finalLastRow = appendStartRow + newItems.length - 1
+    if (afterDeleteLastRow >= firstManagedRow) {
+      await copyFormatForNewRows(config.spreadsheet_id, config.sheet_title, afterDeleteLastRow, appendStartRow, finalLastRow, accessToken)
+    }
+  }
+
+  if (finalLastRow >= firstManagedRow) {
+    await extendTableRange(config.spreadsheet_id, config.sheet_title, finalLastRow, accessToken)
+  }
 
   await supabaseAdmin.from('ledger_auto_config').update({ last_synced_at: new Date().toISOString() }).eq('user_id', userId)
 
-  return { ok: true, message: `${desejadas.length} linhas sincronizadas (a partir da linha ${firstManagedRow})`, rows: desejadas.length }
+  return {
+    ok: true,
+    message: `${newItems.length} novas, ${updatedCount} actualizadas, ${rowsToDelete.length} removidas (total ${desejadas.length})`,
+    rows: desejadas.length,
+  }
 }
 
 // Corre a sincronização para todos os users que já ligaram um ficheiro — usado pelo cron.
