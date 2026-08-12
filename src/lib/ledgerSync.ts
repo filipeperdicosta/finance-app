@@ -19,10 +19,10 @@ const HEADER_FULL = ['Data','Mês','Trimestre','Ano','Património','Tipo de Movi
 const HEADER_NEW_COLS = ['Descrição da transação','ID interno (transação)']
 
 function mesFormula(row: number): string {
-  return `=INDEX({"jan";"fev";"mar";"abr";"mai";"jun";"jul";"ago";"set";"out";"nov";"dez"},MONTH(A${row}))&"./"&TEXT(A${row},"yy")`
+  return `=TEXT($A${row};"mmm/yy")`
 }
 function trimestreFormula(row: number): string {
-  return `=TEXT(A${row},"yy")&"T"&ROUNDUP(MONTH(A${row})/3,0)`
+  return `=TEXT(A${row};"yy")&"T"&ROUNDUP(MONTH(A${row})/3;0)`
 }
 function anoFormula(row: number): string {
   return `=YEAR(A${row})`
@@ -63,6 +63,38 @@ async function ensureSheetExists(spreadsheetId: string, sheetTitle: string, acce
     method: 'PUT',
     body: JSON.stringify({ values: [HEADER_NEW_COLS] }),
   })
+}
+
+// Se a sheet tiver uma "Table" estruturada (a funcionalidade nativa de tabelas do Sheets, com
+// filtros/dropdowns por coluna — é o que dá aquela moldura à volta dos dados na folha do
+// Filipe), o intervalo dela não cresce sozinho quando escrevemos linhas novas por baixo. Sem
+// isto, uma pivot table apontada à Table ficava sempre um passo atrás do que sincronizamos.
+// Não crítico — se falhar por algum motivo (ex: API de Tables indisponível), não deve
+// derrubar a sincronização em si, só fica por actualizar visualmente.
+async function extendTableRange(spreadsheetId: string, sheetTitle: string, lastRow1Indexed: number, accessToken: string) {
+  try {
+    const meta = await sheetsFetch(`/${spreadsheetId}?fields=sheets(properties(sheetId,title),tables)`, accessToken)
+    const sheet = (meta.sheets ?? []).find((s: any) => s.properties?.title === sheetTitle)
+    const table = sheet?.tables?.[0]
+    if (!sheet || !table) return
+    const range = table.range ?? {}
+    const desiredEndRowIndex = lastRow1Indexed // 0-indexed exclusivo == último nº de linha 1-indexado
+    const desiredEndColumnIndex = Math.max(range.endColumnIndex ?? 0, 10) // até à coluna J (índice 9, exclusivo 10)
+    if (range.endRowIndex === desiredEndRowIndex && range.endColumnIndex === desiredEndColumnIndex) return
+    await sheetsFetch(`/${spreadsheetId}:batchUpdate`, accessToken, {
+      method: 'POST',
+      body: JSON.stringify({
+        requests: [{
+          updateTable: {
+            table: { tableId: table.tableId, range: { ...range, endRowIndex: desiredEndRowIndex, endColumnIndex: desiredEndColumnIndex } },
+            fields: 'range',
+          },
+        }],
+      }),
+    })
+  } catch (err: any) {
+    console.warn('LedgerAuto: não consegui alargar o intervalo da Table:', err.message)
+  }
 }
 
 type SyncResult = { ok: boolean; message: string; rows?: number }
@@ -133,6 +165,9 @@ export async function syncLedgerAuto(userId: string): Promise<SyncResult> {
     method: 'PUT',
     body: JSON.stringify({ values: linhas }),
   })
+
+  const lastRow = firstManagedRow + desejadas.length - 1
+  await extendTableRange(config.spreadsheet_id, config.sheet_title, lastRow, accessToken)
 
   await supabaseAdmin.from('ledger_auto_config').update({ last_synced_at: new Date().toISOString() }).eq('user_id', userId)
 
