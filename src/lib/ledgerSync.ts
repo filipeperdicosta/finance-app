@@ -71,6 +71,34 @@ async function ensureSheetExists(spreadsheetId: string, sheetTitle: string, acce
 // isto, uma pivot table apontada à Table ficava sempre um passo atrás do que sincronizamos.
 // Não crítico — se falhar por algum motivo (ex: API de Tables indisponível), não deve
 // derrubar a sincronização em si, só fica por actualizar visualmente.
+// `values.update`/`values.clear` só tocam em valores, nunca em formatação — por isso linhas já
+// escritas em sincronizações anteriores mantêm sempre o formato (moeda, contornos, etc.), mesmo
+// depois de limpas e reescritas. O único caso que fica por formatar são linhas genuinamente novas,
+// que nunca existiram na sheet antes (a table cresceu para além do que alguma vez teve formato).
+// Por isso copiamos só o formato (não os valores) da última linha já formatada para essas linhas
+// extra. Não crítico — falha em silêncio (console.warn) sem derrubar a sincronização.
+async function copyFormatForNewRows(spreadsheetId: string, sheetTitle: string, templateRow1Indexed: number, fromRow1Indexed: number, toRow1Indexed: number, accessToken: string) {
+  try {
+    const meta = await sheetsFetch(`/${spreadsheetId}?fields=sheets.properties(sheetId,title)`, accessToken)
+    const sheetId = (meta.sheets ?? []).find((s: any) => s.properties?.title === sheetTitle)?.properties?.sheetId
+    if (sheetId === undefined) return
+    await sheetsFetch(`/${spreadsheetId}:batchUpdate`, accessToken, {
+      method: 'POST',
+      body: JSON.stringify({
+        requests: [{
+          copyPaste: {
+            source: { sheetId, startRowIndex: templateRow1Indexed - 1, endRowIndex: templateRow1Indexed, startColumnIndex: 0, endColumnIndex: 10 },
+            destination: { sheetId, startRowIndex: fromRow1Indexed - 1, endRowIndex: toRow1Indexed, startColumnIndex: 0, endColumnIndex: 10 },
+            pasteType: 'PASTE_FORMAT',
+          },
+        }],
+      }),
+    })
+  } catch (err: any) {
+    console.warn('LedgerAuto: não consegui copiar o formato para as linhas novas:', err.message)
+  }
+}
+
 async function extendTableRange(spreadsheetId: string, sheetTitle: string, lastRow1Indexed: number, accessToken: string) {
   try {
     const meta = await sheetsFetch(`/${spreadsheetId}?fields=sheets(properties(sheetId,title),tables)`, accessToken)
@@ -157,6 +185,9 @@ export async function syncLedgerAuto(userId: string): Promise<SyncResult> {
     if (Number.isFinite(y) && y < earliestYear) lastProtectedOffset = i
   })
   const firstManagedRow = FIRST_DATA_ROW + lastProtectedOffset + 1
+  // Última linha que já existia (com dados) antes desta sincronização — usada a seguir para
+  // saber quais das linhas que vamos escrever são genuinamente novas (por formatar).
+  const oldLastRow = existingYears.length > 0 ? FIRST_DATA_ROW + existingYears.length - 1 : FIRST_DATA_ROW - 1
 
   // Limpa só a partir da fronteira — nunca antes dela.
   await sheetsFetch(`/${config.spreadsheet_id}/values/${sheetRange}!A${firstManagedRow}:J50000:clear`, accessToken, { method: 'POST' })
@@ -171,6 +202,9 @@ export async function syncLedgerAuto(userId: string): Promise<SyncResult> {
   })
 
   const lastRow = firstManagedRow + desejadas.length - 1
+  if (lastRow > oldLastRow && oldLastRow >= FIRST_DATA_ROW) {
+    await copyFormatForNewRows(config.spreadsheet_id, config.sheet_title, oldLastRow, oldLastRow + 1, lastRow, accessToken)
+  }
   await extendTableRange(config.spreadsheet_id, config.sheet_title, lastRow, accessToken)
 
   await supabaseAdmin.from('ledger_auto_config').update({ last_synced_at: new Date().toISOString() }).eq('user_id', userId)
