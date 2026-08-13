@@ -17,6 +17,11 @@ type Bucket = 'F' | 'G' | 'H' | 'J' | 'K' | 'L' | 'M'
 // scope por agora), e a transferência da empregada ainda não tem um padrão de texto estável
 // (já vistos: "FILIPE CECILIA 202604", "ORDENADO FLOR 202606", "ORDENADO 2026-07") — ambas
 // colunas continuam a preenchimento manual do Filipe.
+// A mesma entidade pode aparecer em categorias diferentes por motivos diferentes — ex: "Petrogal"
+// tanto é o débito directo da electricidade (categoria Utilities) como abastecimentos de gasóleo
+// na bomba (categoria Transportes). Por isso o texto sozinho não chega: as RULES só se aplicam
+// a transacções já restringidas a `CATEGORIAS_ELEGIVEIS` (ver query), apanhado pelo Filipe
+// 2026-08-13 depois de um mês (Julho) ter somado electricidade + gasóleo na coluna Luz.
 const RULES: { bucket: Bucket, match: RegExp }[] = [
   { bucket: 'F', match: /AMORT.*RENDA/ },              // Pagamento de Amort./Renda... → crédito habitação
   { bucket: 'G', match: /ZURICH VIDA|TARIFA PLANA SEGUROS/ }, // seguro de vida + seguro habitação
@@ -26,6 +31,7 @@ const RULES: { bucket: Bucket, match: RegExp }[] = [
   { bucket: 'L', match: /LISBOAGAS/ },                 // gás natural
   { bucket: 'M', match: /NOS COMUNICACOES/ },          // TV/internet
 ]
+const CATEGORIAS_ELEGIVEIS = ['Habitação', 'Utilities']
 
 function normalize(s: string): string {
   return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase()
@@ -121,6 +127,7 @@ export async function syncCustosCasa(userId: string): Promise<SyncResult> {
   const accIds = (accs ?? []).map((a: any) => a.id)
   const { data: txns } = await supabaseAdmin.from('transactions').select('data,valor,descritivo')
     .in('account_id', accIds).is('imovel_id', null).lt('valor', 0).gte('data', startDate)
+    .in('categoria', CATEGORIAS_ELEGIVEIS)
 
   const sums = new Map<string, Map<Bucket, number[]>>()
   for (const t of (txns ?? []) as { data: string, valor: number, descritivo: string | null }[]) {
