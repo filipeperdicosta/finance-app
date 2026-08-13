@@ -123,6 +123,17 @@ async function colorCellsBlue(spreadsheetId: string, sheetTitle: string, cells: 
 }
 
 const BUCKET_COL: Record<Bucket, number> = { F: 5, G: 6, H: 7, J: 9, K: 10, L: 11, M: 12, N: 13 }
+const BUCKETS: Bucket[] = ['F', 'G', 'H', 'J', 'K', 'L', 'M', 'N']
+
+// Compara o valor computado agora com o que já está na célula — tolerante a arredondamento de
+// vírgula flutuante em números simples, mas exacto para fórmulas/vazio (não há "quase igual"
+// nesses casos).
+function cellsEqual(a: string, b: string): boolean {
+  if (a === b) return true
+  const na = Number(a), nb = Number(b)
+  if (!isNaN(na) && !isNaN(nb) && a !== '' && b !== '') return Math.abs(na - nb) < 0.005
+  return false
+}
 
 type SyncResult = { ok: boolean; message: string }
 
@@ -183,22 +194,63 @@ export async function syncCustosCasa(userId: string): Promise<SyncResult> {
   const rowForMonth = new Map<string, number>()
   eValues.forEach((r, i) => { if (targetMonths.includes(r[0])) rowForMonth.set(r[0], i + 1) })
 
+  // Lê o valor actual (fórmula/número em bruto, não formatado) de cada linha-alvo, para
+  // comparar com o que a app escreveu da última vez (`cell_snapshot`) — só assim se distingue
+  // "ninguém mexeu, recalcula" de "o Filipe corrigiu isto à mão, nunca mais tocar" sem precisar
+  // de nenhuma interacção dele (pedido do Filipe, 2026-08-13: sync 100% automático via cron, mas
+  // sem sobrescrever correcções manuais, ex: um pagamento de SS feito por engano noutro banco).
+  const rowsList = targetMonths.map(m => ({ mes: m, row: rowForMonth.get(m) })).filter((x): x is { mes: string, row: number } => !!x.row)
+  const currentByMonth = new Map<string, string[]>()
+  if (rowsList.length > 0) {
+    const rangesParam = rowsList.map(x => `ranges=${encodeURIComponent(`${config.sheet_title}!F${x.row}:N${x.row}`)}`).join('&')
+    const currentRaw = await sheetsFetch(`/${config.spreadsheet_id}/values:batchGet?${rangesParam}&valueRenderOption=FORMULA`, accessToken)
+    const valueRanges: { values?: any[][] }[] = currentRaw.valueRanges ?? []
+    rowsList.forEach((x, i) => { currentByMonth.set(x.mes, (valueRanges[i]?.values?.[0] ?? []).map((v: any) => String(v ?? ''))) })
+  }
+  const snapshot: Record<string, Record<string, string>> = config.cell_snapshot ?? {}
+  const newSnapshot: Record<string, Record<string, string>> = { ...snapshot }
+
   const updates: { range: string, values: (string | number)[][] }[] = []
   const filledCells: { row: number, col: number }[] = []
   let touchedRows = 0
-  for (const mes of targetMonths) {
-    const row = rowForMonth.get(mes)
-    if (!row) continue // mês fora do template pré-criado da sheet — não deveria acontecer, mas não falha
+  let skippedCells = 0
+  for (const { mes, row } of rowsList) {
     const monthMap = sums.get(mes) ?? new Map<Bucket, number[]>()
-    const fgh = (['F', 'G', 'H'] as Bucket[]).map(b => toCell(monthMap.get(b) ?? []))
-    const jklmn = (['J', 'K', 'L', 'M', 'N'] as Bucket[]).map(b => toCell(monthMap.get(b) ?? []))
-    updates.push({ range: `${sheetRange}!F${row}:H${row}`, values: [fgh] })
-    updates.push({ range: `${sheetRange}!J${row}:N${row}`, values: [jklmn] })
-    ;(['F', 'G', 'H', 'J', 'K', 'L', 'M', 'N'] as Bucket[]).forEach(b => {
-      const vals = monthMap.get(b)
-      if (vals && vals.length > 0) filledCells.push({ row, col: BUCKET_COL[b] })
-    })
-    touchedRows++
+    const currentRow = currentByMonth.get(mes) ?? []
+    const lastWritten = snapshot[mes] ?? {}
+    const monthSnapshot: Record<string, string> = {}
+    let rowTouched = false
+
+    for (const b of BUCKETS) {
+      const computed = toCell(monthMap.get(b) ?? [])
+      const computedStr = String(computed)
+      const current = currentRow[BUCKET_COL[b] - 5] ?? ''
+      // Sem registo anterior (1ª vez que esta célula passa por aqui, ex: logo a seguir a este
+      // deploy) não há como saber se o valor já lá presente é automático ou manual — assume-se
+      // manual sempre que já tem conteúdo e não bate com o que calculamos agora (mais seguro do
+      // que arriscar apagar uma correcção só porque ainda não a tínhamos visto); célula vazia ou
+      // já correcta não levanta dúvida nenhuma.
+      const hasBaseline = Object.prototype.hasOwnProperty.call(lastWritten, b)
+      const manuallyChanged = hasBaseline
+        ? !cellsEqual(current, lastWritten[b])
+        : (current !== '' && !cellsEqual(current, computedStr))
+
+      if (manuallyChanged) {
+        // O Filipe mexeu nesta célula desde a última sincronização — respeita para sempre,
+        // não escreve por cima. Actualiza a base para continuar a reconhecer o valor dele.
+        monthSnapshot[b] = current
+        skippedCells++
+        continue
+      }
+      monthSnapshot[b] = computedStr
+      if (!cellsEqual(current, computedStr)) {
+        updates.push({ range: `${sheetRange}!${b}${row}`, values: [[computed]] })
+        rowTouched = true
+      }
+      if (computedStr !== '') filledCells.push({ row, col: BUCKET_COL[b] })
+    }
+    newSnapshot[mes] = monthSnapshot
+    if (rowTouched) touchedRows++
   }
 
   if (updates.length > 0) {
@@ -209,9 +261,13 @@ export async function syncCustosCasa(userId: string): Promise<SyncResult> {
     await colorCellsBlue(config.spreadsheet_id, config.sheet_title, filledCells, accessToken)
   }
 
-  await supabaseAdmin.from('custos_casa_config').update({ last_synced_at: new Date().toISOString() }).eq('user_id', userId)
+  await supabaseAdmin.from('custos_casa_config')
+    .update({ last_synced_at: new Date().toISOString(), cell_snapshot: newSnapshot }).eq('user_id', userId)
 
-  return { ok: true, message: `${touchedRows} mês(es) actualizados (${targetMonths[0]} a ${oldestMonth})` }
+  return {
+    ok: true,
+    message: `${touchedRows} mês(es) actualizados, ${skippedCells} célula(s) manual(is) respeitada(s) (${targetMonths[0]} a ${oldestMonth})`,
+  }
 }
 
 // Corre a sincronização para todos os users que já ligaram um ficheiro — usado pelo cron.
