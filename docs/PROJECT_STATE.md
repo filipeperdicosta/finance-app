@@ -529,9 +529,41 @@ risco técnico bruto.
   dedicada, ainda não começou. Proposta de estrutura: `components/ui`,
   `components/charts`, `components/hero`, `screens/`, `lib/theme.ts`,
   `lib/format.ts`, `lib/calc.ts`
-- **Alinhamento gráficos Spark vs DynChart** — on hold, várias tentativas
-  falhadas (opção A: XAxis interno no budget mode, opção B: espaçador —
-  nenhuma resolveu visualmente). Deixado para outra abordagem no futuro
+
+### Alinhamento gráficos Spark vs DynChart ✅ resolvido (2026-08-13)
+Duas tentativas anteriores (XAxis interno no modo budget; espaçador manual)
+tinham falhado porque atacavam sintomas (margens, padding) em vez da causa.
+
+**Causa raiz real**: o Recharts calcula a posição de cada categoria (mês) de
+forma diferente consoante o gráfico tem ou não uma `<Bar>` lá dentro — um
+gráfico só de `<Line>`/`<Area>` centra as etiquetas de forma diferente de um
+com barras. O Spark (Hero) sempre teve uma barra "Saldo"; o DynChart em modo
+Linha/Área não tinha nenhuma — por isso os meses ficavam em posições
+horizontais ligeiramente diferentes mesmo com dados idênticos. Forçar
+`scale="band"` à mão (tentativa desta sessão, antes de encontrar a causa)
+piorou tudo: quebrou a centragem nativa do Recharts em todos os gráficos ao
+mesmo tempo, incluindo dentro do próprio Spark — os pontos ficavam
+correctos, mas a etiqueta do mês era desenhada no **início** da categoria em
+vez do centro (só visível comparando ponto-a-ponto dentro do mesmo gráfico,
+não comparando entre gráficos — motivo pelo qual pareceu resolvido antes de
+o Filipe reparar que continuava desalinhado).
+
+**Fix**: garantir que todos os gráficos (Spark modo budget, Spark modo
+patrimonio, DynChart nos 3 toggles) têm sempre uma `<Bar>` real presente,
+mesmo que invisível (`fill="transparent"`), num eixo Y próprio e isolado
+(`yAxisId="spacer"`, domínio `[0,1]`) para nunca interferir com a escala
+real. Sem `scale` forçado — deixa o Recharts escolher sozinho, que é onde a
+centragem correcta vive. `<BarChart>` como componente raiz funciona bem
+quando o domínio do eixo Y principal começa em 0 (Spark budget, DynChart);
+mas com um domínio que **não** começa em 0 (Spark patrimonio, que usa uma
+janela `[min-padding, max+padding]` à volta do património) o `<BarChart>`
+falha a renderizar a `<Line>` **sem nenhum erro na consola** — só
+`<ComposedChart>` como raiz tolera essa combinação. Margens (`right:6,
+left:10`), tamanho de letra (9px) e cor da etiqueta (`T.textSec`) unificados
+nos 3 sítios via constantes partilhadas (`SPARK_AX_MARGIN`, `SPARK_AX_FONT`,
+`SPARK_AX_Y_WIDTH`, topo de `page.tsx`). Validado num mockup isolado
+(`/chart-preview-temp`, apagado no fim) com marcadores de posição visíveis
+antes de tocar no código real — apagado depois de confirmado.
 
 ---
 
@@ -611,3 +643,21 @@ risco técnico bruto.
   "Everything up-to-date" inesperadamente, correr `git fetch origin main`
   primeiro — o push original pode já ter chegado ao GitHub antes do lock
   falhar localmente.
+- **Recharts — centragem de categorias (eixo X) muda consoante haja ou não
+  uma `<Bar>` no gráfico**, mesmo com dados/eixos idênticos — um gráfico só
+  de `<Line>`/`<Area>` posiciona as etiquetas de forma diferente de um com
+  barras. Nunca forçar `scale="band"` à mão para "resolver" isto — quebra a
+  centragem nativa (etiqueta fica no início da categoria, não no centro,
+  sem erro nenhum). Fix correcto: garantir sempre uma `<Bar>` real presente
+  (mesmo invisível, `fill="transparent"`, em `yAxisId` próprio isolado com
+  domínio `[0,1]` para nunca afectar a escala real) e deixar o Recharts
+  escolher a escala sozinho. Ver também: `<BarChart>` como componente raiz
+  **falha a renderizar `<Line>`/`<Area>` sem nenhum erro na consola** quando
+  o domínio do eixo Y não começa em 0 (ex: janela `[min-padding,
+  max+padding]`) — nesse caso usar sempre `<ComposedChart>` como raiz.
+  Diagnóstico útil quando isto acontecer outra vez: montar um mockup
+  isolado com `<CartesianGrid vertical/>` (marca as fronteiras reais de
+  cada categoria) + `dot={{r:3}}` nas linhas, para ver ao pixel se os
+  pontos caem centrados nas fronteiras — comparar só as etiquetas entre
+  gráficos não basta, porque os dois lados do bug podem estar "errados
+  juntos" da mesma forma.
