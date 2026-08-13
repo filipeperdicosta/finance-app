@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────────────
 // Custos Casa — sincronização da sheet "CustosCasa" com os débitos directos recorrentes
-// da conta Familiar (renda, seguros, condomínio, água, luz, gás, TV)
+// da conta Familiar (renda, seguros, condomínio, água, luz, gás, TV, empregada)
 // ─────────────────────────────────────────────────────────────────
 // Chamado tanto pela rota HTTP (/api/drive/custos-casa-sync) como pelo cron diário — import
 // estático em ambos os sítios (imports dinâmicos falham silenciosamente em rotas de cron
@@ -9,14 +9,11 @@ import { getSupabaseAdmin, createNotification, getValidAccessToken } from './goo
 
 const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets'
 
-type Bucket = 'F' | 'G' | 'H' | 'J' | 'K' | 'L' | 'M'
+type Bucket = 'F' | 'G' | 'H' | 'J' | 'K' | 'L' | 'M' | 'N'
 // Lista fechada de entidades conhecidas (débitos directos sempre com o mesmo texto na conta
 // Familiar) — nunca adivinha por texto livre; uma transacção que não bata com nenhuma destas
-// fica simplesmente de fora (falha para o lado seguro, nunca escreve valor errado). IMI e
-// Empregada ficam FORA de propósito (pedido do Filipe, 2026-08-13): IMI é anual e raro (out of
-// scope por agora), e a transferência da empregada ainda não tem um padrão de texto estável
-// (já vistos: "FILIPE CECILIA 202604", "ORDENADO FLOR 202606", "ORDENADO 2026-07") — ambas
-// colunas continuam a preenchimento manual do Filipe.
+// fica simplesmente de fora (falha para o lado seguro, nunca escreve valor errado). IMI fica
+// FORA de propósito (pedido do Filipe, 2026-08-13): é anual e raro, out of scope por agora.
 // A mesma entidade pode aparecer em categorias diferentes por motivos diferentes — ex: "Petrogal"
 // tanto é o débito directo da electricidade (categoria Utilities) como abastecimentos de gasóleo
 // na bomba (categoria Transportes). Por isso o texto sozinho não chega: as RULES só se aplicam
@@ -33,8 +30,30 @@ const RULES: { bucket: Bucket, match: RegExp }[] = [
 ]
 const CATEGORIAS_ELEGIVEIS = ['Habitação', 'Utilities']
 
+// Empregada (coluna N) — dois pagamentos diferentes que o Filipe soma manualmente há anos:
+// o ordenado em si, e a contribuição da Segurança Social sobre esse ordenado. Ao contrário das
+// outras colunas, nenhum dos dois se atribui ao mês em que a transacção acontece — atribuem-se
+// ao mês de trabalho a que se referem (o Filipe explicou o calendário exacto, 2026-08-13):
+//   - Ordenado: pago entre dia 25 do próprio mês e dia 7 do mês seguinte. Por isso uma
+//     transacção nos primeiros 7 dias do mês é sempre do mês ANTERIOR; a partir do dia 8
+//     assume-se já o mês corrente (cobre o pagamento típico no fim do mês, dias 25-31).
+//   - Segurança Social: paga sempre entre os dias 11-20 do mês seguinte ao de referência — por
+//     isso é sempre o mês anterior ao da transacção, sem excepção.
+// O texto da transferência do ordenado varia (já vistos: "FILIPE CECILIA 202604", "ORDENADO
+// FLOR 202606", "ORDENADO 2026-07") mas inclui sempre "ORDENADO" ou "FILIPE" dentro da conta
+// Familiar/categoria Habitação — suficientemente restrito para não confundir com outras coisas.
+const ORDENADO_MATCH = /\bORDENADO\b|\bFILIPE\b/
+const SS_MATCH = /PAG\.SS|IGFSS/
+
 function normalize(s: string): string {
   return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase()
+}
+
+// "AAAAMM" do mês anterior a "mes" (mesmo formato "AAAAMM" usado em todo o ficheiro).
+function prevMonth(mes: string): string {
+  const y = Number(mes.slice(0, 4)), m = Number(mes.slice(4, 6))
+  const d = new Date(Date.UTC(y, m - 2, 1)) // m-1 é o mês actual 0-indexed; -1 outra vez = anterior
+  return `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}`
 }
 
 async function sheetsFetch(path: string, accessToken: string, options: RequestInit = {}) {
@@ -101,15 +120,16 @@ async function colorCellsBlue(spreadsheetId: string, sheetTitle: string, cells: 
   }
 }
 
-const BUCKET_COL: Record<Bucket, number> = { F: 5, G: 6, H: 7, J: 9, K: 10, L: 11, M: 12 }
+const BUCKET_COL: Record<Bucket, number> = { F: 5, G: 6, H: 7, J: 9, K: 10, L: 11, M: 12, N: 13 }
 
 type SyncResult = { ok: boolean; message: string }
 
 // Sincroniza o mês corrente + 2 anteriores (janela pequena, para apanhar facturas com atraso —
-// ex: Água é bimestral) da sheet "CustosCasa" com os débitos directos conhecidos da conta
-// Familiar. Só escreve nas colunas Renda/Seguros/Condomínio/Água/Luz/Gás/TV (F,G,H,J,K,L,M) —
-// nunca em A-E (fórmulas do Filipe), IMI, Empregada (fora de âmbito), Acerto (ajuste manual)
-// nem nas colunas de totais (P+).
+// ex: Água é bimestral — e pagamentos de Empregada/SS, que só chegam no mês seguinte ao de
+// referência) da sheet "CustosCasa" com os débitos directos conhecidos da conta Familiar. Só
+// escreve nas colunas Renda/Seguros/Condomínio/Água/Luz/Gás/TV/Empregada (F,G,H,J,K,L,M,N) —
+// nunca em A-E (fórmulas do Filipe), IMI (fora de âmbito), Acerto (ajuste manual) nem nas
+// colunas de totais (P+).
 export async function syncCustosCasa(userId: string): Promise<SyncResult> {
   const supabaseAdmin = getSupabaseAdmin()
   const { data: config } = await supabaseAdmin
@@ -130,16 +150,23 @@ export async function syncCustosCasa(userId: string): Promise<SyncResult> {
     .in('categoria', CATEGORIAS_ELEGIVEIS)
 
   const sums = new Map<string, Map<Bucket, number[]>>()
-  for (const t of (txns ?? []) as { data: string, valor: number, descritivo: string | null }[]) {
-    const mes = t.data.slice(0, 4) + t.data.slice(5, 7)
-    if (!targetMonths.includes(mes)) continue
-    const desc = normalize(t.descritivo ?? '')
-    const rule = RULES.find(r => r.match.test(desc))
-    if (!rule) continue
+  const addSum = (mes: string, bucket: Bucket, valor: number) => {
+    if (!targetMonths.includes(mes)) return
     if (!sums.has(mes)) sums.set(mes, new Map())
     const monthMap = sums.get(mes)!
-    if (!monthMap.has(rule.bucket)) monthMap.set(rule.bucket, [])
-    monthMap.get(rule.bucket)!.push(Math.abs(Number(t.valor)))
+    if (!monthMap.has(bucket)) monthMap.set(bucket, [])
+    monthMap.get(bucket)!.push(valor)
+  }
+  for (const t of (txns ?? []) as { data: string, valor: number, descritivo: string | null }[]) {
+    const txnMonth = t.data.slice(0, 4) + t.data.slice(5, 7)
+    const day = Number(t.data.slice(8, 10))
+    const desc = normalize(t.descritivo ?? '')
+    const valorAbs = Math.abs(Number(t.valor))
+
+    const rule = RULES.find(r => r.match.test(desc))
+    if (rule) { addSum(txnMonth, rule.bucket, valorAbs); continue }
+    if (ORDENADO_MATCH.test(desc)) { addSum(day <= 7 ? prevMonth(txnMonth) : txnMonth, 'N', valorAbs); continue }
+    if (SS_MATCH.test(desc)) { addSum(prevMonth(txnMonth), 'N', valorAbs); continue }
   }
 
   const sheetRange = encodeURIComponent(config.sheet_title)
@@ -158,10 +185,10 @@ export async function syncCustosCasa(userId: string): Promise<SyncResult> {
     if (!row) continue // mês fora do template pré-criado da sheet — não deveria acontecer, mas não falha
     const monthMap = sums.get(mes) ?? new Map<Bucket, number[]>()
     const fgh = (['F', 'G', 'H'] as Bucket[]).map(b => toCell(monthMap.get(b) ?? []))
-    const jklm = (['J', 'K', 'L', 'M'] as Bucket[]).map(b => toCell(monthMap.get(b) ?? []))
+    const jklmn = (['J', 'K', 'L', 'M', 'N'] as Bucket[]).map(b => toCell(monthMap.get(b) ?? []))
     updates.push({ range: `${sheetRange}!F${row}:H${row}`, values: [fgh] })
-    updates.push({ range: `${sheetRange}!J${row}:M${row}`, values: [jklm] })
-    ;(['F', 'G', 'H', 'J', 'K', 'L', 'M'] as Bucket[]).forEach(b => {
+    updates.push({ range: `${sheetRange}!J${row}:N${row}`, values: [jklmn] })
+    ;(['F', 'G', 'H', 'J', 'K', 'L', 'M', 'N'] as Bucket[]).forEach(b => {
       const vals = monthMap.get(b)
       if (vals && vals.length > 0) filledCells.push({ row, col: BUCKET_COL[b] })
     })
