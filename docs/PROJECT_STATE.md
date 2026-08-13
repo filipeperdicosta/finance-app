@@ -442,42 +442,70 @@ risco técnico bruto.
 4. **Relatório IRS anual (Anexo F — rendimentos prediais)** ✅ feito
    (2026-08-09, ver secção própria abaixo)
 5. **"Custos Casa" — sincronização automática com o Excel de custos da
-   casa da família** ✅ feito (2026-08-13), por testar pelo Filipe.
-   Ficheiro "Esforço e Orçamento Casa" (Google Sheets nativo, 15 sheets,
-   só a sheet **"CustosCasa"** é o alvo — 1 linha por mês, pré-criada até
-   2037, colunas Renda/Seguros/Condomínio/IMI/Água/Luz/Gás/TV/Empregada +
-   totais em fórmula). Não é a mesma casa do LedgerAuto: é a residência da
-   família (conta "Familiar", sem `imovel_id` associado, distinta do
-   imóvel "Casal" que é património/investimento).
+   casa da família** ✅ feito e testado (2026-08-13), incluindo a coluna
+   Empregada. Ficheiro "Esforço e Orçamento Casa" (Google Sheets nativo,
+   15 sheets, só a sheet **"CustosCasa"** é o alvo — 1 linha por mês,
+   pré-criada até 2037, colunas Renda/Seguros/Condomínio/IMI/Água/Luz/Gás/
+   TV/Empregada + totais em fórmula). Não é a mesma casa do LedgerAuto: é
+   a residência da família (conta "Familiar", sem `imovel_id` associado,
+   distinta do imóvel "Casal" que é património/investimento).
    - **Classificação por lista branca de entidades conhecidas**
-     (`src/lib/custosCasaSync.ts`), não por adivinhação de texto livre: só
-     54 transacções históricas na categoria Habitação/Utilities da conta
-     Familiar, quase todas débitos directos sempre com o mesmo texto —
-     `RULES` mapeia `Amort./Renda`→Renda, `ZURICH VIDA`+`TARIFA PLANA
-     SEGUROS`→Seguros (soma, escrita como fórmula tal como o Filipe já
-     fazia à mão), `Condominio Predio`→Condomínio, `EPAL`→Água,
-     `Petrogal`→Luz (confirmado = Galp electricidade), `LISBOAGAS`→Gás,
-     `NOS Comunicacoes`→TV. Transacção sem padrão conhecido fica
-     simplesmente de fora (falha para o lado seguro)
-   - **IMI e Empregada ficam fora de propósito** (decisão do Filipe,
-     2026-08-13): IMI é anual/raro (out of scope por agora); a
-     transferência da empregada não tem padrão de texto estável (já vistos
-     4 formatos diferentes: "FILIPE CECILIA 202604", "ORDENADO FLOR
-     202606", etc.) — a automatizar depois, dado ser mensal
+     (`src/lib/custosCasaSync.ts`), não por adivinhação de texto livre —
+     uma transacção sem padrão conhecido fica simplesmente de fora (falha
+     para o lado seguro). Cada regra exige texto **e** categoria exactos
+     (medido directamente no histórico, não assumido — ver tabela):
+
+     | Coluna | Entidade (texto) | Categoria exigida |
+     |---|---|---|
+     | Renda | `Amort./Renda` | Habitação |
+     | Seguros | `ZURICH VIDA` + `TARIFA PLANA SEGUROS` (soma) | Habitação |
+     | Condomínio | `Condominio Predio` | Habitação |
+     | Água | `EPAL` | Utilities |
+     | Luz | `Petrogal` (Galp electricidade) | Utilities |
+     | Gás | `LISBOAGAS` | Utilities |
+     | TV | `NOS Comunicacoes` | Utilities |
+     | Empregada — ordenado | `ORDENADO` ou `FILIPE` | Habitação |
+     | Empregada — SS | `PAG.SS` / `IGFSS` | Habitação |
+
+     Seguros e Empregada somados são escritos como fórmula (`=v1+v2`),
+     tal como o Filipe já fazia à mão.
+   - **IMI fica fora de propósito** (decisão do Filipe, 2026-08-13): é
+     anual/raro, out of scope por agora — continua manual
+   - **Empregada (coluna N)** — o mais complexo: soma ordenado + Segurança
+     Social, mas nenhum dos dois se atribui ao mês da transacção, e sim ao
+     mês de trabalho a que se referem (calendário explicado pelo Filipe):
+     ordenado pago entre dia 25 do próprio mês e dia 7 do seguinte (dia≤7
+     → mês anterior; dia≥8 → mês corrente); SS sempre paga dias 11-20 do
+     mês seguinte ao de referência (sempre mês anterior). `prevMonth()`
+     faz o desvio. Pagamentos por conta errada (ex: o Filipe pagou SS pelo
+     Santander por engano em vez do Abanca) ficam automaticamente de fora
+     — a query só olha `budget_tag='familiar'` — e são somados à mão
+   - **2 bugs reais apanhados pelo Filipe e corrigidos no mesmo dia**:
+     (1) "Petrogal" também aparece em compras de gasóleo (categoria
+     Transportes), inflacionando a coluna Luz — Julho chegou a somar
+     172,56€ em vez dos 115,93€ reais; (2) sem a categoria exacta por
+     regra, "ORDENADO"/"FILIPE" também batiam em transferências grandes
+     não relacionadas (categoria Receita/Transferências, valores
+     ~2600-2700€). Ambos resolvidos exigindo a categoria certa por regra,
+     não só a lista genérica Habitação∪Utilities
    - Janela de sync: mês corrente + 2 anteriores (apanha facturas com
-     atraso, ex: Água é bimestral), recalculada a cada corrida — nunca
-     toca em meses fora da janela, protege todo o histórico sem precisar
-     de fronteira explícita como no LedgerAuto (aqui cada mês é 1 linha só)
-   - Escreve só nas colunas F,G,H,J,K,L,M (nunca em A-E fórmulas, I/IMI,
-     N/Empregada, O/Acerto manual, nem nas colunas de totais)
+     atraso, ex: Água é bimestral, e pagamentos de Empregada/SS que só
+     chegam no mês seguinte), recalculada a cada corrida — nunca toca em
+     meses fora da janela, protege todo o histórico sem precisar de
+     fronteira explícita como no LedgerAuto (aqui cada mês é 1 linha só)
+   - Escreve só nas colunas F,G,H,J,K,L,M,N (nunca em A-E fórmulas, I/IMI,
+     O/Acerto manual, nem nas colunas de totais)
+   - **Células escritas automaticamente ficam a azul** (texto, via
+     `repeatCell`/`PASTE_FORMAT`, nunca toca em valores) — pedido do
+     Filipe para nunca ficar em dúvida se um valor igual ao que já tinha
+     veio de carregamento manual ou automático. Só marca células com
+     conteúdo real, nunca as que ficam vazias por falta de transacção.
+     Mesmo mecanismo aplicado ao LedgerAuto
    - Tabela `custos_casa_config` (mesmo padrão do `ledger_auto_config`) +
      rota `/api/drive/custos-casa-sync` + hook no `check-drive` cron
      (`syncCustosCasaForAllUsers`) + UI em `DriveSettingsScreen` (cartão
      "Custos Casa", reaproveitando o mesmo Picker do LedgerAuto — já não
      precisa de nova configuração OAuth, `drive.file` já cobre)
-   - ⚠ Por testar: primeira sincronização real (Filipe testa "amanhã",
-     2026-08-14) — Agosto já tinha alguns valores manuais que vão ser
-     recalculados a partir das transacções
 
 ### Backlog técnico (sem data)
 - **Modularizar `page.tsx`** (~3700 linhas) — combinado fazer numa sessão

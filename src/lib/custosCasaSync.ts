@@ -14,20 +14,22 @@ type Bucket = 'F' | 'G' | 'H' | 'J' | 'K' | 'L' | 'M' | 'N'
 // Familiar) — nunca adivinha por texto livre; uma transacção que não bata com nenhuma destas
 // fica simplesmente de fora (falha para o lado seguro, nunca escreve valor errado). IMI fica
 // FORA de propósito (pedido do Filipe, 2026-08-13): é anual e raro, out of scope por agora.
-// A mesma entidade pode aparecer em categorias diferentes por motivos diferentes — ex: "Petrogal"
-// tanto é o débito directo da electricidade (categoria Utilities) como abastecimentos de gasóleo
-// na bomba (categoria Transportes). Por isso o texto sozinho não chega: as RULES só se aplicam
-// a transacções já restringidas a `CATEGORIAS_ELEGIVEIS` (ver query), apanhado pelo Filipe
-// 2026-08-13 depois de um mês (Julho) ter somado electricidade + gasóleo na coluna Luz.
-const RULES: { bucket: Bucket, match: RegExp }[] = [
-  { bucket: 'F', match: /AMORT.*RENDA/ },              // Pagamento de Amort./Renda... → crédito habitação
-  { bucket: 'G', match: /ZURICH VIDA|TARIFA PLANA SEGUROS/ }, // seguro de vida + seguro habitação
-  { bucket: 'H', match: /CONDOMINIO PREDIO/ },
-  { bucket: 'J', match: /\bEPAL\b/ },                  // água
-  { bucket: 'K', match: /PETROGAL/ },                  // Galp — electricidade
-  { bucket: 'L', match: /LISBOAGAS/ },                 // gás natural
-  { bucket: 'M', match: /NOS COMUNICACOES/ },          // TV/internet
+// Cada regra exige a SUA categoria exacta, não só a lista geral — medido directamente no
+// histórico (2026-08-13): a mesma entidade pode aparecer em categorias diferentes por motivos
+// diferentes (ex: "Petrogal" é tanto o débito da electricidade, categoria Utilities, como
+// abastecimentos de gasóleo na bomba, categoria Transportes — apanhado pelo Filipe depois de um
+// mês ter somado os dois). Tabela completa em docs/PROJECT_STATE.md.
+const RULES: { bucket: Bucket, match: RegExp, categorias: string[] }[] = [
+  { bucket: 'F', match: /AMORT.*RENDA/, categorias: ['Habitação'] },              // crédito habitação
+  { bucket: 'G', match: /ZURICH VIDA|TARIFA PLANA SEGUROS/, categorias: ['Habitação'] }, // seguro vida + habitação
+  { bucket: 'H', match: /CONDOMINIO PREDIO/, categorias: ['Habitação'] },
+  { bucket: 'J', match: /\bEPAL\b/, categorias: ['Utilities'] },                  // água
+  { bucket: 'K', match: /PETROGAL/, categorias: ['Utilities'] },                  // Galp — electricidade (nunca Transportes)
+  { bucket: 'L', match: /LISBOAGAS/, categorias: ['Utilities'] },                 // gás natural
+  { bucket: 'M', match: /NOS COMUNICACOES/, categorias: ['Utilities'] },          // TV/internet
 ]
+// Filtro grosseiro ao nível da query (performance) — a precisão real vem de `categorias` acima
+// e do `categoria !== 'Habitação'` explícito para Ordenado/SS mais abaixo.
 const CATEGORIAS_ELEGIVEIS = ['Habitação', 'Utilities']
 
 // Empregada (coluna N) — dois pagamentos diferentes que o Filipe soma manualmente há anos:
@@ -163,7 +165,7 @@ export async function syncCustosCasa(userId: string): Promise<SyncResult> {
     const desc = normalize(t.descritivo ?? '')
     const valorAbs = Math.abs(Number(t.valor))
 
-    const rule = RULES.find(r => r.match.test(desc))
+    const rule = RULES.find(r => r.match.test(desc) && r.categorias.includes(t.categoria ?? ''))
     if (rule) { addSum(txnMonth, rule.bucket, valorAbs); continue }
     // Ordenado/SS só têm sido vistos em categoria=Habitação — mais um filtro de rigor além do
     // texto, para nunca confundir com algo parecido categorizado como Utilities (pedido do
