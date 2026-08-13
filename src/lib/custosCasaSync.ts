@@ -66,6 +66,37 @@ function toCell(values: number[]): string | number {
   return '=' + rounded.map(v => v.toFixed(2).replace('.', ',')).join('+')
 }
 
+// Azul no texto = "esta célula foi escrita pela sincronização automática", pedido do Filipe
+// para nunca ficar em dúvida se um valor é carregamento manual ou automático quando o número
+// bate certo com o que ele próprio teria escrito. Só marca células com conteúdo real (nunca as
+// que ficam vazias por não haver transacção a bater com nenhuma regra). Não crítico — falha em
+// silêncio, nunca derruba a sincronização.
+const BLUE_AUTO = { red: 0.06, green: 0.35, blue: 0.9 }
+async function colorCellsBlue(spreadsheetId: string, sheetTitle: string, cells: { row: number, col: number }[], accessToken: string) {
+  if (cells.length === 0) return
+  try {
+    const meta = await sheetsFetch(`/${spreadsheetId}?fields=sheets.properties(sheetId,title)`, accessToken)
+    const sheetId = (meta.sheets ?? []).find((s: any) => s.properties?.title === sheetTitle)?.properties?.sheetId
+    if (sheetId === undefined) return
+    await sheetsFetch(`/${spreadsheetId}:batchUpdate`, accessToken, {
+      method: 'POST',
+      body: JSON.stringify({
+        requests: cells.map(c => ({
+          repeatCell: {
+            range: { sheetId, startRowIndex: c.row - 1, endRowIndex: c.row, startColumnIndex: c.col, endColumnIndex: c.col + 1 },
+            cell: { userEnteredFormat: { textFormat: { foregroundColor: BLUE_AUTO } } },
+            fields: 'userEnteredFormat.textFormat.foregroundColor',
+          },
+        })),
+      }),
+    })
+  } catch (err: any) {
+    console.warn('Custos Casa: não consegui marcar as células a azul:', err.message)
+  }
+}
+
+const BUCKET_COL: Record<Bucket, number> = { F: 5, G: 6, H: 7, J: 9, K: 10, L: 11, M: 12 }
+
 type SyncResult = { ok: boolean; message: string }
 
 // Sincroniza o mês corrente + 2 anteriores (janela pequena, para apanhar facturas com atraso —
@@ -113,6 +144,7 @@ export async function syncCustosCasa(userId: string): Promise<SyncResult> {
   eValues.forEach((r, i) => { if (targetMonths.includes(r[0])) rowForMonth.set(r[0], i + 1) })
 
   const updates: { range: string, values: (string | number)[][] }[] = []
+  const filledCells: { row: number, col: number }[] = []
   let touchedRows = 0
   for (const mes of targetMonths) {
     const row = rowForMonth.get(mes)
@@ -122,6 +154,10 @@ export async function syncCustosCasa(userId: string): Promise<SyncResult> {
     const jklm = (['J', 'K', 'L', 'M'] as Bucket[]).map(b => toCell(monthMap.get(b) ?? []))
     updates.push({ range: `${sheetRange}!F${row}:H${row}`, values: [fgh] })
     updates.push({ range: `${sheetRange}!J${row}:M${row}`, values: [jklm] })
+    ;(['F', 'G', 'H', 'J', 'K', 'L', 'M'] as Bucket[]).forEach(b => {
+      const vals = monthMap.get(b)
+      if (vals && vals.length > 0) filledCells.push({ row, col: BUCKET_COL[b] })
+    })
     touchedRows++
   }
 
@@ -130,6 +166,7 @@ export async function syncCustosCasa(userId: string): Promise<SyncResult> {
       method: 'POST',
       body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data: updates }),
     })
+    await colorCellsBlue(config.spreadsheet_id, config.sheet_title, filledCells, accessToken)
   }
 
   await supabaseAdmin.from('custos_casa_config').update({ last_synced_at: new Date().toISOString() }).eq('user_id', userId)

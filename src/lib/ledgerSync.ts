@@ -99,6 +99,35 @@ async function copyFormatForNewRows(spreadsheetId: string, sheetTitle: string, t
   }
 }
 
+// Azul no texto = "esta célula foi escrita pela sincronização automática", pedido do Filipe
+// para nunca ficar em dúvida se um valor igual ao que ele já lá tinha veio de carregamento
+// manual ou da app. Só marca células com conteúdo real que o Filipe poderia confundir com algo
+// que escreveu à mão (nunca as fórmulas B/C/D, que já são sempre fórmula independentemente de
+// quem criou a linha, nem H/Comentário, que nunca tocamos). Não crítico — falha em silêncio.
+const BLUE_AUTO = { red: 0.06, green: 0.35, blue: 0.9 }
+async function colorCellsBlue(spreadsheetId: string, sheetTitle: string, cells: { row: number, col: number }[], accessToken: string) {
+  if (cells.length === 0) return
+  try {
+    const meta = await sheetsFetch(`/${spreadsheetId}?fields=sheets.properties(sheetId,title)`, accessToken)
+    const sheetId = (meta.sheets ?? []).find((s: any) => s.properties?.title === sheetTitle)?.properties?.sheetId
+    if (sheetId === undefined) return
+    await sheetsFetch(`/${spreadsheetId}:batchUpdate`, accessToken, {
+      method: 'POST',
+      body: JSON.stringify({
+        requests: cells.map(c => ({
+          repeatCell: {
+            range: { sheetId, startRowIndex: c.row - 1, endRowIndex: c.row, startColumnIndex: c.col, endColumnIndex: c.col + 1 },
+            cell: { userEnteredFormat: { textFormat: { foregroundColor: BLUE_AUTO } } },
+            fields: 'userEnteredFormat.textFormat.foregroundColor',
+          },
+        })),
+      }),
+    })
+  } catch (err: any) {
+    console.warn('LedgerAuto: não consegui marcar as células a azul:', err.message)
+  }
+}
+
 async function extendTableRange(spreadsheetId: string, sheetTitle: string, lastRow1Indexed: number, accessToken: string) {
   try {
     const meta = await sheetsFetch(`/${spreadsheetId}?fields=sheets(properties(sheetId,title),tables)`, accessToken)
@@ -211,6 +240,7 @@ export async function syncLedgerAuto(userId: string): Promise<SyncResult> {
 
   // 1) Actualizações — só as células das linhas cujos valores realmente mudaram.
   const valueUpdates: { range: string; values: any[][] }[] = []
+  const updatedCells: { row: number, col: number }[] = []
   let updatedCount = 0
   for (const t of desejadas) {
     const ex = existingById.get(t.id)
@@ -219,6 +249,7 @@ export async function syncLedgerAuto(userId: string): Promise<SyncResult> {
     valueUpdates.push({ range: `${sheetRange}!A${ex.row}`, values: [[t.data]] })
     valueUpdates.push({ range: `${sheetRange}!E${ex.row}:G${ex.row}`, values: [[t.patrimonio, t.tipo, t.valor]] })
     valueUpdates.push({ range: `${sheetRange}!I${ex.row}`, values: [[t.descritivo]] })
+    updatedCells.push({ row: ex.row, col: 0 }, { row: ex.row, col: 4 }, { row: ex.row, col: 5 }, { row: ex.row, col: 6 }, { row: ex.row, col: 8 })
     updatedCount++
   }
   if (valueUpdates.length > 0) {
@@ -226,6 +257,7 @@ export async function syncLedgerAuto(userId: string): Promise<SyncResult> {
       method: 'POST',
       body: JSON.stringify({ valueInputOption: 'USER_ENTERED', data: valueUpdates }),
     })
+    await colorCellsBlue(config.spreadsheet_id, config.sheet_title, updatedCells, accessToken)
   }
 
   // 2) Remoções — transações que já não são relevantes (desclassificadas, apagadas, etc.).
@@ -268,6 +300,11 @@ export async function syncLedgerAuto(userId: string): Promise<SyncResult> {
     if (afterDeleteLastRow >= firstManagedRow) {
       await copyFormatForNewRows(config.spreadsheet_id, config.sheet_title, afterDeleteLastRow, appendStartRow, finalLastRow, accessToken)
     }
+    const newCells: { row: number, col: number }[] = []
+    for (let row = appendStartRow; row <= finalLastRow; row++) {
+      newCells.push({ row, col: 0 }, { row, col: 4 }, { row, col: 5 }, { row, col: 6 }, { row, col: 8 }, { row, col: 9 })
+    }
+    await colorCellsBlue(config.spreadsheet_id, config.sheet_title, newCells, accessToken)
   }
 
   if (finalLastRow >= firstManagedRow) {
