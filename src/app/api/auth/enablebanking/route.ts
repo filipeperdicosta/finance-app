@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'user_id em falta' }, { status: 400 })
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://finance-app-six-flax.vercel.app'
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://biofinance-alpha.vercel.app'
   const redirectUrl = `${appUrl}/api/auth/enablebanking/callback`
 
   try {

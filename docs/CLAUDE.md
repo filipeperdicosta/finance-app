@@ -12,14 +12,18 @@ bancárias (PSD2 + PDF), investimentos, imóveis e património num dashboard ún
 - Deploy: Vercel, auto-deploy ao fazer `git push` para `main`
 
 ## URLs
-- Produção: finance-app-six-flax.vercel.app
+- Produção: biofinance-alpha.vercel.app (renomeado de finance-app-six-flax.vercel.app,
+  2026-08-13 — `bio-alpha`/`bio-beta`/`bio` já estavam ocupados por outra conta Vercel)
 - Supabase project ID: vgltihdbtslfyjoawqrl
 
 ## Arquitectura
 - `src/app/page.tsx` — ficheiro único, ~3700 linhas. **Modularização pendente**,
   ver `docs/PROJECT_STATE.md` → Backlog técnico.
-- `src/lib/`: `supabase.ts`, `geminiParse.ts`, `googleDrive.ts`, `enableBanking.ts`, `t212.ts`
+- `src/lib/`: `supabase.ts`, `geminiParse.ts`, `googleDrive.ts`, `enableBanking.ts`, `t212.ts`,
+  `irs.ts` (lógica IRS + mapeamento Ledger, partilhada cliente/servidor), `ledgerSync.ts`
+  (sync Excel IRS), `custosCasaSync.ts` (sync Excel custos casa)
 - `src/app/api/cron/check-drive/route.ts` — cron diário (5h): Drive PDF + Enable Banking + T212
+  + LedgerAuto + Custos Casa
 - UI em português (PT), tema escuro. Tokens de design no objecto `T`, paletas `PAL` por tab.
 
 ## Comandos úteis

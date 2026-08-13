@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
   const userId = req.nextUrl.searchParams.get('state')
   const error = req.nextUrl.searchParams.get('error')
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://finance-app-six-flax.vercel.app'
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://biofinance-alpha.vercel.app'
 
   if (error) {
     console.error('Enable Banking callback error:', error)

@@ -9,7 +9,7 @@ export async function POST(req: NextRequest) {
   if (!cronSecret || secret !== cronSecret) {
     return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
   }
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://finance-app-six-flax.vercel.app'
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://biofinance-alpha.vercel.app'
   const res = await fetch(`${appUrl}/api/cron/check-drive`, {
     headers: { Authorization: `Bearer ${cronSecret}` },
   })

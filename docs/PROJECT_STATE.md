@@ -389,59 +389,95 @@ risco técnico bruto.
    duração mínima de 1,5s (`minSplashElapsed`) para não piscar ilegível
    quando os dados carregam depressa.
 3. **"LedgerAuto" — sincronização automática com o Excel de controlo do
-   Filipe** — substitui trabalho manual mensal. **Código feito e em
-   produção (2026-08-10); falta só o setup manual do Filipe no Google Cloud
-   antes de poder ser testado de ponta a ponta.**
-   - Decisão de scope tomada: **`drive.file` + Google Picker** (acesso de
-     escrita limitado só ao ficheiro escolhido — não a toda a Drive),
-     preferido por segurança face ao scope largo `spreadsheets`
-   - Ficheiro: "Controlo Financeiro v1.0.xlsx" (achado via a própria API de
-     leitura já existente). Sheet "Ledger" (manual): Data/Mês/Trimestre/Ano/
-     Património/Tipo de Movimento (Renda, Condomínio, IMI, Outras
-     dedutíveis, Outras não dedutíveis)/Movimento (€, sempre 100%)/
-     Comentário. A app escreve numa sheet nova **"LedgerAuto"** no mesmo
-     ficheiro (criada automaticamente no 1º sync, com cabeçalho), mesmas
-     colunas + 1 coluna extra "ID interno" (rastreabilidade) — o Filipe
-     monta a própria pivot de comparação ao lado da "Análise" manual
-   - Mapeamento app→Ledger em `ledgerTipoMovimento` (`src/lib/irs.ts`): só
-     entram transações já classificadas para IRS (imóvel + balde válido);
-     receitas `nao_renda` e despesas sem balde ficam de fora
-   - **Arquitectura implementada**:
-     - `src/lib/irs.ts` — lógica de IRS extraída de `page.tsx` (antes só
-       client-side) para ficheiro puro sem React, reutilizável no servidor
-     - `src/lib/ledgerSync.ts` — motor de sync: reescreve por completo o
-       intervalo de dados da sheet "LedgerAuto" a cada corrida (mais simples
-       e idempotente que diff linha-a-linha; volume pequeno não justifica a
-       complexidade)
-     - `src/app/api/drive/ledger-sync/route.ts` — chamado pelo botão manual
-     - `src/app/api/auth/google/token/route.ts` — devolve um access token
-       Drive válido ao cliente, só para inicializar o Picker (nunca
-       persistido; mesmo padrão de confiança no `user_id` do resto da app)
-     - `src/app/api/cron/check-drive/route.ts` — hook novo no fim, chama
-       `syncLedgerAutoForAllUsers()`; ignora silenciosamente quem ainda não
-       ligou nenhum ficheiro (sem notificação de erro)
-     - `IrsResumoScreen`: secção "LedgerAuto" no fundo — botão "Ligar
-       ficheiro do IRS" (abre o Picker) quando não ligado; "Sincronizar
-       agora" + hora da última sincronização quando já ligado
-     - Tabela `ledger_auto_config` (`user_id` único, `spreadsheet_id`,
-       `sheet_title`, `linked_at`, `last_synced_at`) — enquanto não existir
-       linha, o sync fica inerte (é o "interruptor" natural pedido pelo
-       Filipe: código pronto, sem efeito até ele ligar)
-     - Scope OAuth alargado em `src/app/api/auth/google/route.ts`:
-       `drive.readonly` (mantido, extractos bancários) + `drive.file` (novo)
-   - **Falta (Filipe, fora do meu controlo)**: converter o ficheiro para
-     Google Sheets nativo (Ficheiro → Guardar como Google Sheets — em
-     curso); activar a Picker API + criar `NEXT_PUBLIC_GOOGLE_PICKER_API_KEY`
-     no Google Cloud Console (ainda não guiado); reconectar a Drive depois
-     do scope novo estar em produção; escolher o ficheiro convertido no
-     Picker
-   - ⚠ Risco técnico não 100% confirmado: `drive.file` deve ser suficiente
-     também para a Sheets API em ficheiros seleccionados via esta app —
-     por confirmar no primeiro sync real
-   - ⚠ A app pode ter menos histórico de transações do que a Ledger manual
-     (que começa em 2024) — LedgerAuto só reflecte o que já está carregado
+   Filipe** ✅ **feito e testado de ponta a ponta (2026-08-12/13)**.
+   Substitui o trabalho manual mensal do Filipe no Excel de IRS.
+   - Decisão de scope: **`drive.file` + Google Picker** (acesso de escrita
+     limitado só ao ficheiro escolhido — não a toda a Drive), confirmado
+     suficiente também para a Sheets API (risco inicial resolvido)
+   - Ficheiro convertido para Google Sheets nativo pelo Filipe ("Controlo
+     Financeiro v1.0" → Sheets). Sheet "Ledger" (manual, nunca tocada):
+     Data/Mês/Trimestre/Ano/Património/Tipo de Movimento/Movimento/
+     Comentário. App escreve na sheet **"LedgerAuto"**, mesmas colunas +
+     "Descrição da transação" + "ID interno" — o Filipe monta a própria
+     pivot de comparação ao lado da "Análise" manual
+   - **Âmbito final** (fechado 2026-08-12, 3 regras): transacções
+     associadas a qualquer imóvel entram sempre; imóveis sem renda activa
+     (`ativo=false`, ex: "Casal") caem sempre em **"Outras não dedutíveis"**
+     sem precisar de classificação manual (o Filipe quer sempre acompanhar
+     custos de investimentos/casa/herança, não só o que é dedutível em
+     IRS); transacções "Geral" (sem imóvel associado) ficam **de fora** —
+     `ledgerTipoMovimento` (`src/lib/irs.ts`), parâmetro `semRendaActiva`
+   - **Motor de sync — reconciliação por DELTA** (`src/lib/ledgerSync.ts`),
+     não por reescrita completa: emparelha por ID (coluna J) com o que já
+     está na sheet — só actualiza células de linhas cujos valores mudaram
+     (nunca toca em B/C/D, que são fórmulas, nem em H/Comentário, que é do
+     Filipe), remove linhas cuja transacção deixou de ser relevante
+     (`deleteDimension`), e acrescenta transacções novas sempre ao **fundo**
+     da região gerida (não pela posição cronológica — reordenar exigiria
+     `insertDimension` a deslocar tudo, sem ganho real já que são pivot
+     tables, não leitura linha-a-linha; o Filipe reordena manualmente se
+     precisar). Fronteira por ANO (lê a coluna D, já uma fórmula
+     `=YEAR(A...)`) continua a proteger todo o histórico manual anterior ao
+     que a app cobre — nunca escreve antes dela
+   - Formatação (moeda, contornos) preservada nas linhas já sincronizadas
+     (`values.clear`/`values.update` nunca tocam em formatação); linhas
+     genuinamente novas (para além do que a sheet alguma vez teve) recebem
+     o formato copiado da última linha formatada via `copyPaste`
+     (`pasteType: PASTE_FORMAT`) — `copyFormatForNewRows`
+   - Range da Table nativa da sheet (moldura com filtros) actualizado a
+     cada sync (`extendTableRange`, `updateTable`) — sem isto a pivot table
+     do Filipe ficava sempre um passo atrás
+   - **Incidente de segurança de dados (quase-perda, 2026-08-12)**: a
+     primeira versão assumia linha 2 como 1ª linha de dados e fazia
+     `clear`+reescrita a partir daí — sobrescreveu o cabeçalho real (linha
+     2) e o histórico manual de 2026 do Filipe. Apanhado por ele via
+     screenshot, restaurou os dados manualmente. **Fix**: `FIRST_DATA_ROW=3`
+     + fronteira por ano (não por ID — coluna ID vazia falha no 1º sync)
+   - Rota `/api/drive/ledger-sync` (botão manual) + hook no
+     `check-drive` cron (`syncLedgerAutoForAllUsers`, ignora
+     silenciosamente quem não ligou ficheiro); tabela `ledger_auto_config`
+     é o "interruptor" (sem linha = sync inerte). Scope OAuth alargado em
+     `src/app/api/auth/google/route.ts`: `drive.readonly` + `drive.file`
+   - UI: secção "Sincronização com o Excel" no fundo do `IrsResumoScreen`
 4. **Relatório IRS anual (Anexo F — rendimentos prediais)** ✅ feito
    (2026-08-09, ver secção própria abaixo)
+5. **"Custos Casa" — sincronização automática com o Excel de custos da
+   casa da família** ✅ feito (2026-08-13), por testar pelo Filipe.
+   Ficheiro "Esforço e Orçamento Casa" (Google Sheets nativo, 15 sheets,
+   só a sheet **"CustosCasa"** é o alvo — 1 linha por mês, pré-criada até
+   2037, colunas Renda/Seguros/Condomínio/IMI/Água/Luz/Gás/TV/Empregada +
+   totais em fórmula). Não é a mesma casa do LedgerAuto: é a residência da
+   família (conta "Familiar", sem `imovel_id` associado, distinta do
+   imóvel "Casal" que é património/investimento).
+   - **Classificação por lista branca de entidades conhecidas**
+     (`src/lib/custosCasaSync.ts`), não por adivinhação de texto livre: só
+     54 transacções históricas na categoria Habitação/Utilities da conta
+     Familiar, quase todas débitos directos sempre com o mesmo texto —
+     `RULES` mapeia `Amort./Renda`→Renda, `ZURICH VIDA`+`TARIFA PLANA
+     SEGUROS`→Seguros (soma, escrita como fórmula tal como o Filipe já
+     fazia à mão), `Condominio Predio`→Condomínio, `EPAL`→Água,
+     `Petrogal`→Luz (confirmado = Galp electricidade), `LISBOAGAS`→Gás,
+     `NOS Comunicacoes`→TV. Transacção sem padrão conhecido fica
+     simplesmente de fora (falha para o lado seguro)
+   - **IMI e Empregada ficam fora de propósito** (decisão do Filipe,
+     2026-08-13): IMI é anual/raro (out of scope por agora); a
+     transferência da empregada não tem padrão de texto estável (já vistos
+     4 formatos diferentes: "FILIPE CECILIA 202604", "ORDENADO FLOR
+     202606", etc.) — a automatizar depois, dado ser mensal
+   - Janela de sync: mês corrente + 2 anteriores (apanha facturas com
+     atraso, ex: Água é bimestral), recalculada a cada corrida — nunca
+     toca em meses fora da janela, protege todo o histórico sem precisar
+     de fronteira explícita como no LedgerAuto (aqui cada mês é 1 linha só)
+   - Escreve só nas colunas F,G,H,J,K,L,M (nunca em A-E fórmulas, I/IMI,
+     N/Empregada, O/Acerto manual, nem nas colunas de totais)
+   - Tabela `custos_casa_config` (mesmo padrão do `ledger_auto_config`) +
+     rota `/api/drive/custos-casa-sync` + hook no `check-drive` cron
+     (`syncCustosCasaForAllUsers`) + UI em `DriveSettingsScreen` (cartão
+     "Custos Casa", reaproveitando o mesmo Picker do LedgerAuto — já não
+     precisa de nova configuração OAuth, `drive.file` já cobre)
+   - ⚠ Por testar: primeira sincronização real (Filipe testa "amanhã",
+     2026-08-14) — Agosto já tinha alguns valores manuais que vão ser
+     recalculados a partir das transacções
 
 ### Backlog técnico (sem data)
 - **Modularizar `page.tsx`** (~3700 linhas) — combinado fazer numa sessão
@@ -478,3 +514,41 @@ risco técnico bruto.
 - **Ambiente de desenvolvimento anterior (Claude.ai chat)**: sandbox sem
   persistência entre mensagens — cada resposta tinha de restaurar checkpoint
   + reaplicar deltas. Não se aplica ao Claude Code (filesystem persistente).
+- **Google Picker + `drive.file`**: o Picker funciona visualmente sem
+  `.setAppId(<número do projecto Cloud>)`, mas sem isso o grant por-ficheiro
+  do `drive.file` falha em silêncio (403 `PERMISSION_DENIED` só se revela na
+  primeira chamada real à Sheets API). `setAppId` é obrigatório, não opcional.
+- **Sheets API — formatação vs valores**: `values.clear`/`values.update`
+  nunca tocam em formatação (moeda, contornos ficam sempre). Só
+  `batchUpdate` com `copyPaste`/`pasteType:PASTE_FORMAT` copia formato —
+  necessário só para linhas genuinamente novas (nunca formatadas antes).
+- **Sheets API — locale europeu em fórmulas escritas por nós**: separador
+  de argumentos de função é `;` (não `,`) — ex: `=TEXT(A1;"mmm/yy")`. Mas
+  dentro de literais numéricos somados directamente (`=46,36+30,25`), o
+  separador **decimal** continua a ser `,` — são preocupações diferentes,
+  não confundir uma com a outra.
+- **Sheets "Tables" (moldura com filtros nativa)**: o `range` não cresce
+  sozinho quando se escrevem linhas a mais por baixo — precisa de
+  `batchUpdate` com `updateTable` a cada sync para a pivot table não ficar
+  sempre um passo atrás.
+- **Reconciliação em sheets geridas em conjunto com um humano**: reescrita
+  completa (clear+rewrite) é simples mas apaga anotações manuais em células
+  que a app não é dona (ex: coluna Comentário) a cada corrida. Delta por ID
+  (emparelhar, actualizar só o que mudou, nunca tocar em colunas alheias) é
+  mais código mas preserva o trabalho manual — vale a pena a partir do
+  momento em que a sheet já não é só gerada por nós.
+- **Classificação por lista branca vs. adivinhação de texto livre**: quando
+  o conjunto de entidades é pequeno e fechado (poucos débitos directos
+  recorrentes, sempre o mesmo texto de merchant), reconhecer por padrão
+  conhecido é seguro. Adivinhar por categoria genérica da app (ex:
+  "Habitação" inclui desde condomínio a compras na Leroy Merlin) não é —
+  falha para o lado seguro (não escreve) sempre que não há padrão
+  reconhecido, nunca inventa.
+- **Nomes `*.vercel.app` são um namespace global partilhado** — qualquer
+  conta pode reclamar um subdomínio livre, tal como um domínio normal.
+  Antes de planear uma escada de nomes (ex: `-alpha`→`-beta`→final),
+  confirmar que TODOS os passos estão livres — descobrimos tarde que
+  `bio-alpha`/`bio-beta`/`bio` já pertenciam a outra conta. Renomear o
+  domínio faz-se em Vercel → Settings → Domains (editar o campo directamente),
+  **não** em Settings → General → Project Name (esse não migra o domínio
+  automático já reclamado).

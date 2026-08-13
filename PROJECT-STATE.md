@@ -4,7 +4,7 @@
 **Stack:** Next.js 15.3.3 (App Router) · React 18.3.1 · TypeScript · Supabase (PostgreSQL + Auth) · Vercel (deploy) · Google Gemini 2.5-flash-lite (parsing PDF) · GitHub (versionamento)
 
 **URLs:**
-- Produção: `finance-app-six-flax.vercel.app`
+- Produção: `biofinance-alpha.vercel.app`
 - Repositório: `github.com/filipeperdicosta/finance-app`
 - Supabase project: `vgltihdbtslfyjoawqrl`
 
