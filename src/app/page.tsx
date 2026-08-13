@@ -499,6 +499,12 @@ const Sel = ({label,value,onChange,options}:{label:string,value:string,onChange:
 const Leg = ({c,l,line}:{c:string,l:string,line?:boolean}) => (
   <div style={{display:'flex',alignItems:'center',gap:4}}><div style={{width:line?10:7,height:line?2:7,borderRadius:line?1:2,background:c}}/><span style={{fontSize:9,color:'rgba(255,255,255,0.38)'}}>{l}</span></div>
 )
+// Margens/tamanhos de eixo partilhados entre Spark (Hero, os 2 modos) e DynChart (Evolução
+// mensal) — os 3 têm de usar exactamente os mesmos valores para os meses ficarem alinhados
+// entre si quando comparados a olho no mesmo ecrã (pedido do Filipe, 2026-08-13).
+const SPARK_AX_MARGIN = {right:6, left:10}
+const SPARK_AX_FONT = 9
+const SPARK_AX_Y_WIDTH = 32
 const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,net:number}[], mode?:'budget'|'patrimonio'}) => {
   const maxVal = Math.max(...trend.map(d=>mode==='patrimonio'?Math.abs(d.net):Math.max(d.rec,d.desp)), 0)
   const hasData = mode==='patrimonio' ? trend.some(d=>d.net!==0) : maxVal>0
@@ -523,20 +529,23 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
             <span style={{fontSize:11,color:'rgba(255,255,255,0.25)'}}>Sem dados neste período</span>
           </div>
         ):(
-          <div style={{position:'relative',height:64}}>
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={trend} margin={{top:4,right:28,bottom:0,left:0}}>
-                <YAxis hide domain={[domMin,domMax]}/>
-                <XAxis dataKey="m" tick={{fontSize:9,fill:'rgba(255,255,255,0.2)'}} axisLine={false} tickLine={false} interval={0} height={14} padding={{left:12,right:0}}/>
-                <ReferenceLine y={midY} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
-                <ReferenceLine y={domMax} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
-                <Tooltip contentStyle={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,fontSize:11,padding:'6px 10px'}} itemStyle={{padding:0}} formatter={(v:any)=>[dec(v),'Património']} labelStyle={{color:T.text,fontWeight:600,fontSize:11,marginBottom:2}} cursor={{stroke:'rgba(255,255,255,0.15)',strokeWidth:1}}/>
-                <Line dataKey="net" stroke="rgba(255,255,255,0.75)" strokeWidth={1.75} dot={false}/>
-              </LineChart>
-            </ResponsiveContainer>
-            <div style={{position:'absolute',top:4,right:0,fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(domMax)}</div>
-            <div style={{position:'absolute',top:'50%',right:0,transform:'translateY(-50%)',fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(midY)}</div>
-          </div>
+          <ResponsiveContainer width="100%" height={64}>
+            {/* ComposedChart, não LineChart — um LineChart "puro" com domínio Y que não começa
+                em 0 falha a renderizar a Line sem erro nenhum (testado em mockup, 2026-08-13).
+                A barra "spacer" (dataKey="rec", sempre 0 aqui) é invisível e vive num eixo Y só
+                dela [0,1] — está lá só para o Recharts usar o mesmo cálculo de centragem por
+                categoria que o DynChart, nunca para mostrar nada. */}
+            <ComposedChart data={trend} margin={{top:4,...SPARK_AX_MARGIN,bottom:0}}>
+              <YAxis yAxisId="main" orientation="right" axisLine={false} tickLine={false} domain={[domMin,domMax]} ticks={[midY,domMax]} tickFormatter={(v:number)=>compact(v)} tick={{fontSize:SPARK_AX_FONT,fill:'rgba(255,255,255,0.3)'}} width={SPARK_AX_Y_WIDTH}/>
+              <YAxis yAxisId="spacer" hide domain={[0,1]}/>
+              <XAxis dataKey="m" tick={{fontSize:SPARK_AX_FONT,fill:T.textSec}} axisLine={false} tickLine={false} interval={0}/>
+              <ReferenceLine yAxisId="main" y={midY} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
+              <ReferenceLine yAxisId="main" y={domMax} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
+              <Tooltip contentStyle={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,fontSize:11,padding:'6px 10px'}} itemStyle={{padding:0}} formatter={(v:any,k:string)=>k==='rec'?[null,null]:[dec(v),'Património']} labelStyle={{color:T.text,fontWeight:600,fontSize:11,marginBottom:2}} cursor={{stroke:'rgba(255,255,255,0.15)',strokeWidth:1}}/>
+              <Bar yAxisId="spacer" dataKey="rec" name="__spacer" fill="transparent" isAnimationActive={false} legendType="none"/>
+              <Line yAxisId="main" dataKey="net" stroke="rgba(255,255,255,0.75)" strokeWidth={1.75} dot={false}/>
+            </ComposedChart>
+          </ResponsiveContainer>
         )}
       </>
     )
@@ -550,30 +559,28 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
         <div style={{display:'flex',gap:10}}><Leg c={T.green} l="Rec" line/><Leg c={T.red} l="Desp" line/><Leg c="rgba(255,255,255,0.4)" l="Saldo"/></div>
       </div>
       {!hasData?(
-        <div style={{height:50,display:'flex',alignItems:'center',justifyContent:'center'}}>
+        <div style={{height:64,display:'flex',alignItems:'center',justifyContent:'center'}}>
           <span style={{fontSize:11,color:'rgba(255,255,255,0.25)'}}>Sem dados neste período</span>
         </div>
       ):(
-        <div style={{position:'relative',height:50}}>
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={trend} margin={{top:4,right:28,bottom:0,left:0}}>
-              <YAxis hide domain={[0,maxVal*1.05]}/>
-              <XAxis dataKey="m" hide/>
+        <ResponsiveContainer width="100%" height={64}>
+          {/* Bar (Saldo) já está sempre presente aqui, por isso BarChart como raiz — em vez de
+              ComposedChart — chega sozinho para o Recharts centrar os meses correctamente
+              (confirmado em mockup: com scale="band" forçado à mão, ou com root ComposedChart
+              sem nenhuma Bar real, as etiquetas ficavam à esquerda de cada categoria em vez de
+              centradas — só o tipo de raiz + uma Bar real resolve). */}
+          <BarChart data={trend} margin={{top:4,...SPARK_AX_MARGIN,bottom:0}}>
+            <YAxis orientation="right" axisLine={false} tickLine={false} domain={[0,maxVal*1.05]} ticks={[midVal,maxVal]} tickFormatter={(v:number)=>compact(v)} tick={{fontSize:SPARK_AX_FONT,fill:'rgba(255,255,255,0.3)'}} width={SPARK_AX_Y_WIDTH}/>
+              <XAxis dataKey="m" tick={{fontSize:SPARK_AX_FONT,fill:T.textSec}} axisLine={false} tickLine={false} interval={0}/>
               <ReferenceLine y={midVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
               <ReferenceLine y={maxVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
               <Tooltip contentStyle={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,fontSize:11,padding:'6px 10px'}} itemStyle={{padding:0}} formatter={(v:any,k:string)=>{if(k==='net') return [<span style={{color:Number(v)>=0?T.green:T.red,fontWeight:600}}>{dec(v)}</span>,'Saldo']; return [dec(v),k==='rec'?'Receitas':'Despesas']}} labelStyle={{color:T.text,fontWeight:600,fontSize:11,marginBottom:2}} cursor={{fill:'rgba(255,255,255,0.04)'}}/>
               <Bar dataKey="net" fill="rgba(255,255,255,0.18)" radius={[2,2,0,0]} maxBarSize={16}/>
               <Line dataKey="rec" stroke={T.green} strokeWidth={1.75} dot={false}/>
               <Line dataKey="desp" stroke={T.red} strokeWidth={1.75} dot={false}/>
-            </ComposedChart>
-          </ResponsiveContainer>
-          <div style={{position:'absolute',top:4,right:0,fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(maxVal)}</div>
-          <div style={{position:'absolute',top:'50%',right:0,transform:'translateY(-50%)',fontSize:8,color:'rgba(255,255,255,0.3)'}}>{compact(midVal)}</div>
-        </div>
+          </BarChart>
+        </ResponsiveContainer>
       )}
-      <div style={{display:'flex',justifyContent:'space-between',marginTop:4,paddingRight:28}}>
-        {trend.map((d,i)=><span key={i} style={{fontSize:9,color:'rgba(255,255,255,0.2)',flex:1,textAlign:'center'}}>{d.m}</span>)}
-      </div>
     </>
   )
 }
@@ -583,13 +590,17 @@ const Toggle = ({val,set,accent}:{val:string,set:(v:string)=>void,accent:string}
   </div>
 )
 const DynChart = ({data,type}:{data:{m:string,rec:number,desp:number}[],type:string}) => {
-  const tip = <Tooltip contentStyle={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,fontSize:12}} formatter={(v:any,k:string)=>[dec(v),k==='rec'?'Receitas':'Despesas']} labelStyle={{color:T.text,fontWeight:600}} cursor={{fill:'rgba(255,255,255,0.03)'}}/>
-  const ax = <XAxis dataKey="m" tick={{fontSize:10,fill:T.textSec}} axisLine={false} tickLine={false} interval={0} padding={{left:8,right:8}}/>
-  const margin = {top:8,right:6,bottom:0,left:10}
+  const tip = <Tooltip contentStyle={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,fontSize:12}} formatter={(v:any,k:string)=>k==='__spacer'?[null,null]:[dec(v),k==='rec'?'Receitas':'Despesas']} labelStyle={{color:T.text,fontWeight:600}} cursor={{fill:'rgba(255,255,255,0.03)'}}/>
+  const ax = <XAxis dataKey="m" tick={{fontSize:SPARK_AX_FONT,fill:T.textSec}} axisLine={false} tickLine={false} interval={0}/>
+  const margin = {top:8,...SPARK_AX_MARGIN,bottom:0}
   const maxVal = Math.max(...data.map(d=>Math.max(d.rec,d.desp)), 0)
   const hasData = maxVal>0
   const midVal = maxVal/2
-  const yAxis = <YAxis orientation="right" axisLine={false} tickLine={false} domain={[0,maxVal*1.05]} ticks={[midVal,maxVal]} tickFormatter={(v:number)=>compact(v)} tick={{fontSize:10,fill:T.textTer}} width={32}/>
+  const yAxis = <YAxis yAxisId="main" orientation="right" axisLine={false} tickLine={false} domain={[0,maxVal*1.05]} ticks={[midVal,maxVal]} tickFormatter={(v:number)=>compact(v)} tick={{fontSize:SPARK_AX_FONT,fill:T.textTer}} width={SPARK_AX_Y_WIDTH}/>
+  // Linha/Área não têm nenhuma Bar real — sem uma (mesmo invisível), o Recharts centra os
+  // meses de forma diferente do modo Bar (e do Spark), ver nota em cima do componente Spark.
+  const spacerAxis = <YAxis yAxisId="spacer" hide domain={[0,1]}/>
+  const spacer = <Bar yAxisId="spacer" dataKey="rec" name="__spacer" fill="transparent" isAnimationActive={false} legendType="none"/>
   if(!hasData) return (
     <div style={{height:120,display:'flex',alignItems:'center',justifyContent:'center'}}>
       <span style={{fontSize:12,color:T.textTer}}>Sem dados para mostrar</span>
@@ -600,27 +611,29 @@ const DynChart = ({data,type}:{data:{m:string,rec:number,desp:number}[],type:str
       {type==='Bar'?(
         <BarChart data={data} barCategoryGap="25%" barGap={3} margin={margin}>
           {ax}{yAxis}{tip}
-          <ReferenceLine y={midVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
-          <ReferenceLine y={maxVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
-          <Bar dataKey="rec" fill="rgba(74,222,128,0.4)" radius={[4,4,0,0]} maxBarSize={26}/>
-          <Bar dataKey="desp" fill="rgba(248,113,113,0.4)" radius={[4,4,0,0]} maxBarSize={26}/>
+          <ReferenceLine yAxisId="main" y={midVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
+          <ReferenceLine yAxisId="main" y={maxVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
+          <Bar yAxisId="main" dataKey="rec" fill="rgba(74,222,128,0.4)" radius={[4,4,0,0]} maxBarSize={26}/>
+          <Bar yAxisId="main" dataKey="desp" fill="rgba(248,113,113,0.4)" radius={[4,4,0,0]} maxBarSize={26}/>
         </BarChart>
       ):type==='Linha'?(
-        <LineChart data={data} margin={margin}>
+        <ComposedChart data={data} margin={margin}>
           {ax}{yAxis}{tip}
-          <ReferenceLine y={midVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
-          <ReferenceLine y={maxVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
-          <Line dataKey="rec" stroke={T.green} strokeWidth={2} dot={false}/>
-          <Line dataKey="desp" stroke={T.red} strokeWidth={2} dot={false}/>
-        </LineChart>
+          <ReferenceLine yAxisId="main" y={midVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
+          <ReferenceLine yAxisId="main" y={maxVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
+          {spacerAxis}{spacer}
+          <Line yAxisId="main" dataKey="rec" stroke={T.green} strokeWidth={2} dot={false}/>
+          <Line yAxisId="main" dataKey="desp" stroke={T.red} strokeWidth={2} dot={false}/>
+        </ComposedChart>
       ):(
-        <AreaChart data={data} margin={margin}>
+        <ComposedChart data={data} margin={margin}>
           {ax}{yAxis}{tip}
-          <ReferenceLine y={midVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
-          <ReferenceLine y={maxVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
-          <Area dataKey="rec" stroke={T.green} strokeWidth={2} fill="rgba(74,222,128,0.12)"/>
-          <Area dataKey="desp" stroke={T.red} strokeWidth={2} fill="rgba(248,113,113,0.12)"/>
-        </AreaChart>
+          <ReferenceLine yAxisId="main" y={midVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
+          <ReferenceLine yAxisId="main" y={maxVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
+          {spacerAxis}{spacer}
+          <Area yAxisId="main" dataKey="rec" stroke={T.green} strokeWidth={2} fill="rgba(74,222,128,0.12)"/>
+          <Area yAxisId="main" dataKey="desp" stroke={T.red} strokeWidth={2} fill="rgba(248,113,113,0.12)"/>
+        </ComposedChart>
       )}
     </ResponsiveContainer>
   )
@@ -633,7 +646,7 @@ const TrendTile = ({data,accent,catFilter}:{data:{m:string,rec:number,desp:numbe
         <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase',whiteSpace:'nowrap'}}>{catFilter?`Evolução — ${catFilter}`:'Evolução mensal'}</span>
         <Toggle val={type} set={setType} accent={accent}/>
       </div>
-      <Card style={{padding:'14px 14px 8px'}}><DynChart data={data} type={type}/></Card>
+      <Card style={{padding:'14px 18px 8px'}}><DynChart data={data} type={type}/></Card>
     </div>
   )
 }
