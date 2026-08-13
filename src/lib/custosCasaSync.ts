@@ -145,7 +145,7 @@ export async function syncCustosCasa(userId: string): Promise<SyncResult> {
 
   const { data: accs } = await supabaseAdmin.from('accounts').select('id').eq('budget_tag', 'familiar')
   const accIds = (accs ?? []).map((a: any) => a.id)
-  const { data: txns } = await supabaseAdmin.from('transactions').select('data,valor,descritivo')
+  const { data: txns } = await supabaseAdmin.from('transactions').select('data,valor,descritivo,categoria')
     .in('account_id', accIds).is('imovel_id', null).lt('valor', 0).gte('data', startDate)
     .in('categoria', CATEGORIAS_ELEGIVEIS)
 
@@ -157,7 +157,7 @@ export async function syncCustosCasa(userId: string): Promise<SyncResult> {
     if (!monthMap.has(bucket)) monthMap.set(bucket, [])
     monthMap.get(bucket)!.push(valor)
   }
-  for (const t of (txns ?? []) as { data: string, valor: number, descritivo: string | null }[]) {
+  for (const t of (txns ?? []) as { data: string, valor: number, descritivo: string | null, categoria: string | null }[]) {
     const txnMonth = t.data.slice(0, 4) + t.data.slice(5, 7)
     const day = Number(t.data.slice(8, 10))
     const desc = normalize(t.descritivo ?? '')
@@ -165,6 +165,10 @@ export async function syncCustosCasa(userId: string): Promise<SyncResult> {
 
     const rule = RULES.find(r => r.match.test(desc))
     if (rule) { addSum(txnMonth, rule.bucket, valorAbs); continue }
+    // Ordenado/SS só têm sido vistos em categoria=Habitação — mais um filtro de rigor além do
+    // texto, para nunca confundir com algo parecido categorizado como Utilities (pedido do
+    // Filipe, 2026-08-13).
+    if (t.categoria !== 'Habitação') continue
     if (ORDENADO_MATCH.test(desc)) { addSum(day <= 7 ? prevMonth(txnMonth) : txnMonth, 'N', valorAbs); continue }
     if (SS_MATCH.test(desc)) { addSum(prevMonth(txnMonth), 'N', valorAbs); continue }
   }
