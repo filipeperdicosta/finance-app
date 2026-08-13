@@ -501,11 +501,28 @@ risco técnico bruto.
      veio de carregamento manual ou automático. Só marca células com
      conteúdo real, nunca as que ficam vazias por falta de transacção.
      Mesmo mecanismo aplicado ao LedgerAuto
-   - Tabela `custos_casa_config` (mesmo padrão do `ledger_auto_config`) +
-     rota `/api/drive/custos-casa-sync` + hook no `check-drive` cron
+   - **100% automático via cron diário** (`vercel.json`, 5h UTC) — o
+     Filipe não precisa de carregar em "Sincronizar agora" (esse botão
+     fica só para forçar antes da hora). Tabela `custos_casa_config`
+     (mesmo padrão do `ledger_auto_config`) + rota
+     `/api/drive/custos-casa-sync` + hook no `check-drive` cron
      (`syncCustosCasaForAllUsers`) + UI em `DriveSettingsScreen` (cartão
      "Custos Casa", reaproveitando o mesmo Picker do LedgerAuto — já não
      precisa de nova configuração OAuth, `drive.file` já cobre)
+   - **Nunca sobrescreve correcções manuais** (pedido do Filipe,
+     2026-08-13, depois de ter tido de re-adicionar à mão um pagamento de
+     SS feito por engano noutro banco): coluna `cell_snapshot` (JSONB) em
+     `custos_casa_config` guarda célula-a-célula o que a app escreveu da
+     última vez. Antes de reescrever, compara o valor actual na sheet com
+     esse registo — se baterem, recalcula normalmente; se não baterem
+     (o Filipe mexeu-lhe entretanto), a app nunca mais toca nessa célula
+     específica, adopta o valor dele como definitivo dali para a frente.
+     Bootstrap cuidadoso na 1ª execução (sem registo anterior): célula já
+     preenchida com valor diferente do calculado é tratada como manual por
+     omissão (mais seguro do que arriscar apagar uma correcção só por
+     ainda não a termos visto); célula vazia ou já correcta não gera
+     dúvida. Comparação com tolerância a arredondamento de vírgula
+     flutuante (`cellsEqual`), exacta para fórmulas/vazio.
 
 ### Backlog técnico (sem data)
 - **Modularizar `page.tsx`** (~3700 linhas) — combinado fazer numa sessão
@@ -580,3 +597,17 @@ risco técnico bruto.
   domínio faz-se em Vercel → Settings → Domains (editar o campo directamente),
   **não** em Settings → General → Project Name (esse não migra o domínio
   automático já reclamado).
+- **Corrupção de `.git/refs/heads/main` (recorrente nesta máquina, já
+  aconteceu 2x na mesma sessão)**: falha transitória de escrita em disco
+  deixa o ficheiro do ref a zeros/vazio — `git push`/`git status` falham
+  com "unable to resolve reference" ou "cannot lock ref". **Nunca é perda
+  de dados** — o commit continua intacto na base de objectos, só o
+  ponteiro do ref é que se perde. Diagnóstico seguro (nunca destrutivo):
+  `git log --oneline -5` sobre `.git/logs/refs/heads/main` (reflog local)
+  e `.git/logs/refs/remotes/origin/main` (reflog do remoto) mostram sempre
+  o último hash bom; confirmar com `git cat-file -t <hash>` que o objecto
+  existe antes de tocar em nada. Fix: `rm .git/refs/heads/main && git
+  update-ref refs/heads/main <hash>`. Se `git push` a seguir disser
+  "Everything up-to-date" inesperadamente, correr `git fetch origin main`
+  primeiro — o push original pode já ter chegado ao GitHub antes do lock
+  falhar localmente.
