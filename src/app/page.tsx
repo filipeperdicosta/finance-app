@@ -564,12 +564,14 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
         </div>
       ):(
         <ResponsiveContainer width="100%" height={64}>
-          {/* Bar (Saldo) já está sempre presente aqui, por isso BarChart como raiz — em vez de
-              ComposedChart — chega sozinho para o Recharts centrar os meses correctamente
-              (confirmado em mockup: com scale="band" forçado à mão, ou com root ComposedChart
-              sem nenhuma Bar real, as etiquetas ficavam à esquerda de cada categoria em vez de
-              centradas — só o tipo de raiz + uma Bar real resolve). */}
-          <BarChart data={trend} margin={{top:4,...SPARK_AX_MARGIN,bottom:0}}>
+          {/* ComposedChart, não BarChart — `<BarChart>` como raiz nunca desenha `<Line>` filhas
+              no Recharts 2.15.4 (confirmado empiricamente, 2026-08-14: falha sempre, com ou sem
+              Bar presente, independente do domínio do eixo Y — a nota anterior aqui, de que
+              BarChart "chega sozinho", estava errada, ficou por detectar porque o comentário
+              nunca foi reconfirmado depois da 1ª validação visual). A Bar (Saldo) já real aqui
+              chega sozinha para o Recharts centrar os meses correctamente, sem precisar de eixo
+              "spacer" (esse padrão só é preciso quando não há Bar real nenhuma, ver DynChart). */}
+          <ComposedChart data={trend} margin={{top:4,...SPARK_AX_MARGIN,bottom:0}}>
             <YAxis orientation="right" axisLine={false} tickLine={false} domain={[0,maxVal*1.05]} ticks={[midVal,maxVal]} tickFormatter={(v:number)=>compact(v)} tick={{fontSize:SPARK_AX_FONT,fill:'rgba(255,255,255,0.3)'}} width={SPARK_AX_Y_WIDTH}/>
               <XAxis dataKey="m" tick={{fontSize:SPARK_AX_FONT,fill:T.textSec}} axisLine={false} tickLine={false} interval={0}/>
               <ReferenceLine y={midVal} stroke="rgba(255,255,255,0.15)" strokeWidth={1} ifOverflow="visible"/>
@@ -578,7 +580,7 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
               <Bar dataKey="net" fill="rgba(255,255,255,0.18)" radius={[2,2,0,0]} maxBarSize={16}/>
               <Line dataKey="rec" stroke={T.green} strokeWidth={1.75} dot={false}/>
               <Line dataKey="desp" stroke={T.red} strokeWidth={1.75} dot={false}/>
-          </BarChart>
+          </ComposedChart>
         </ResponsiveContainer>
       )}
     </>
