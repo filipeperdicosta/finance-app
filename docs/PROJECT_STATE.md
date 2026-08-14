@@ -604,17 +604,27 @@ patrimonio, DynChart nos 3 toggles) têm sempre uma `<Bar>` real presente,
 mesmo que invisível (`fill="transparent"`), num eixo Y próprio e isolado
 (`yAxisId="spacer"`, domínio `[0,1]`) para nunca interferir com a escala
 real. Sem `scale` forçado — deixa o Recharts escolher sozinho, que é onde a
-centragem correcta vive. `<BarChart>` como componente raiz funciona bem
-quando o domínio do eixo Y principal começa em 0 (Spark budget, DynChart);
-mas com um domínio que **não** começa em 0 (Spark patrimonio, que usa uma
-janela `[min-padding, max+padding]` à volta do património) o `<BarChart>`
-falha a renderizar a `<Line>` **sem nenhum erro na consola** — só
-`<ComposedChart>` como raiz tolera essa combinação. Margens (`right:6,
+centragem correcta vive. Margens (`right:6,
 left:10`), tamanho de letra (9px) e cor da etiqueta (`T.textSec`) unificados
 nos 3 sítios via constantes partilhadas (`SPARK_AX_MARGIN`, `SPARK_AX_FONT`,
 `SPARK_AX_Y_WIDTH`, topo de `page.tsx`). Validado num mockup isolado
 (`/chart-preview-temp`, apagado no fim) com marcadores de posição visíveis
 antes de tocar no código real — apagado depois de confirmado.
+
+**Correcção a este fix (2026-08-14)**: a frase acima ("`<BarChart>` como
+componente raiz funciona bem quando o domínio do eixo Y principal começa em
+0") estava **errada** — só não foi apanhada nessa sessão porque a validação
+visual não reparou que as `<Line>` tinham desaparecido do modo budget do
+Spark (fundo escuro, linhas finas, fácil de não notar num screenshot rápido).
+O Filipe reparou dias depois ("perderam as linhas no gráfico"). Testado
+isoladamente e confirmado com evidência: **`<BarChart>` como raiz nunca
+desenha `<Line>` filhas no Recharts 2.15.4**, independente do domínio do
+eixo Y — falha sempre, com ou sem `<Bar>` presente, sem erro nenhum na
+consola. Só o modo budget do Spark usava `<BarChart>`; DynChart nunca usa
+Bar+Line no mesmo gráfico (modo "Bar" é só barras) por isso não foi afectado.
+Revertido para `<ComposedChart>` — a Bar real já presente no Spark chega
+sozinha para a centragem correcta, sem precisar do eixo "spacer". Ver
+Aprendizagens, entrada Recharts, já corrigida.
 
 ---
 
@@ -722,11 +732,16 @@ antes de tocar no código real — apagado depois de confirmado.
   sem erro nenhum). Fix correcto: garantir sempre uma `<Bar>` real presente
   (mesmo invisível, `fill="transparent"`, em `yAxisId` próprio isolado com
   domínio `[0,1]` para nunca afectar a escala real) e deixar o Recharts
-  escolher a escala sozinho. Ver também: `<BarChart>` como componente raiz
-  **falha a renderizar `<Line>`/`<Area>` sem nenhum erro na consola** quando
-  o domínio do eixo Y não começa em 0 (ex: janela `[min-padding,
-  max+padding]`) — nesse caso usar sempre `<ComposedChart>` como raiz.
-  Diagnóstico útil quando isto acontecer outra vez: montar um mockup
+  escolher a escala sozinho. Ver também: **`<BarChart>` como componente raiz
+  nunca desenha `<Line>`/`<Area>` filhas, sem nenhum erro na consola** —
+  falha sempre, com ou sem `<Bar>` real presente, independente do domínio do
+  eixo Y (testado e confirmado 2026-08-14 em recharts 2.15.4; uma nota
+  anterior aqui dizia que "funcionava bem quando o domínio começa em 0", o
+  que estava errado e causou uma regressão real — ver "Correcção a este fix"
+  na secção do Alinhamento de gráficos, acima). **Usar sempre
+  `<ComposedChart>` como raiz em qualquer gráfico que misture `<Bar>` com
+  `<Line>`/`<Area>`, sem excepção.** Diagnóstico útil quando isto acontecer
+  outra vez: montar um mockup
   isolado com `<CartesianGrid vertical/>` (marca as fronteiras reais de
   cada categoria) + `dot={{r:3}}` nas linhas, para ver ao pixel se os
   pontos caem centrados nas fronteiras — comparar só as etiquetas entre
