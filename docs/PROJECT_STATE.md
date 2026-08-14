@@ -61,6 +61,18 @@ cada fetch) — causava duplicados a cada corrida do cron. Fix: comparar
 também o descritivo normalizado antes de inserir; se bater tudo, ignora
 silenciosamente (é o mesmo lançamento, referência instável do banco).
 
+**Gap na rota manual (2026-08-14)**: essa protecção (comparação por
+data+valor+descritivo normalizado, além do hash exacto) só existia no cron
+(`check-drive/route.ts`, código EB inline) — a rota manual separada
+(`/api/enablebanking/sync`) só comparava por hash exacto, e foi por aí que
+passaram despercebidas 2 entradas iguais de €32,46 (mesma transacção,
+`entry_reference` instável, re-inserida ~14h depois via sync manual).
+Apanhado pelo Filipe a olhar para a lista de transações. Fix: portada a
+mesma lógica de 3 níveis (`existingHashes`/`existingValSet`/
+`existingFullSet`) para a rota manual. As 2 entradas duplicadas que já
+existiam na BD (Santander Pessoal) não foram apagadas automaticamente —
+o Filipe removeu uma à mão depois do aviso.
+
 ### Notificações
 - Bug de privacidade (não crítico — RLS já protegia, mas faltava defesa em
   profundidade no código): 4 funções não filtravam por `user_id`. Corrigido.
@@ -68,6 +80,18 @@ silenciosamente (é o mesmo lançamento, referência instável do banco).
   de dias de calendário — "ontem" e "anteontem" apareciam ambos como "há 1 dia"
 - Logging de erros do cron: `files_failed` incrementava mas `errors[]` ficava
   vazio — agora regista a mensagem exacta (ficheiro, conta, motivo)
+- **Paridade LedgerAuto/Custos Casa (2026-08-14)**: as duas rotinas de sync
+  de Excel só notificavam falha, nunca sucesso — pedido do Filipe para
+  igualar ao padrão já usado em T212/Enable Banking/Drive PDF (notifica
+  sempre, sucesso ou falha, tanto no cron como no trigger manual).
+  `src/lib/ledgerSync.ts` e `src/lib/custosCasaSync.ts` reestruturados: a
+  função exportada (`syncLedgerAuto`/`syncCustosCasa`) passou a envolver a
+  lógica principal (extraída para `runSync`) num try/catch, chamando um
+  `notifyResult` em todos os caminhos (sucesso, falha, e os early-returns
+  de config/token em falta). **Atenção**: qualquer chamada directa à rota
+  (incluindo testes/diagnóstico manuais via `curl`/script, não só o botão
+  na UI) agora gera notificação — usar com cuidado ao testar em produção
+  para não encher a caixa do utilizador.
 
 ### Cartão de crédito — modelação
 - Excluído dos totais agregados (Hero, Património) — `accountSaldoTotal()`
@@ -427,6 +451,33 @@ risco técnico bruto.
    - Range da Table nativa da sheet (moldura com filtros) actualizado a
      cada sync (`extendTableRange`, `updateTable`) — sem isto a pivot table
      do Filipe ficava sempre um passo atrás
+   - **Bug de comparação de datas (2026-08-14)**: `existingById` comparava
+     `ex.data` (lido com FORMATTED_VALUE, ex.: `"2026/08/14"`) contra
+     `t.data` (ISO da BD, `"2026-08-14"`) — nunca batiam, por isso **toda**
+     linha aparecia sempre como "actualizada" em cada sync, mesmo sem
+     mudanças reais (sintoma: "0 novas, 96 actualizadas" repetido sempre).
+     Fix: ler a coluna de data também em `UNFORMATTED_VALUE` (serial do
+     Sheets) e converter para ISO antes de comparar (`serialToISO`, epoch
+     `Date.UTC(1899,11,30)`). Apanhado pelo Filipe a reparar que a Table não
+     estava a crescer — ver também a entrada de Table logo a seguir.
+   - **Table não estendia para novas linhas (2026-08-14)**: 2 causas
+     sobrepostas, ambas resolvidas. (1) No código, `copyFormatForNewRows`
+     corria antes de `extendTableRange` — a formatação copiada (que inclui
+     cor de fundo) para a linha nova entrava em conflito com a tentativa
+     seguinte de esticar a banda de cores nativa da Table sobre essa mesma
+     linha (erro da API: "não é possível adicionar cores alternadas a um
+     intervalo que já as tem"). Fix: inverter a ordem (estender a Table
+     primeiro, copiar formato depois). (2) Mesmo depois do fix de código,
+     a sheet já tinha uma `bandedRange` **órfã** (não associada à Table)
+     cobrindo só a linha nova — criada automaticamente pelo próprio Google
+     Sheets (funcionalidade legada "cores alternadas", separada das
+     "Tables", que se auto-estende quando se escreve por baixo de uma banda
+     existente). Resolvido manualmente via API (`deleteBanding` na banda
+     órfã, depois `updateTable` a re-estender) — remediação pontual feita
+     nesta sessão sobre o estado já existente da sheet; o fix de código
+     evita a causa (1) recorrer, mas se a causa (2) voltar a acontecer
+     (Sheets a criar banda órfã sozinho) precisa do mesmo tipo de limpeza
+     manual outra vez. Ver Aprendizagens.
    - **Incidente de segurança de dados (quase-perda, 2026-08-12)**: a
      primeira versão assumia linha 2 como 1ª linha de dados e fazia
      `clear`+reescrita a partir daí — sobrescreveu o cabeçalho real (linha
@@ -607,7 +658,27 @@ antes de tocar no código real — apagado depois de confirmado.
 - **Sheets "Tables" (moldura com filtros nativa)**: o `range` não cresce
   sozinho quando se escrevem linhas a mais por baixo — precisa de
   `batchUpdate` com `updateTable` a cada sync para a pivot table não ficar
-  sempre um passo atrás.
+  sempre um passo atrás. **Cuidado com bandas de cores órfãs**: o Google
+  Sheets tem uma funcionalidade legada e separada das "Tables" — "cores
+  alternadas" (`bandedRanges`) — que se auto-estende sozinha quando se
+  escrevem dados logo a seguir a uma banda existente, criando uma
+  `bandedRange` nova e órfã (sem Table associada) só para essa linha. Se
+  depois `updateTable` tentar crescer a banda **da Table** sobre essa mesma
+  linha, a API recusa com "não é possível adicionar cores alternadas a um
+  intervalo que já as tem" — mesmo que o código esteja correcto e a única
+  banda visível pareça ser a da Table. Diagnóstico: pedir
+  `fields=sheets(tables,bandedRanges)` na leitura de metadados e procurar
+  **mais do que uma** `bandedRange` a cobrir a mesma zona da Table. Fix:
+  `deleteBanding` na órfã antes de repetir o `updateTable`.
+- **Sheets API — `FORMATTED_VALUE` vs `UNFORMATTED_VALUE` em datas**: o
+  render option por omissão (`values.get` sem `valueRenderOption`) devolve
+  datas como texto formatado (ex.: `"2026/08/14"`), que nunca é igual a uma
+  data ISO da BD (`"2026-08-14"`) numa comparação de string — parece
+  funcionar (não dá erro) mas silenciosamente marca tudo como "diferente"
+  sempre. Para comparar datas fiavelmente, ler com
+  `valueRenderOption=UNFORMATTED_VALUE` (devolve o serial numérico do
+  Sheets, epoch `Date.UTC(1899,11,30)`, `serial*86400000` ms) e converter
+  para ISO antes de comparar.
 - **Reconciliação em sheets geridas em conjunto com um humano**: reescrita
   completa (clear+rewrite) é simples mas apaga anotações manuais em células
   que a app não é dona (ex: coluna Comentário) a cada corrida. Delta por ID
