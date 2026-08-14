@@ -176,8 +176,38 @@ export async function syncLedgerAuto(userId: string): Promise<SyncResult> {
   if (!config) return { ok: true, message: 'LedgerAuto não ligado — nada a fazer' }
 
   const accessToken = await getValidAccessToken(userId)
-  if (!accessToken) return { ok: false, message: 'Drive não ligada ou token inválido' }
+  if (!accessToken) {
+    const result: SyncResult = { ok: false, message: 'Drive não ligada ou token inválido' }
+    await notifyResult(userId, result)
+    return result
+  }
 
+  try {
+    const result = await runSync(userId, config, accessToken)
+    await notifyResult(userId, result)
+    return result
+  } catch (err: any) {
+    const result: SyncResult = { ok: false, message: err.message || 'Erro interno' }
+    await notifyResult(userId, result)
+    return result
+  }
+}
+
+// Notifica sempre — sucesso ou falha, manual ou cron — tal como já acontece para EB/T212/Drive
+// (pedido do Filipe, 2026-08-13: quer ver isto na notificação diária e nas sincronizações
+// manuais, não só quando falha). Nunca faz a sincronização falhar por a notificação falhar.
+async function notifyResult(userId: string, result: SyncResult) {
+  await createNotification({
+    userId,
+    type: result.ok ? 'import_success' : 'import_error',
+    title: result.ok ? 'LedgerAuto sincronizado' : 'LedgerAuto — falha na sincronização',
+    body: result.message,
+    meta: { rows: result.rows ?? null },
+  }).catch(() => {})
+}
+
+async function runSync(userId: string, config: any, accessToken: string): Promise<SyncResult> {
+  const supabaseAdmin = getSupabaseAdmin()
   const [{ data: imoveis }, { data: txns }] = await Promise.all([
     supabaseAdmin.from('imoveis').select('id,nome,ativo'),
     supabaseAdmin.from('transactions').select('*').not('imovel_id', 'is', null) as unknown as Promise<{ data: Transaction[] }>,
@@ -321,26 +351,14 @@ export async function syncLedgerAuto(userId: string): Promise<SyncResult> {
 }
 
 // Corre a sincronização para todos os users que já ligaram um ficheiro — usado pelo cron.
+// syncLedgerAuto já notifica sempre (sucesso ou falha) por conta própria — não repetir aqui.
 export async function syncLedgerAutoForAllUsers(): Promise<{ userId: string; result: SyncResult }[]> {
   const supabaseAdmin = getSupabaseAdmin()
   const { data: configs } = await supabaseAdmin.from('ledger_auto_config').select('user_id')
   const results = []
   for (const c of configs ?? []) {
-    try {
-      const result = await syncLedgerAuto(c.user_id)
-      results.push({ userId: c.user_id, result })
-      if (!result.ok) {
-        await createNotification({
-          userId: c.user_id,
-          type: 'import_error',
-          title: 'LedgerAuto — falha na sincronização',
-          body: result.message,
-          meta: {},
-        })
-      }
-    } catch (err: any) {
-      results.push({ userId: c.user_id, result: { ok: false, message: err.message || 'Erro interno' } })
-    }
+    const result = await syncLedgerAuto(c.user_id)
+    results.push({ userId: c.user_id, result })
   }
   return results
 }

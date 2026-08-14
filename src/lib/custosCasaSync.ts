@@ -150,8 +150,38 @@ export async function syncCustosCasa(userId: string): Promise<SyncResult> {
   if (!config) return { ok: true, message: 'Custos Casa não ligado — nada a fazer' }
 
   const accessToken = await getValidAccessToken(userId)
-  if (!accessToken) return { ok: false, message: 'Drive não ligada ou token inválido' }
+  if (!accessToken) {
+    const result: SyncResult = { ok: false, message: 'Drive não ligada ou token inválido' }
+    await notifyResult(userId, result)
+    return result
+  }
 
+  try {
+    const result = await runSync(userId, config, accessToken)
+    await notifyResult(userId, result)
+    return result
+  } catch (err: any) {
+    const result: SyncResult = { ok: false, message: err.message || 'Erro interno' }
+    await notifyResult(userId, result)
+    return result
+  }
+}
+
+// Notifica sempre — sucesso ou falha, manual ou cron — tal como já acontece para EB/T212/Drive
+// (pedido do Filipe, 2026-08-13: quer ver isto na notificação diária e nas sincronizações
+// manuais, não só quando falha). Nunca faz a sincronização falhar por a notificação falhar.
+async function notifyResult(userId: string, result: SyncResult) {
+  await createNotification({
+    userId,
+    type: result.ok ? 'import_success' : 'import_error',
+    title: result.ok ? 'Custos Casa sincronizado' : 'Custos Casa — falha na sincronização',
+    body: result.message,
+    meta: {},
+  }).catch(() => {})
+}
+
+async function runSync(userId: string, config: any, accessToken: string): Promise<SyncResult> {
+  const supabaseAdmin = getSupabaseAdmin()
   const targetMonths = monthsBack(2)
   const oldestMonth = targetMonths[targetMonths.length - 1]
   const startDate = `${oldestMonth.slice(0, 4)}-${oldestMonth.slice(4, 6)}-01`
@@ -271,26 +301,14 @@ export async function syncCustosCasa(userId: string): Promise<SyncResult> {
 }
 
 // Corre a sincronização para todos os users que já ligaram um ficheiro — usado pelo cron.
+// syncCustosCasa já notifica sempre (sucesso ou falha) por conta própria — não repetir aqui.
 export async function syncCustosCasaForAllUsers(): Promise<{ userId: string; result: SyncResult }[]> {
   const supabaseAdmin = getSupabaseAdmin()
   const { data: configs } = await supabaseAdmin.from('custos_casa_config').select('user_id')
   const results = []
   for (const c of configs ?? []) {
-    try {
-      const result = await syncCustosCasa(c.user_id)
-      results.push({ userId: c.user_id, result })
-      if (!result.ok) {
-        await createNotification({
-          userId: c.user_id,
-          type: 'import_error',
-          title: 'Custos Casa — falha na sincronização',
-          body: result.message,
-          meta: {},
-        })
-      }
-    } catch (err: any) {
-      results.push({ userId: c.user_id, result: { ok: false, message: err.message || 'Erro interno' } })
-    }
+    const result = await syncCustosCasa(c.user_id)
+    results.push({ userId: c.user_id, result })
   }
   return results
 }
