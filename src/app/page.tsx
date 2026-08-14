@@ -4788,12 +4788,15 @@ export default function Page() {
   )
   if(!session) return <LoginScreen onLogin={()=>{setLoading(true);load();loadFull()}}/>
 
-  const screens:Record<string,React.ReactNode> = {
-    familiar:   <BudgetScreen accounts={accounts} transactions={transactions} tag="familiar" pal={PAL.familiar} title="Conta Corrente Familiar" onViewAllTxns={openAllTxns} onRefresh={async()=>{await refreshAll();showToast('✓ Transação actualizada')}} onSaudeFinanceira={()=>setShowSaude(true)}/>,
-    pessoal:    <BudgetScreen accounts={accounts} transactions={transactions} tag="pessoal"  pal={PAL.pessoal}  title="Conta Corrente Pessoal" onViewAllTxns={openAllTxns} onRefresh={async()=>{await refreshAll();showToast('✓ Transação actualizada')}} onSaudeFinanceira={()=>setShowSaude(true)}/>,
-    imoveis:    <ImoveisScreen imoveis={imoveis} transactions={transactions} accounts={accounts} contaImovel={contaImovel} pal={PAL.imoveis} onRefresh={async()=>{await refreshAll();showToast('✓ Imóveis actualizados')}} onViewAll={(imovelId)=>{setViewAllImovelId(imovelId);openAllTxns()}}/>,
-    patrimonio: <PatrimonioScreen accounts={accounts} imoveis={imoveis} transactions={transactions} pal={PAL.patrimonio}/>,
-  }
+  // Os 4 ecrãs ficam sempre montados (escondidos via CSS, nunca desmontados) para que os
+  // filtros/estado local de cada um (mês, categoria, conta seleccionada) persistam ao mudar
+  // de tab e voltar — trocar o tipo de componente numa única posição da árvore (como fazia
+  // antes, `{screens[tab]}`) faz o React desmontar o que lá estava, perdendo o estado; e como
+  // Familiar/Pessoal partilhavam a mesma posição, o React tratava-os como a MESMA instância
+  // ao alternar entre eles (só a prop `tag` mudava), partilhando estado que devia ser
+  // independente. Com os 4 sempre montados em posições próprias na árvore, cada um é sempre
+  // a sua própria instância, isolada das restantes.
+  const screenStyle = (id:string):React.CSSProperties => ({display: tab===id ? 'block' : 'none'})
 
   return (
     <div style={{display:'flex',flexDirection:'column',height:'100vh',maxWidth:440,margin:'0 auto',background:T.bg,fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",sans-serif',color:T.text}}>
@@ -4815,7 +4818,13 @@ export default function Page() {
           <button onClick={()=>{setShowSettings(true);refreshInvites()}} style={{background:T.surface2,border:'none',borderRadius:10,padding:'7px 10px',cursor:'pointer'}}><Settings size={14} color={T.textSec}/></button>
         </div>
       </div>
-      <div style={{flex:1,overflowY:'auto',padding:'14px 12px 0'}}>{screens[tab]}<div style={{height:16}}/></div>
+      <div style={{flex:1,overflowY:'auto',padding:'14px 12px 0'}}>
+        <div style={screenStyle('familiar')}><BudgetScreen accounts={accounts} transactions={transactions} tag="familiar" pal={PAL.familiar} title="Conta Corrente Familiar" onViewAllTxns={openAllTxns} onRefresh={async()=>{await refreshAll();showToast('✓ Transação actualizada')}} onSaudeFinanceira={()=>setShowSaude(true)}/></div>
+        <div style={screenStyle('pessoal')}><BudgetScreen accounts={accounts} transactions={transactions} tag="pessoal" pal={PAL.pessoal} title="Conta Corrente Pessoal" onViewAllTxns={openAllTxns} onRefresh={async()=>{await refreshAll();showToast('✓ Transação actualizada')}} onSaudeFinanceira={()=>setShowSaude(true)}/></div>
+        <div style={screenStyle('imoveis')}><ImoveisScreen imoveis={imoveis} transactions={transactions} accounts={accounts} contaImovel={contaImovel} pal={PAL.imoveis} onRefresh={async()=>{await refreshAll();showToast('✓ Imóveis actualizados')}} onViewAll={(imovelId)=>{setViewAllImovelId(imovelId);openAllTxns()}}/></div>
+        <div style={screenStyle('patrimonio')}><PatrimonioScreen accounts={accounts} imoveis={imoveis} transactions={transactions} pal={PAL.patrimonio}/></div>
+        <div style={{height:16}}/>
+      </div>
       <div style={{flexShrink:0,background:T.surface,borderTop:`1px solid ${T.border}`,display:'flex',padding:'8px 0 14px'}}>
         {TABS.map(({id,label,Icon})=>{const active=tab===id,c=active?PAL[id].accent:T.textTer;return (<button key={id} onClick={()=>setTab(id)} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:3,background:'none',border:'none',cursor:'pointer',padding:'4px 0'}}><Icon size={20} color={c} strokeWidth={active?2.5:1.5}/><span style={{fontSize:10,fontWeight:active?700:400,color:c}}>{label}</span>{active&&<div style={{width:4,height:4,borderRadius:'50%',background:c}}/>}</button>)})}
       </div>
