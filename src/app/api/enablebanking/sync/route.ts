@@ -59,8 +59,15 @@ export async function POST(req: NextRequest) {
         try {
           const txns = await getEnableBankingTransactions(ebAcc.account_uid, dateFrom)
           const { data: existing } = await supabaseAdmin
-            .from('transactions').select('hash').eq('account_id', ebAcc.account_id)
+            .from('transactions').select('hash, data, valor, descritivo').eq('account_id', ebAcc.account_id)
           const existingHashes = new Set((existing ?? []).map((t: any) => t.hash))
+          // Mesma protecção do cron (check-drive) contra o entry_reference instável que o
+          // Enable Banking às vezes devolve num re-fetch do mesmo lançamento (variante já vista
+          // no Santander) — esta rota tinha ficado sem ela, e foi assim que passaram 2 vezes os
+          // mesmos €32,46 sem serem apanhados como duplicado (apanhado pelo Filipe, 2026-08-14).
+          const normDesc = (s: string) => (s ?? '').toLowerCase().trim().replace(/\s+/g, ' ')
+          const existingValSet = new Set((existing ?? []).map((t: any) => `${t.data}|${t.valor}`))
+          const existingFullSet = new Set((existing ?? []).map((t: any) => `${t.data}|${t.valor}|${normDesc(t.descritivo)}`))
 
           const newTxnsList = txns.filter((t: any) => {
             const hash = `eb-${ebAcc.account_uid}-${t.entry_reference ?? t.transaction_id ?? ''}`
@@ -68,7 +75,7 @@ export async function POST(req: NextRequest) {
           })
 
           if (newTxnsList.length > 0) {
-            const toInsert = await Promise.all(newTxnsList.map(async (t: any, i: number) => {
+            const toInsertRaw = await Promise.all(newTxnsList.map(async (t: any, i: number) => {
               const amount = Number(t.transaction_amount?.amount) || 0
               const valor = t.credit_debit_indicator === 'DBIT' ? -Math.abs(amount) : Math.abs(amount)
 
@@ -79,6 +86,10 @@ export async function POST(req: NextRequest) {
                 ?? t.additional_information
                 ?? t.creditor_account?.iban ?? t.debtor_account?.iban
                 ?? 'Transação'
+              const txnData = t.booking_date ?? t.value_date ?? today
+              // Mesma conta+data+valor+descritivo já existente → é o mesmo lançamento com
+              // entry_reference diferente, não uma transacção nova — ignora silenciosamente.
+              if (existingFullSet.has(`${txnData}|${valor}|${normDesc(descritivo)}`)) return null
 
               // Categorização: MCC → keyword → regras aprendidas → Gemini
               let categoria: string
@@ -94,15 +105,19 @@ export async function POST(req: NextRequest) {
 
               return {
                 account_id: ebAcc.account_id,
-                data: t.booking_date ?? t.value_date ?? today,
+                data: txnData,
                 descritivo, valor, categoria,
                 categoria_confirmada: false, ai_confianca: null, excluir_analise: false,
                 imovel_classificado: false, ordem_extrato: i,
                 hash: `eb-${ebAcc.account_uid}-${t.entry_reference ?? t.transaction_id ?? i}`,
                 import_batch_id: null, imovel_id: null, notas: null, subcategoria: null, descritivo_norm: null,
+                suspeita_duplicado: existingValSet.has(`${txnData}|${valor}`),
               }
             }))
-            await supabaseAdmin.from('transactions').upsert(toInsert, { onConflict: 'hash', ignoreDuplicates: true })
+            const toInsert = toInsertRaw.filter((t): t is NonNullable<typeof t> => t !== null)
+            if (toInsert.length > 0) {
+              await supabaseAdmin.from('transactions').upsert(toInsert, { onConflict: 'hash', ignoreDuplicates: true })
+            }
             newTxns = toInsert.length
           }
         } catch (txnErr: any) {
