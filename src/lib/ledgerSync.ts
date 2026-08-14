@@ -255,14 +255,25 @@ async function runSync(userId: string, config: any, accessToken: string): Promis
   // Lê a região gerida por nós, completa (A:J), para emparelhar por ID com o que já lá está.
   const managedRaw = await sheetsFetch(`/${config.spreadsheet_id}/values/${sheetRange}!A${firstManagedRow}:J50000`, accessToken)
   const managedRows: string[][] = managedRaw.values ?? []
+  // Coluna A outra vez, mas em bruto (série numérica, não formatada) — só para comparar datas
+  // sem depender do formato de exibição (mesma razão da fronteira por ano, acima). A leitura
+  // normal (FORMATTED_VALUE) devolve "2026/08/14", que nunca bate com o ISO "2026-08-14" da BD
+  // — fazia TODAS as linhas parecerem sempre alteradas em todas as sincronizações, mesmo sem
+  // nada ter mudado (apanhado pelo Filipe, 2026-08-14).
+  const managedDatesRaw = await sheetsFetch(`/${config.spreadsheet_id}/values/${sheetRange}!A${firstManagedRow}:A50000?valueRenderOption=UNFORMATTED_VALUE`, accessToken)
+  const managedDates: any[][] = managedDatesRaw.values ?? []
+  const serialToISO = (serial: number): string => new Date(Date.UTC(1899, 11, 30) + serial * 86400000).toISOString().slice(0, 10)
+
   type LinhaExistente = { row: number; data: string; patrimonio: string; tipo: string; valor: number; descritivo: string }
   const existingById = new Map<string, LinhaExistente>()
   managedRows.forEach((r, i) => {
     const id = r[9]
     if (!id) return
+    const serial = Number(managedDates[i]?.[0])
     existingById.set(id, {
       row: firstManagedRow + i,
-      data: r[0] ?? '', patrimonio: r[4] ?? '', tipo: r[5] ?? '',
+      data: Number.isFinite(serial) ? serialToISO(serial) : (r[0] ?? ''),
+      patrimonio: r[4] ?? '', tipo: r[5] ?? '',
       valor: Number(r[6] ?? 0), descritivo: r[8] ?? '',
     })
   })
@@ -315,9 +326,9 @@ async function runSync(userId: string, config: any, accessToken: string): Promis
   // 3) Novas — acrescentadas ao fundo da região gerida (ver nota acima da função).
   const newItems = desejadas.filter(t => !existingById.has(t.id))
   const afterDeleteLastRow = regionLastRow - rowsToDelete.length
+  const appendStartRow = afterDeleteLastRow + 1
   let finalLastRow = afterDeleteLastRow
   if (newItems.length > 0) {
-    const appendStartRow = afterDeleteLastRow + 1
     const linhas = newItems.map((t, i) => {
       const row = appendStartRow + i
       return [t.data, mesFormula(row), trimestreFormula(row), anoFormula(row), t.patrimonio, t.tipo, t.valor, '', t.descritivo, t.id]
@@ -327,6 +338,18 @@ async function runSync(userId: string, config: any, accessToken: string): Promis
       body: JSON.stringify({ values: linhas }),
     })
     finalLastRow = appendStartRow + newItems.length - 1
+  }
+
+  // Estender a Table ANTES de copiar formatação para linhas novas — a Table tem bandas de cor
+  // alternadas nativas, e tentar estendê-la sobre uma linha que já tenha uma cor de fundo copiada
+  // de outra linha (copyFormatForNewRows, a seguir) falha com "não é possível adicionar cores
+  // alternadas a um intervalo que já as tem" (apanhado pelo Filipe, 2026-08-14 — o range ficava
+  // sempre parado na última linha de antes da 1ª linha nova, mesmo com os dados lá escritos).
+  if (finalLastRow >= firstManagedRow) {
+    await extendTableRange(config.spreadsheet_id, config.sheet_title, finalLastRow, accessToken)
+  }
+
+  if (newItems.length > 0) {
     if (afterDeleteLastRow >= firstManagedRow) {
       await copyFormatForNewRows(config.spreadsheet_id, config.sheet_title, afterDeleteLastRow, appendStartRow, finalLastRow, accessToken)
     }
@@ -335,10 +358,6 @@ async function runSync(userId: string, config: any, accessToken: string): Promis
       newCells.push({ row, col: 0 }, { row, col: 4 }, { row, col: 5 }, { row, col: 6 }, { row, col: 8 }, { row, col: 9 })
     }
     await colorCellsBlue(config.spreadsheet_id, config.sheet_title, newCells, accessToken)
-  }
-
-  if (finalLastRow >= firstManagedRow) {
-    await extendTableRange(config.spreadsheet_id, config.sheet_title, finalLastRow, accessToken)
   }
 
   await supabaseAdmin.from('ledger_auto_config').update({ last_synced_at: new Date().toISOString() }).eq('user_id', userId)
