@@ -137,6 +137,17 @@ pessoal/familiar/investimento, cartões sempre excluídos — mesma regra do
 tal como os outros gráficos de tendência já fazem para receitas/despesas.
 `PatrimonioScreen` — page.tsx.
 
+### Tabs Familiar/Pessoal/Imóveis/Património perdiam estado ao navegar — bug corrigido (2026-08-14)
+Trocar o componente de ecrã numa única posição da árvore (`{screens[tab]}`)
+fazia o React desmontar o que lá estava ao sair da tab, perdendo filtro/mês/
+conta seleccionada; e como Familiar e Pessoal partilhavam essa mesma
+posição, o React tratava-os como a **mesma instância** ao alternar entre
+eles (só a prop `tag` mudava), partilhando estado que devia ser
+independente. Fix: os 4 ecrãs (Familiar/Pessoal/Imóveis/Património) ficam
+agora sempre montados, cada um na sua própria posição na árvore, escondidos
+via CSS `display:none` quando não é a tab activa — filtros independentes por
+tab e persistentes ao navegar para outra tab e voltar. `page.tsx`.
+
 ---
 
 ## Saúde Financeira ✅
@@ -702,6 +713,15 @@ Aprendizagens, entrada Recharts, já corrigida.
   "Habitação" inclui desde condomínio a compras na Leroy Merlin) não é —
   falha para o lado seguro (não escreve) sempre que não há padrão
   reconhecido, nunca inventa.
+- **React — trocar o tipo de componente numa única posição da árvore
+  desmonta o anterior**, perdendo todo o estado local (filtros, mês, conta
+  seleccionada); e se duas variantes diferentes (ex: duas tabs) partilham
+  essa mesma posição só a mudar de prop, o React trata-as como a **mesma
+  instância**, partilhando estado que devia ser independente entre elas.
+  Fix: manter todas as variantes sempre montadas em posições próprias e
+  fixas na árvore, escondidas via CSS (`display:none`) em vez de trocadas
+  condicionalmente — cada uma fica sempre com a sua própria instância,
+  isolada das restantes.
 - **Nomes `*.vercel.app` são um namespace global partilhado** — qualquer
   conta pode reclamar um subdomínio livre, tal como um domínio normal.
   Antes de planear uma escada de nomes (ex: `-alpha`→`-beta`→final),

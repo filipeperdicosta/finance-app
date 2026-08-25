@@ -46,6 +46,8 @@ bancárias (PSD2 + PDF), investimentos, imóveis e património num dashboard ún
 Consulta `docs/PROJECT_STATE.md` para: funcionalidades já feitas, bugs em aberto,
 roadmap acordado, decisões técnicas e aprendizagens/armadilhas conhecidas.
 
-**Sem bug activo de momento.** Último resolvido: `ownership_pct` a 100% não
-reflectia no ecrã (2026-08-06) — causa era edição no ecrã errado, não bug de
-código. Ver PROJECT_STATE.md → "Bugs resolvidos (Saúde Financeira)".
+**Sem bug activo de momento.** Último resolvido: tabs Familiar/Pessoal/
+Imóveis/Património perdiam filtro/mês/conta seleccionada ao navegar entre
+si (2026-08-14) — trocar o componente na mesma posição da árvore fazia o
+React desmontar/partilhar estado. Ver PROJECT_STATE.md → "Funcionalidades
+completas".
