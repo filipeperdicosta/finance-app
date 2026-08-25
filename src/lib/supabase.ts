@@ -178,6 +178,12 @@ export async function linkContaImovel(account_id: string, imovel_id: string) {
 export async function unlinkEnableBankingAccount(accountUid: string) {
   return supabase.from('enablebanking_accounts').update({ account_id: null }).eq('account_uid', accountUid)
 }
+// Remove a linha por completo — só usar em contas NUNCA associadas (sem
+// account_id), que por isso nunca sincronizaram nem têm histórico a proteger.
+// Uma conta já associada deve usar unlinkEnableBankingAccount (mantém a linha).
+export async function deleteEnableBankingAccount(accountUid: string) {
+  return supabase.from('enablebanking_accounts').delete().eq('account_uid', accountUid)
+}
 export async function unlinkContaImovel(account_id: string, imovel_id: string) {
   return supabase.from('conta_imovel').delete().eq('account_id', account_id).eq('imovel_id', imovel_id)
 }

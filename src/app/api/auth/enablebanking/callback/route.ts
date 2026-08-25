@@ -45,17 +45,39 @@ export async function GET(req: NextRequest) {
       return NextResponse.redirect(`${appUrl}/?eb_error=db_error`)
     }
 
-    // Guarda os account UIDs retornados
+    // Guarda os account UIDs retornados.
+    // Um "Re-ligar" ao mesmo banco devolve um account_uid NOVO para a mesma
+    // conta física (mesmo IBAN) — sem isto, o upsert por account_uid nunca
+    // batia com a linha antiga e criava uma linha duplicada "sem conta
+    // associada" ao lado da já ligada. Se já existir uma linha com o mesmo
+    // IBAN nesta sessão, actualiza o uid nessa linha (preserva account_id)
+    // em vez de inserir uma nova.
     const accounts: any[] = session.accounts ?? []
     for (const acc of accounts) {
-      await supabaseAdmin.from('enablebanking_accounts').upsert({
-        session_id: savedSession.id,
-        user_id: userId,
-        account_uid: acc.uid ?? acc,
-        iban: acc.account_id?.iban ?? null,
-        currency: acc.currency ?? null,
-        name: acc.name ?? null,
-      }, { onConflict: 'user_id,account_uid' })
+      const accountUid = acc.uid ?? acc
+      const iban = acc.account_id?.iban ?? null
+
+      const existing = iban ? (await supabaseAdmin
+        .from('enablebanking_accounts')
+        .select('id, account_uid')
+        .eq('session_id', savedSession.id)
+        .eq('iban', iban)
+        .maybeSingle()).data : null
+
+      if (existing && existing.account_uid !== accountUid) {
+        await supabaseAdmin.from('enablebanking_accounts')
+          .update({ account_uid: accountUid, currency: acc.currency ?? null, name: acc.name ?? null })
+          .eq('id', existing.id)
+      } else {
+        await supabaseAdmin.from('enablebanking_accounts').upsert({
+          session_id: savedSession.id,
+          user_id: userId,
+          account_uid: accountUid,
+          iban,
+          currency: acc.currency ?? null,
+          name: acc.name ?? null,
+        }, { onConflict: 'user_id,account_uid' })
+      }
     }
 
     console.log(`Enable Banking: ${accounts.length} conta(s) ligadas para user ${userId}`)
