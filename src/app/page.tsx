@@ -3330,6 +3330,7 @@ const IrsMappingScreen = ({resumos,ano,onClose}:{resumos:IrsImovelResumo[],ano:n
   const [copied,setCopied] = useState(false)
   const [copiedImg,setCopiedImg] = useState(false)
   const [imgBusy,setImgBusy] = useState(false)
+  const [pdfBusy,setPdfBusy] = useState(false)
   const [imgError,setImgError] = useState<string|null>(null)
   const captureRef = useRef<HTMLDivElement>(null)
   const linhas41 = resumos.filter(r=>r.regime.quadro==='4.1').flatMap(buildIrsLinhas)
@@ -3393,6 +3394,20 @@ const IrsMappingScreen = ({resumos,ano,onClose}:{resumos:IrsImovelResumo[],ano:n
     setCopied(true); setTimeout(()=>setCopied(false),2000)
   }
 
+  // Captura as tabelas para uma canvas — usada tanto pela imagem como pelo PDF.
+  // A tabela tem scroll horizontal próprio (`overflowX:auto`) para caber no
+  // ecrã do telemóvel; sem alargar a janela virtual do html2canvas para além
+  // da largura real das tabelas, a captura fica cortada na parte visível do
+  // ecrã em vez de mostrar a tabela inteira (era o que acontecia antes).
+  const renderCapture = async () => {
+    const target = captureRef.current
+    if(!target) throw new Error('Sem conteúdo para capturar')
+    const html2canvas = (await import('html2canvas')).default
+    const tables = Array.from(target.querySelectorAll('table'))
+    const neededWidth = Math.max(820, ...tables.map(t=>t.scrollWidth)) + 80
+    return html2canvas(target, {backgroundColor:'#f4f4f2', scale:2, windowWidth:neededWidth, windowHeight: target.scrollHeight + 200})
+  }
+
   // Imagem única das tabelas — para WhatsApp, onde um bloco de texto TSV é
   // ilegível numa página de conversa mas uma imagem lê-se de imediato.
   // ClipboardItem recebe o PNG como Promise (em vez de já resolvido): é o
@@ -3402,13 +3417,10 @@ const IrsMappingScreen = ({resumos,ano,onClose}:{resumos:IrsImovelResumo[],ano:n
   const copyImageToClipboard = async () => {
     if(!captureRef.current) return
     setImgBusy(true); setImgError(null)
-    const target = captureRef.current
     try {
-      const html2canvas = (await import('html2canvas')).default
-      const render = () => html2canvas(target, {backgroundColor:'#f4f4f2', scale:2})
       if (typeof ClipboardItem !== 'undefined' && navigator.clipboard && 'write' in navigator.clipboard) {
         const item = new ClipboardItem({
-          'image/png': render().then(canvas => new Promise<Blob>((resolve,reject)=>{
+          'image/png': renderCapture().then(canvas => new Promise<Blob>((resolve,reject)=>{
             canvas.toBlob(b => b ? resolve(b) : reject(new Error('toBlob falhou')), 'image/png')
           })),
         })
@@ -3416,15 +3428,36 @@ const IrsMappingScreen = ({resumos,ano,onClose}:{resumos:IrsImovelResumo[],ano:n
         setCopiedImg(true); setTimeout(()=>setCopiedImg(false),2500)
       } else {
         // Sem suporte para imagem no clipboard (browser antigo) — descarrega o PNG.
-        const canvas = await render()
+        const canvas = await renderCapture()
         const a = document.createElement('a')
         a.href = canvas.toDataURL('image/png'); a.download = `irs-anexo-f-${ano}.png`; a.click()
       }
     } catch(err) {
       console.error('Erro ao copiar imagem do IRS:', err)
-      setImgError('Não foi possível copiar a imagem. Tenta "Exportar PDF".')
+      setImgError('Não foi possível copiar a imagem. Tenta descarregar o PDF.')
     } finally {
       setImgBusy(false)
+    }
+  }
+
+  // PDF — embute a mesma captura num ficheiro PDF a sério (via jsPDF) em vez de
+  // usar window.print(): num modal position:fixed como este, o motor de
+  // impressão do Safari/iOS ignora o overlay e imprime o que está por baixo,
+  // encolhido — testado, dá um PDF inútil. Gerar o PDF nós próprios evita
+  // depender do diálogo de impressão do browser.
+  const exportPdf = async () => {
+    setPdfBusy(true); setImgError(null)
+    try {
+      const canvas = await renderCapture()
+      const {jsPDF} = await import('jspdf')
+      const pdf = new jsPDF({orientation: canvas.width>=canvas.height?'landscape':'portrait', unit:'px', format:[canvas.width,canvas.height]})
+      pdf.addImage(canvas.toDataURL('image/png'),'PNG',0,0,canvas.width,canvas.height)
+      pdf.save(`irs-anexo-f-${ano}.pdf`)
+    } catch(err) {
+      console.error('Erro ao exportar PDF do IRS:', err)
+      setImgError('Não foi possível gerar o PDF.')
+    } finally {
+      setPdfBusy(false)
     }
   }
 
@@ -3449,26 +3482,17 @@ const IrsMappingScreen = ({resumos,ano,onClose}:{resumos:IrsImovelResumo[],ano:n
     </>
   )
   return (
-    <div className="irs-print-root" style={{position:'fixed',inset:0,background:'#f4f4f2',zIndex:98,overflowY:'auto',fontFamily:"'Segoe UI',Arial,sans-serif"}}>
-      {/* Impressão/PDF: só a folha (sem chrome da app); cores de fundo preservadas;
-          a folha deixa de estar "fixed" para poder paginar em vez de cortar. */}
-      <style>{`
-        @media print {
-          .irs-no-print { display: none !important; }
-          .irs-print-root { position: static !important; overflow: visible !important; background: #fff !important; }
-          * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-        }
-      `}</style>
+    <div style={{position:'fixed',inset:0,background:'#f4f4f2',zIndex:98,overflowY:'auto',fontFamily:"'Segoe UI',Arial,sans-serif"}}>
       <div style={{maxWidth:820,margin:'0 auto',padding:'20px 18px 40px'}}>
-        <div className="irs-no-print" style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:10,marginBottom:2,flexWrap:'wrap'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:10,marginBottom:2,flexWrap:'wrap'}}>
           <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',color:'#555',fontSize:13,padding:0}}>← Voltar</button>
           <div style={{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'flex-end'}}>
             <button onClick={copyToClipboard} style={{background:'#fff',border:'1px solid #999',borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:600,color:'#333',cursor:'pointer'}}>{copied?'✓ Copiado':'Copiar texto'}</button>
             <button onClick={copyImageToClipboard} disabled={imgBusy} style={{background:'#fff',border:'1px solid #999',borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:600,color:'#333',cursor:imgBusy?'default':'pointer',opacity:imgBusy?0.6:1}}>{imgBusy?'A gerar…':copiedImg?'✓ Imagem copiada':'Copiar imagem'}</button>
-            <button onClick={()=>window.print()} style={{background:'#111',border:'none',borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:600,color:'#fff',cursor:'pointer'}}>Exportar PDF</button>
+            <button onClick={exportPdf} disabled={pdfBusy} style={{background:'#111',border:'none',borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:600,color:'#fff',cursor:pdfBusy?'default':'pointer',opacity:pdfBusy?0.6:1}}>{pdfBusy?'A gerar…':'Exportar PDF'}</button>
           </div>
         </div>
-        {imgError&&<div className="irs-no-print" style={{fontSize:11,color:'#b91c1c',marginTop:6,textAlign:'right'}}>{imgError}</div>}
+        {imgError&&<div style={{fontSize:11,color:'#b91c1c',marginTop:6,textAlign:'right'}}>{imgError}</div>}
         <div ref={captureRef}>
           <div style={{borderBottom:'2px solid #111',paddingBottom:10,marginBottom:6,marginTop:8}}>
             <div style={{fontSize:10,letterSpacing:'0.04em',color:'#555'}}>MODELO 3 · ANEXO F · CATEGORIA F</div>
