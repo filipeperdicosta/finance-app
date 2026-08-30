@@ -3405,7 +3405,7 @@ const IrsMappingScreen = ({resumos,ano,onClose}:{resumos:IrsImovelResumo[],ano:n
     const html2canvas = (await import('html2canvas')).default
     const tables = Array.from(target.querySelectorAll('table'))
     const neededWidth = Math.max(820, ...tables.map(t=>t.scrollWidth)) + 80
-    return html2canvas(target, {backgroundColor:'#f4f4f2', scale:2, windowWidth:neededWidth, windowHeight: target.scrollHeight + 200})
+    return html2canvas(target, {backgroundColor:'#fff', scale:2, windowWidth:neededWidth, windowHeight: target.scrollHeight + 200})
   }
 
   // Imagem única das tabelas — para WhatsApp, onde um bloco de texto TSV é
@@ -3461,6 +3461,22 @@ const IrsMappingScreen = ({resumos,ano,onClose}:{resumos:IrsImovelResumo[],ano:n
     }
   }
 
+  // Metadados de contexto — o documento sai da app (WhatsApp, PDF) e precisa de
+  // se explicar sozinho a quem o recebe: quando foi gerado, que período cobre,
+  // e a que quota de propriedade correspondem os valores (resumosQuota já vem
+  // ponderado por imóvel, e cada imóvel pode ter uma % diferente).
+  const now = new Date()
+  const exportadoEm = `${now.toLocaleDateString('pt-PT',{day:'2-digit',month:'2-digit',year:'numeric'})} às ${now.toLocaleTimeString('pt-PT',{hour:'2-digit',minute:'2-digit'})}`
+  const anoEmCurso = ano===now.getFullYear()
+  const periodoLabel = anoEmCurso ? `1 Jan – ${now.toLocaleDateString('pt-PT',{day:'2-digit',month:'short'})} ${ano}` : `1 Jan – 31 Dez ${ano}`
+  const todasLinhas = [...linhas41,...linhas42]
+  const nImoveis = new Set(todasLinhas.map(l=>l.imovel.id)).size
+  const quotas = Array.from(new Map(todasLinhas.map(l=>[l.imovel.id,{nome:l.imovel.nome,pct:l.imovel.ownership_pct}])).values())
+  const quotasIguais = quotas.every(q=>q.pct===quotas[0]?.pct)
+  const quotaLabel = quotas.length===0 ? null
+    : quotasIguais ? `Valores já à tua quota de propriedade (${quotas[0].pct}% em todos os imóveis).`
+    : `Valores já à tua quota de propriedade: ${quotas.map(q=>`${q.nome} ${q.pct}%`).join(' · ')}.`
+
   const Table = ({title,linhas,cols}:{title:string,linhas:IrsLinha[],cols:{label:string,render:(l:IrsLinha)=>string}[]}) => (
     <>
       <div style={{fontSize:11,fontWeight:800,background:'#111',color:'#fff',display:'inline-block',padding:'3px 9px',margin:'14px 0 8px',letterSpacing:'0.03em'}}>{title}</div>
@@ -3493,16 +3509,36 @@ const IrsMappingScreen = ({resumos,ano,onClose}:{resumos:IrsImovelResumo[],ano:n
           </div>
         </div>
         {imgError&&<div style={{fontSize:11,color:'#b91c1c',marginTop:6,textAlign:'right'}}>{imgError}</div>}
-        <div ref={captureRef}>
-          <div style={{borderBottom:'2px solid #111',paddingBottom:10,marginBottom:6,marginTop:8}}>
-            <div style={{fontSize:10,letterSpacing:'0.04em',color:'#555'}}>MODELO 3 · ANEXO F · CATEGORIA F</div>
-            <div style={{fontSize:16,fontWeight:800,color:'#111',marginTop:2}}>Rendimentos Prediais — Ano {ano}</div>
-            <div style={{fontSize:11,color:'#555',marginTop:1}}>Valores calculados pela app, prontos a transcrever</div>
+        <div ref={captureRef} style={{background:'#fff',border:'1px solid #ccc',borderRadius:8,padding:'18px 20px 20px',marginTop:10,boxShadow:'0 1px 3px rgba(0,0,0,0.08)'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',borderBottom:'2px solid #111',paddingBottom:10,marginBottom:10}}>
+            <div>
+              <div style={{fontSize:10,letterSpacing:'0.04em',color:'#555'}}>MODELO 3 · ANEXO F · CATEGORIA F</div>
+              <div style={{fontSize:16,fontWeight:800,color:'#111',marginTop:2}}>Rendimentos Prediais — Ano {ano}</div>
+              <div style={{fontSize:11,color:'#555',marginTop:1}}>Valores calculados pela app, prontos a transcrever</div>
+            </div>
+            <div style={{fontSize:13,fontWeight:800,color:'#111',whiteSpace:'nowrap'}}>Bio<span style={{color:'#4ADE80'}}>.</span></div>
           </div>
+
+          <div style={{display:'flex',flexWrap:'wrap',gap:8,marginBottom:8}}>
+            {[{l:'Período',v:periodoLabel},{l:'Imóveis',v:String(nImoveis)},{l:'Linhas',v:String(todasLinhas.length)}].map((c,i)=>(
+              <div key={i} style={{background:'#eee',border:'1px solid #ccc',borderRadius:6,padding:'5px 9px'}}>
+                <div style={{fontSize:8,color:'#777',textTransform:'uppercase',letterSpacing:'0.05em',fontWeight:600}}>{c.l}</div>
+                <div style={{fontSize:11,color:'#111',fontWeight:700,fontFamily:T.mono}}>{c.v}</div>
+              </div>
+            ))}
+          </div>
+          {anoEmCurso&&<div style={{fontSize:10,color:'#92400e',marginBottom:4}}>⚠ Ano em curso — dados parciais, ainda por fechar.</div>}
+          {quotaLabel&&<div style={{fontSize:10,color:'#555',marginBottom:10,lineHeight:1.5}}>{quotaLabel}</div>}
+
           <Table title="QUADRO 4.1 — SEM REDUÇÃO DE TAXA" linhas={linhas41} cols={cols41}/>
           <Table title="QUADRO 4.2 — LONGA DURAÇÃO (TAXA REDUZIDA)" linhas={linhas42} cols={cols42}/>
           <div style={{fontSize:9.5,color:'#666',marginTop:6,lineHeight:1.5}}>"Outros" agrega Seguro, Certificado Energético, Honorários e Comissão de Mediação — sem coluna própria no formulário oficial. "Valorização" nunca soma (não dedutível).</div>
           <div style={{background:'#fff3cd',border:'1px solid #d4a017',borderRadius:6,padding:'8px 12px',fontSize:10.5,color:'#664d03',marginTop:14}}>⚠ Cada imóvel com mais de 1 arrendatário aparece dividido em várias linhas (renda e gastos a dividir em partes iguais). Confirma o NIF de cada arrendatário directamente no Portal das Finanças.</div>
+
+          <div style={{borderTop:'1px solid #ccc',marginTop:16,paddingTop:8,display:'flex',justifyContent:'space-between',flexWrap:'wrap',gap:6,fontSize:9,color:'#999'}}>
+            <span>Gerado por Bio — documento de apoio, não substitui o Portal das Finanças</span>
+            <span>Exportado em {exportadoEm}</span>
+          </div>
         </div>
       </div>
     </div>
