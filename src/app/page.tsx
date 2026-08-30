@@ -11,6 +11,8 @@ import {
   Filter, CheckSquare, Square, Tag, Calendar, SlidersHorizontal, Link2, Inbox,
   Sparkles, Target, BrainCircuit, Folder, ChevronRight, AlertTriangle, Bell,
   Users, UserPlus, Mail, HeartPulse, ChevronUp, ChevronDown,
+  Coins, ShoppingCart, UtensilsCrossed, ShoppingBag, Car, Ticket, Banknote,
+  Repeat, Landmark, ArrowLeftRight, Package,
 } from 'lucide-react'
 import {
   supabase, loadAllData, loadAllTransactions, saveAccount, deleteAccount, updateAccount,
@@ -71,24 +73,31 @@ const BioIcon = ({size=20}:{size?:number}) => (
 )
 const tagPal = (tag:string) => tag==='investimento' ? PAL.imoveis : (PAL[tag] ?? PAL.pessoal)
 const CAT_LIST = ['Receita','Groceries','Restauração','Compras','Saúde','Transportes','Lazer','Levantamentos','Habitação','Utilities','Subscrições','Investimentos','Comissões e Taxas','Transferências','Despesas Gerais']
-const CAT_META: Record<string,{cor:string,icon:string}> = {
-  'Receita':{cor:'#4ADE80',icon:'💰'},
-  'Groceries':{cor:'#4ADE80',icon:'🛒'},
-  'Restauração':{cor:'#F97316',icon:'🍽️'},
-  'Compras':{cor:'#FB923C',icon:'🛍️'},
-  'Saúde':{cor:'#38BDF8',icon:'🏥'},
-  'Transportes':{cor:'#22D3EE',icon:'🚗'},
-  'Lazer':{cor:'#FBBF24',icon:'🎭'},
-  'Levantamentos':{cor:'#A3A3A3',icon:'💵'},
-  'Habitação':{cor:'#A78BFA',icon:'🏠'},
-  'Utilities':{cor:'#818CF8',icon:'💡'},
-  'Subscrições':{cor:'#FB7185',icon:'📱'},
-  'Investimentos':{cor:'#60A5FA',icon:'📈'},
-  'Comissões e Taxas':{cor:'#94A3B8',icon:'🏦'},
-  'Transferências':{cor:'#94A3B8',icon:'🔄'},
-  'Despesas Gerais':{cor:'#64748B',icon:'📦'},
+// Traço fino (lucide) em vez de emoji — emoji renderiza de forma diferente por
+// OS/browser e destoa dos ícones de UI, que já eram lucide. Uma só linguagem de ícones.
+const CAT_META: Record<string,{cor:string,Icon:React.ElementType}> = {
+  'Receita':{cor:'#4ADE80',Icon:Coins},
+  'Groceries':{cor:'#4ADE80',Icon:ShoppingCart},
+  'Restauração':{cor:'#F97316',Icon:UtensilsCrossed},
+  'Compras':{cor:'#FB923C',Icon:ShoppingBag},
+  'Saúde':{cor:'#38BDF8',Icon:HeartPulse},
+  'Transportes':{cor:'#22D3EE',Icon:Car},
+  'Lazer':{cor:'#FBBF24',Icon:Ticket},
+  'Levantamentos':{cor:'#A3A3A3',Icon:Banknote},
+  'Habitação':{cor:'#A78BFA',Icon:Home},
+  'Utilities':{cor:'#818CF8',Icon:Zap},
+  'Subscrições':{cor:'#FB7185',Icon:Repeat},
+  'Investimentos':{cor:'#60A5FA',Icon:TrendingUp},
+  'Comissões e Taxas':{cor:'#94A3B8',Icon:Landmark},
+  'Transferências':{cor:'#94A3B8',Icon:ArrowLeftRight},
+  'Despesas Gerais':{cor:'#64748B',Icon:Package},
 }
 const getCatStyle = (nome:string) => CAT_META[nome] ?? CAT_META['Despesas Gerais']
+// Ícone de categoria pronto a usar — centraliza tamanho/cor para não repetir em cada sítio.
+const CatIcon = ({categoria,size=16}:{categoria:string,size?:number}) => {
+  const {Icon,cor} = getCatStyle(categoria)
+  return <Icon size={size} color={cor} strokeWidth={2}/>
+}
 const MONTHS_SHORT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
 const MONTHS_FULL = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
 
@@ -402,9 +411,17 @@ function computeView(accounts:Account[], transactions:Transaction[], tag:string,
     return {m:getMonthLabel(offset,refMonth!),rec:mRec,desp:mDesp,net:+(mRec-mDesp).toFixed(2)}
   }) : []
 
-  // Últimas transações — as X mais recentes no geral (não limitadas ao mês seleccionado).
-  // Se o mês actual ainda não tem transações, mostra as últimas do(s) mês(es) anterior(es).
-  const recentTxns = txns.slice(0,8)
+  // Últimas transações — as 8 mais recentes ATÉ ao fim do mês em navegação (refMonth), não
+  // limitadas a esse mês sozinho: se ele tiver poucas/nenhumas transações, a lista continua
+  // para trás no tempo em vez de ficar vazia. O que importa corrigir é não ignorar por completo
+  // a navegação de mês do Hero — antes disto, "recentes" era sempre as últimas 8 do histórico
+  // todo, por isso navegar para Julho continuava a mostrar transações de Agosto.
+  const recentTxns = (() => {
+    if (!refMonth) return txns.slice(0,8)
+    const [ry,rm] = refMonth.split('-').map(Number)
+    const cutoff = `${refMonth}-${String(new Date(ry,rm,0).getDate()).padStart(2,'0')}`
+    return txns.filter(t=>t.data<=cutoff).slice(0,8)
+  })()
 
   return {saldo,rec,desp,net:+(rec-desp).toFixed(2),cats,trend,txns:recentTxns,refMonth,latestMonth}
 }
@@ -667,17 +684,17 @@ const Hero = ({pal,title,mainValue,mainColor,kpis,trend,period,mainSuffix,sparkM
       </div>
       <div style={{gridColumn:1,gridRow:2}}>
         <div style={{display:'flex',alignItems:'baseline',gap:6}}>
-          <div style={{fontSize:34,fontWeight:600,fontStyle:'italic',color:mainColor??T.text,letterSpacing:'-0.01em',fontFamily:T.display}}>{mainValue}</div>
+          <div style={{fontSize:34,fontWeight:600,color:mainColor??T.text,letterSpacing:'-0.01em',fontFamily:T.display}}>{mainValue}</div>
           {mainSuffix&&<span style={{fontSize:12,color:T.textTer}}>{mainSuffix}</span>}
         </div>
       </div>
-      <div style={{gridColumn:2,gridRow:1,alignSelf:'end',justifySelf:'center',display:'flex',alignItems:'center',gap:4,height:16}}>
+      <div style={{gridColumn:2,gridRow:1,alignSelf:'end',justifySelf:'end',display:'flex',alignItems:'center',gap:4,height:16}}>
         {onPrev&&<button onClick={onPrev} style={{background:'none',border:'none',cursor:'pointer',color:T.textSec,fontSize:18,lineHeight:1,padding:'0 2px'}}>‹</button>}
         <span style={{fontSize:11,color:T.textSec,fontWeight:600,minWidth:52,textAlign:'center'}}>{period}</span>
         {onNext&&<button onClick={onNext} disabled={!canNext} style={{background:'none',border:'none',cursor:canNext?'pointer':'default',color:canNext?T.textSec:T.textTer,fontSize:18,lineHeight:1,padding:'0 2px'}}>›</button>}
       </div>
       {onSaudeFinanceira&&(
-        <button onClick={onSaudeFinanceira} style={{gridColumn:2,gridRow:2,alignSelf:'end',justifySelf:'center',display:'flex',alignItems:'center',gap:4,background:T.surface2,border:'none',borderRadius:7,padding:'4px 8px',cursor:'pointer',whiteSpace:'nowrap'}}>
+        <button onClick={onSaudeFinanceira} style={{gridColumn:2,gridRow:2,alignSelf:'end',justifySelf:'end',display:'flex',alignItems:'center',gap:4,background:T.surface2,border:'none',borderRadius:7,padding:'4px 8px',cursor:'pointer',whiteSpace:'nowrap'}}>
           <HeartPulse size={11} color={pal.accent}/>
           <span style={{fontSize:10,fontWeight:600,color:pal.accent}}>Saúde Financeira</span>
           <ChevronRight size={10} color={pal.accent}/>
@@ -724,10 +741,13 @@ const AccountList = ({accounts,sel,onSel,pal}:{accounts:Account[],sel:string|nul
 // ─────────────────────────────────────────────────────────────────
 // CATEGORY + TXN ROWS
 // ─────────────────────────────────────────────────────────────────
-const CatRow = ({nome,v,pct,cor,icon,last,onClick}:{nome:string,v:number,pct:number,cor:string,icon:string,last:boolean,onClick?:()=>void}) => (
+const CatRow = ({nome,v,pct,cor,Icon,last,onClick}:{nome:string,v:number,pct:number,cor:string,Icon:React.ElementType,last:boolean,onClick?:()=>void}) => (
   <div onClick={onClick} style={{padding:'10px 16px',borderBottom:last?'none':`1px solid ${T.border}`,cursor:onClick?'pointer':'default'}}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
-      <div style={{display:'flex',alignItems:'center',gap:9}}><span style={{fontSize:16}}>{icon}</span><span style={{fontSize:13,color:T.text}}>{nome}</span></div>
+      <div style={{display:'flex',alignItems:'center',gap:9}}>
+        <div style={{width:26,height:26,borderRadius:8,background:`${cor}26`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><Icon size={13} color={cor} strokeWidth={2}/></div>
+        <span style={{fontSize:13,color:T.text}}>{nome}</span>
+      </div>
       <div style={{display:'flex',alignItems:'center',gap:10}}><span style={{fontSize:10,color:T.textTer,fontWeight:500}}>{pct}%</span><span style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:T.mono,minWidth:72,textAlign:'right'}}>{dec(v)}</span></div>
     </div>
     <div style={{height:3,borderRadius:2,background:T.border}}><div style={{width:`${pct}%`,height:'100%',borderRadius:2,background:cor}}/></div>
@@ -737,7 +757,7 @@ const TxnRow = ({t,last,onClick,accounts}:{t:Transaction,last:boolean,onClick?:(
   const accountName = accounts?.find(a=>a.id===t.account_id)?.nome
   return (
   <div onClick={onClick} style={{display:'flex',alignItems:'center',gap:12,padding:'11px 16px',borderBottom:last?'none':`1px solid ${T.border}`,cursor:onClick?'pointer':'default'}}>
-    <div style={{width:38,height:38,borderRadius:12,background:T.surface2,display:'flex',alignItems:'center',justifyContent:'center',fontSize:17,flexShrink:0}}>{getCatStyle(t.categoria??'Despesas Gerais').icon}</div>
+    <div style={{width:38,height:38,borderRadius:12,background:T.surface2,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><CatIcon categoria={t.categoria??'Despesas Gerais'} size={17}/></div>
     <div style={{flex:1,minWidth:0}}>
       <div style={{fontSize:13,fontWeight:500,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div>
       <div style={{fontSize:11,color:T.textSec,marginTop:2}}>
@@ -867,7 +887,7 @@ const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis,accounts,isDetectedTransfe
               <div style={{background:T.surface3,border:`1px solid ${T.border}`,borderRadius:10,padding:'10px 12px',color:T.textSec,fontSize:13,display:'flex',alignItems:'center',gap:6}}>💰 Receita</div>
             </div>
           ):(
-            <Sel label="Categoria" value={categoria} onChange={setCategoria} options={CAT_LIST.filter(c=>c!=='Receita').map(c=>({value:c,label:`${getCatStyle(c).icon} ${c}`}))}/>
+            <Sel label="Categoria" value={categoria} onChange={setCategoria} options={CAT_LIST.filter(c=>c!=='Receita').map(c=>({value:c,label:c}))}/>
           )}
           {hasImoveis&&<Sel label="Imóvel associado" value={imovelId} onChange={setImovelId} options={[{value:'',label:'Geral (nenhum imóvel)'},...imoveis!.map(im=>({value:im.id,label:`🏠 ${im.nome}`}))]}/>}
           {imovelId&&tipo==='despesa'&&<Sel label="Balde IRS (Anexo F)" value={irsSubcategoria} onChange={setIrsSubcategoria} options={[{value:'',label:'Não classificado'},...IRS_SUBCATEGORIAS.map(c=>({value:c,label:IRS_SUBCATEGORIA_LABELS[c]}))]}/>}
@@ -933,7 +953,7 @@ const FilterSheet = ({filters,onApply,onClose,pal,tagAccounts,imoveis}:{filters:
             <div style={{flex:1}}><Inp label="Mínimo" value={f.valMin} onChange={upd('valMin')} type="number"/></div>
             <div style={{flex:1}}><Inp label="Máximo" value={f.valMax} onChange={upd('valMax')} type="number"/></div>
           </div>
-          <Sel label="Categoria" value={f.categoria} onChange={upd('categoria')} options={[{value:'todas',label:'Todas as categorias'},...CAT_LIST.map(c=>({value:c,label:`${getCatStyle(c).icon} ${c}`}))]}/>
+          <Sel label="Categoria" value={f.categoria} onChange={upd('categoria')} options={[{value:'todas',label:'Todas as categorias'},...CAT_LIST.map(c=>({value:c,label:c}))]}/>
           <div style={{display:'flex',gap:10,marginTop:4}}>
             <Btn onClick={()=>{setF(emptyFilters);onApply(emptyFilters);onClose()}} variant="ghost" accent={pal.accent} style={{flex:1}}>Limpar</Btn>
             <Btn onClick={()=>{onApply(f);onClose()}} variant="primary" accent={pal.accent} style={{flex:2}}>Aplicar filtros</Btn>
@@ -957,7 +977,7 @@ const RecategorizeSheet = ({count,onApply,onClose,pal}:{count:number,onApply:(ca
           <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer'}}><X size={18} color={T.textSec}/></button>
         </div>
         <div style={{padding:'20px 18px'}}>
-          <Sel label="Nova categoria" value={cat} onChange={setCat} options={CAT_LIST.map(c=>({value:c,label:`${getCatStyle(c).icon} ${c}`}))}/>
+          <Sel label="Nova categoria" value={cat} onChange={setCat} options={CAT_LIST.map(c=>({value:c,label:c}))}/>
           <Btn onClick={()=>onApply(cat)} variant="primary" accent={pal.accent} style={{width:'100%'}}>Aplicar a {count} transações</Btn>
         </div>
       </div>
@@ -1087,7 +1107,7 @@ const AllTransactionsScreen = ({allTxns,accounts,tag,pal,onClose,onRefresh,imove
                   return (
                     <div key={t.id} onClick={()=>selectMode?toggleSel(t.id):setEditTxn(t)} style={{display:'flex',alignItems:'center',gap:11,padding:'11px 14px',borderBottom:i<txns.length-1?`1px solid ${T.border}`:'none',cursor:'pointer',background:isSel?pal.soft:'transparent',transition:'background 0.12s'}}>
                       {selectMode&&<div style={{flexShrink:0}}>{isSel?<CheckSquare size={18} color={pal.accent}/>:<Square size={18} color={T.textTer}/>}</div>}
-                      <div style={{width:36,height:36,borderRadius:11,background:T.surface2,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,flexShrink:0}}>{getCatStyle(t.categoria??'Despesas Gerais').icon}</div>
+                      <div style={{width:36,height:36,borderRadius:11,background:T.surface2,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><CatIcon categoria={t.categoria??'Despesas Gerais'} size={16}/></div>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontSize:13,fontWeight:500,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div>
                         <div style={{fontSize:11,color:T.textSec,marginTop:2}}>
@@ -1309,7 +1329,7 @@ const AllCategoriesScreen = ({transactions,accounts,tag,sel,initialMonth,subtitl
             {cats.map((c,i)=>(
               <div key={i} onClick={()=>currentMonth&&onSelectCategoria(c.nome,currentMonth)} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:12,padding:12,cursor:'pointer'}}>
                 <div style={{display:'flex',alignItems:'center',gap:7,marginBottom:6}}>
-                  <span style={{fontSize:16}}>{c.icon}</span>
+                  <c.Icon size={14} color={c.cor}/>
                   <span style={{fontSize:11,color:T.text,fontWeight:600,flex:1,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{c.nome}</span>
                 </div>
                 <div style={{display:'flex',alignItems:'baseline',justifyContent:'space-between',marginBottom:4}}>
@@ -1396,7 +1416,7 @@ const RulesScreen = ({onClose,pal}:{onClose:()=>void,pal:{accent:string,soft:str
               <Card key={r.id} style={{marginBottom:8,padding:'12px 14px',background:isSel?pal.soft:T.surface}}>
                 <div onClick={()=>selectMode?toggleSel(r.id):undefined} style={{display:'flex',alignItems:'center',gap:10,cursor:selectMode?'pointer':'default'}}>
                   {selectMode&&<div style={{flexShrink:0}}>{isSel?<CheckSquare size={18} color={pal.accent}/>:<Square size={18} color={T.textTer}/>}</div>}
-                  <div style={{width:34,height:34,borderRadius:10,background:T.surface2,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0}}>{getCatStyle(r.categoria).icon}</div>
+                  <div style={{width:34,height:34,borderRadius:10,background:T.surface2,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><CatIcon categoria={r.categoria} size={15}/></div>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontSize:13,fontWeight:600,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>"{r.pattern}"</div>
                     <div style={{fontSize:11,color:T.textSec,marginTop:1}}>→ {r.categoria} · usada {r.vezes_usada}×</div>
@@ -3232,7 +3252,7 @@ const AssignQueue = ({txns,imoveis,onClose,onRefresh,pal}:{txns:Transaction[],im
           {txns.map(t=>(
             <Card key={t.id} style={{marginBottom:10,padding:'13px 14px'}}>
               <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}>
-                <div style={{width:34,height:34,borderRadius:10,background:T.surface2,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0}}>{getCatStyle(t.categoria??'Despesas Gerais').icon}</div>
+                <div style={{width:34,height:34,borderRadius:10,background:T.surface2,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><CatIcon categoria={t.categoria??'Despesas Gerais'} size={15}/></div>
                 <div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:600,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div><div style={{fontSize:11,color:T.textSec}}>{t.data}</div></div>
                 <div style={{fontSize:14,fontWeight:700,color:t.valor>=0?T.green:T.red,fontFamily:T.mono}}>{t.valor>=0?'+ ':'− '}{dec(t.valor)}</div>
               </div>
@@ -3741,7 +3761,9 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
           </div>
 
           {loadingYear&&<Card style={{padding:24,marginBottom:16,textAlign:'center'}}><span style={{fontSize:12,color:T.textSec}}>A carregar {ano}…</span></Card>}
-          {!loadingYear&&<Card style={{padding:16,marginBottom:16,background:'linear-gradient(145deg,#161b28,#1c2436)'}}>
+          {!loadingYear&&<Card style={{padding:0,marginBottom:16,overflow:'hidden'}}>
+            <div style={{height:3,background:PAL.imoveis.accent}}/>
+            <div style={{padding:16}}>
             <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0'}}><span style={{fontSize:11.5,color:T.textSec}}>Rendimento bruto total</span><span style={{fontSize:13,fontWeight:700,fontFamily:T.mono,color:T.text}}>{dec(totalBruto)}</span></div>
             <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0'}}><span style={{fontSize:11.5,color:T.textSec}}>Gastos dedutíveis</span><span style={{fontSize:13,fontWeight:700,fontFamily:T.mono,color:T.textSec}}>− {dec(totalGastos)}</span></div>
             <div style={{height:1,background:T.border,margin:'6px 0'}}/>
@@ -3750,6 +3772,7 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',padding:'4px 0'}}><span style={{fontSize:11.5,color:T.textSec}}>Rendimento líquido total</span><span style={{fontSize:20,fontWeight:700,fontFamily:T.mono,color:T.green}}>{dec(totalLiquido)}</span></div>
             <div style={{textAlign:'right'}}><span style={{fontSize:10,fontWeight:700,color:ratio>=60?T.green:'#FBBF24',background:ratio>=60?'rgba(74,222,128,0.15)':'rgba(251,191,36,0.15)',padding:'2px 8px',borderRadius:10}}>{ratio.toFixed(1)}% líquido/bruto</span></div>
             <div style={{fontSize:9.5,color:'#FBBF24',marginTop:8}}>⚠ Taxa por confirmar para 2026 — editável por imóvel abaixo.</div>
+            </div>
           </Card>}
 
           {totalNaoClassificadas>0&&(
@@ -3999,8 +4022,16 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
   // Fila por associar
   const porAssociar = porAssociarAll
 
-  // Transações recentes filtradas por conta e imóvel
-  const recentTxns = transactions.filter(t=>investAccountIds.has(t.account_id) && matchAcc(t) && matchImovel(t)).slice(0,8)
+  // Transações recentes filtradas por conta e imóvel — até ao fim do mês em navegação (ym),
+  // não limitadas só a esse mês (continua para trás se ele tiver pouca coisa), mas também não
+  // ignora a navegação: sem o corte por `ym`, recuar no tempo continuava a mostrar as últimas
+  // transações do mês actual em vez das do mês que estás a ver.
+  const recentTxns = (() => {
+    const scoped = transactions.filter(t=>investAccountIds.has(t.account_id) && matchAcc(t) && matchImovel(t))
+    const [ry,rm] = ym.split('-').map(Number)
+    const cutoff = `${ym}-${String(new Date(ry,rm,0).getDate()).padStart(2,'0')}`
+    return scoped.filter(t=>t.data<=cutoff).slice(0,8)
+  })()
 
   // Sparkline: filtra por imóvel seleccionado quando aplicável
   const trend=imovelTxnsScope.length?Array.from({length:5},(_,i)=>{
@@ -4148,7 +4179,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
             const imN = imovelNome(t.imovel_id)
             return (
               <div key={t.id} onClick={()=>setEditTxn(t)} style={{display:'flex',alignItems:'center',gap:12,padding:'11px 16px',borderBottom:i<recentTxns.length-1?`1px solid ${T.border}`:'none',cursor:'pointer'}}>
-                <div style={{width:38,height:38,borderRadius:12,background:T.surface2,display:'flex',alignItems:'center',justifyContent:'center',fontSize:17,flexShrink:0}}>{getCatStyle(t.categoria??'Despesas Gerais').icon}</div>
+                <div style={{width:38,height:38,borderRadius:12,background:T.surface2,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><CatIcon categoria={t.categoria??'Despesas Gerais'} size={17}/></div>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:13,fontWeight:500,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div>
                   <div style={{fontSize:11,color:T.textSec,marginTop:2}}>{imN?`🏠 ${imN}`:(t.categoria??'Sem categoria')} · {t.data}</div>
