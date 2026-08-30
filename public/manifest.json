@@ -4,8 +4,8 @@
   "description": "Controla as tuas finanças",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0B0B12",
-  "theme_color": "#0B0B12",
+  "background_color": "#14110F",
+  "theme_color": "#14110F",
   "orientation": "portrait",
   "icons": [
     { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },

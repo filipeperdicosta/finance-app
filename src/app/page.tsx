@@ -44,9 +44,11 @@ import {
 // DESIGN TOKENS
 // ─────────────────────────────────────────────────────────────────
 const T = {
-  bg:'#0B0B12', surface:'#13131C', surface2:'#1C1C28', surface3:'#242435',
-  text:'#EEF1F8', textSec:'#858EA3', textTer:'#3C455C', border:'#1F2236',
-  green:'#4ADE80', red:'#F87171', mono:"'ui-monospace','SF Mono',monospace",
+  bg:'#14110F', surface:'#1B1613', surface2:'#221C17', surface3:'#2B241D',
+  text:'#F5EEE4', textSec:'#A69688', textTer:'#6B5F52', border:'#332D27',
+  green:'#4ADE80', red:'#F87171',
+  mono:"var(--font-mono),'ui-monospace','SF Mono',monospace",
+  display:"var(--font-display),Georgia,serif",
 }
 const PAL: Record<string,{grad:string,accent:string,soft:string}> = {
   familiar:   {grad:'linear-gradient(145deg,#2b160d,#9a4f2c)',accent:'#E0875F',soft:'#2a1710'},
@@ -68,7 +70,6 @@ const BioIcon = ({size=20}:{size?:number}) => (
   </div>
 )
 const tagPal = (tag:string) => tag==='investimento' ? PAL.imoveis : (PAL[tag] ?? PAL.pessoal)
-const PROP_GRAD = {pos:'linear-gradient(145deg,#042b1c,#0d5c38)',neg:'linear-gradient(145deg,#1c0808,#7f1d1d)'}
 const CAT_LIST = ['Receita','Groceries','Restauração','Compras','Saúde','Transportes','Lazer','Levantamentos','Habitação','Utilities','Subscrições','Investimentos','Comissões e Taxas','Transferências','Despesas Gerais']
 const CAT_META: Record<string,{cor:string,icon:string}> = {
   'Receita':{cor:'#4ADE80',icon:'💰'},
@@ -422,7 +423,7 @@ const Lbl = ({title,action,accent,onAction}:{title:string,action?:string,accent?
 )
 const Btn = ({children,onClick,variant='primary',accent,style={}}:{children:React.ReactNode,onClick?:()=>void,variant?:string,accent?:string,style?:React.CSSProperties}) => {
   const v:Record<string,React.CSSProperties> = {
-    primary:{background:accent,color:'#0B0B12',padding:'10px 18px',fontSize:13},
+    primary:{background:accent,color:'#14110F',padding:'10px 18px',fontSize:13},
     ghost:{background:T.surface2,color:T.text,padding:'10px 18px',fontSize:13},
     danger:{background:'rgba(248,113,113,0.15)',color:T.red,padding:'10px 18px',fontSize:13},
   }
@@ -588,7 +589,7 @@ const Spark = ({trend, mode='budget'}:{trend:{m:string,rec:number,desp:number,ne
 }
 const Toggle = ({val,set,accent}:{val:string,set:(v:string)=>void,accent:string}) => (
   <div style={{display:'flex',background:T.surface2,borderRadius:8,padding:2,gap:1}}>
-    {['Bar','Linha','Área'].map(t=>(<button key={t} onClick={()=>set(t)} style={{padding:'3px 9px',borderRadius:6,border:'none',cursor:'pointer',background:val===t?accent:'transparent',color:val===t?'#0B0B12':T.textSec,fontSize:10,fontWeight:val===t?700:400,transition:'all 0.12s'}}>{t}</button>))}
+    {['Bar','Linha','Área'].map(t=>(<button key={t} onClick={()=>set(t)} style={{padding:'3px 9px',borderRadius:6,border:'none',cursor:'pointer',background:val===t?accent:'transparent',color:val===t?'#14110F':T.textSec,fontSize:10,fontWeight:val===t?700:400,transition:'all 0.12s'}}>{t}</button>))}
   </div>
 )
 const DynChart = ({data,type}:{data:{m:string,rec:number,desp:number}[],type:string}) => {
@@ -657,34 +658,37 @@ const TrendTile = ({data,accent,catFilter}:{data:{m:string,rec:number,desp:numbe
 // HERO
 // ─────────────────────────────────────────────────────────────────
 const Hero = ({pal,title,mainValue,mainColor,kpis,trend,period,mainSuffix,sparkMode,onPrev,onNext,canNext,onSaudeFinanceira}:{pal:{grad:string,accent:string,soft:string},title:string,mainValue:string,mainColor?:string,kpis:{l:string,v:string,c:string}[],trend:{m:string,rec:number,desp:number,net:number}[],period:string,mainSuffix?:string,sparkMode?:'budget'|'patrimonio',onPrev?:()=>void,onNext?:()=>void,canNext?:boolean,onSaudeFinanceira?:()=>void}) => (
-  <div style={{background:pal.grad,borderRadius:18,padding:'20px 18px 16px',marginBottom:16,border:'1px solid rgba(255,255,255,0.05)'}}>
+  <div style={{background:T.surface,borderRadius:18,marginBottom:16,border:`1px solid ${T.border}`,overflow:'hidden'}}>
+    <div style={{height:3,background:pal.accent}}/>
+    <div style={{padding:'17px 18px 16px'}}>
     <div style={{display:'grid',gridTemplateColumns:'1fr auto',gridTemplateRows:'auto auto',columnGap:14,marginBottom:14}}>
       <div style={{gridColumn:1,gridRow:1}}>
-        <div style={{fontSize:10,color:'rgba(255,255,255,0.4)',letterSpacing:'0.1em',textTransform:'uppercase',fontWeight:600,marginBottom:5}}>{title}</div>
+        <div style={{fontSize:10,color:pal.accent,letterSpacing:'0.1em',textTransform:'uppercase',fontWeight:700,marginBottom:5}}>{title}</div>
       </div>
       <div style={{gridColumn:1,gridRow:2}}>
         <div style={{display:'flex',alignItems:'baseline',gap:6}}>
-          <div style={{fontSize:32,fontWeight:700,color:mainColor??'#FFF',letterSpacing:'-0.03em',fontFamily:T.mono}}>{mainValue}</div>
-          {mainSuffix&&<span style={{fontSize:12,color:'rgba(255,255,255,0.3)'}}>{mainSuffix}</span>}
+          <div style={{fontSize:34,fontWeight:600,fontStyle:'italic',color:mainColor??T.text,letterSpacing:'-0.01em',fontFamily:T.display}}>{mainValue}</div>
+          {mainSuffix&&<span style={{fontSize:12,color:T.textTer}}>{mainSuffix}</span>}
         </div>
       </div>
       <div style={{gridColumn:2,gridRow:1,alignSelf:'end',justifySelf:'center',display:'flex',alignItems:'center',gap:4,height:16}}>
-        {onPrev&&<button onClick={onPrev} style={{background:'none',border:'none',cursor:'pointer',color:'rgba(255,255,255,0.5)',fontSize:18,lineHeight:1,padding:'0 2px'}}>‹</button>}
-        <span style={{fontSize:11,color:'rgba(255,255,255,0.45)',fontWeight:600,minWidth:52,textAlign:'center'}}>{period}</span>
-        {onNext&&<button onClick={onNext} disabled={!canNext} style={{background:'none',border:'none',cursor:canNext?'pointer':'default',color:canNext?'rgba(255,255,255,0.5)':'rgba(255,255,255,0.15)',fontSize:18,lineHeight:1,padding:'0 2px'}}>›</button>}
+        {onPrev&&<button onClick={onPrev} style={{background:'none',border:'none',cursor:'pointer',color:T.textSec,fontSize:18,lineHeight:1,padding:'0 2px'}}>‹</button>}
+        <span style={{fontSize:11,color:T.textSec,fontWeight:600,minWidth:52,textAlign:'center'}}>{period}</span>
+        {onNext&&<button onClick={onNext} disabled={!canNext} style={{background:'none',border:'none',cursor:canNext?'pointer':'default',color:canNext?T.textSec:T.textTer,fontSize:18,lineHeight:1,padding:'0 2px'}}>›</button>}
       </div>
       {onSaudeFinanceira&&(
-        <button onClick={onSaudeFinanceira} style={{gridColumn:2,gridRow:2,alignSelf:'end',justifySelf:'center',display:'flex',alignItems:'center',gap:4,background:'rgba(255,255,255,0.1)',border:'none',borderRadius:7,padding:'4px 8px',cursor:'pointer',whiteSpace:'nowrap'}}>
-          <HeartPulse size={11} color="#fff"/>
-          <span style={{fontSize:10,fontWeight:600,color:'#fff'}}>Saúde Financeira</span>
-          <ChevronRight size={10} color="rgba(255,255,255,0.6)"/>
+        <button onClick={onSaudeFinanceira} style={{gridColumn:2,gridRow:2,alignSelf:'end',justifySelf:'center',display:'flex',alignItems:'center',gap:4,background:T.surface2,border:'none',borderRadius:7,padding:'4px 8px',cursor:'pointer',whiteSpace:'nowrap'}}>
+          <HeartPulse size={11} color={pal.accent}/>
+          <span style={{fontSize:10,fontWeight:600,color:pal.accent}}>Saúde Financeira</span>
+          <ChevronRight size={10} color={pal.accent}/>
         </button>
       )}
     </div>
     <div style={{display:'grid',gridTemplateColumns:`repeat(${kpis.length},1fr)`,gap:6,marginBottom:14}}>
-      {kpis.map((k,i)=>(<div key={i} style={{background:'rgba(255,255,255,0.08)',borderRadius:10,padding:'9px 10px'}}><div style={{fontSize:9,color:'rgba(255,255,255,0.4)',textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:600,marginBottom:3}}>{k.l}</div><div style={{fontSize:kpis.length===4?11:12,fontWeight:700,color:k.c,fontFamily:T.mono}}>{k.v}</div></div>))}
+      {kpis.map((k,i)=>(<div key={i} style={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,padding:'9px 10px'}}><div style={{fontSize:9,color:T.textTer,textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:600,marginBottom:3}}>{k.l}</div><div style={{fontSize:kpis.length===4?11:12,fontWeight:700,color:k.c,fontFamily:T.mono}}>{k.v}</div></div>))}
     </div>
-    <div style={{borderTop:'1px solid rgba(255,255,255,0.07)',paddingTop:10}}><Spark trend={trend} mode={sparkMode??'budget'}/></div>
+    <div style={{borderTop:`1px solid ${T.border}`,paddingTop:10}}><Spark trend={trend} mode={sparkMode??'budget'}/></div>
+    </div>
   </div>
 )
 
@@ -875,7 +879,7 @@ const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis,accounts,isDetectedTransfe
                 const isSel = saudeSelected===o.value
                 return (
                   <button key={o.value} type="button" onClick={()=>{setSaudeOverride(o.value);setSaudeTouched(true)}}
-                    style={{background:isSel?pal.accent:T.surface2,border:`1px solid ${isSel?pal.accent:T.border}`,borderRadius:20,padding:'7px 13px',fontSize:12,fontWeight:600,color:isSel?'#0B0B12':T.text,cursor:'pointer'}}>
+                    style={{background:isSel?pal.accent:T.surface2,border:`1px solid ${isSel?pal.accent:T.border}`,borderRadius:20,padding:'7px 13px',fontSize:12,fontWeight:600,color:isSel?'#14110F':T.text,cursor:'pointer'}}>
                     {o.label}
                   </button>
                 )
@@ -1038,7 +1042,7 @@ const AllTransactionsScreen = ({allTxns,accounts,tag,pal,onClose,onRefresh,imove
   },[filtered])
 
   return (
-    <div style={{position:'fixed',inset:0,background:T.bg,zIndex:80,overflowY:'auto',fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
+    <div style={{position:'fixed',inset:0,background:T.bg,zIndex:80,overflowY:'auto',fontFamily:'var(--font-body),-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
       <div style={{maxWidth:440,margin:'0 auto'}}>
         {/* Header */}
         <div style={{position:'sticky',top:0,zIndex:10,background:T.surface,borderBottom:`1px solid ${T.border}`}}>
@@ -1050,7 +1054,7 @@ const AllTransactionsScreen = ({allTxns,accounts,tag,pal,onClose,onRefresh,imove
               {activeFilterCount>0&&<span style={{fontSize:11,fontWeight:700,color:pal.accent}}>{activeFilterCount}</span>}
             </button>
             <button onClick={()=>{setSelectMode(!selectMode);setSelected(new Set())}} style={{background:selectMode?pal.accent:T.surface2,border:'none',borderRadius:10,padding:'7px 10px',cursor:'pointer'}}>
-              <CheckSquare size={14} color={selectMode?'#0B0B12':T.textSec}/>
+              <CheckSquare size={14} color={selectMode?'#14110F':T.textSec}/>
             </button>
           </div>
           {/* Summary bar */}
@@ -1122,13 +1126,16 @@ const AllTransactionsScreen = ({allTxns,accounts,tag,pal,onClose,onRefresh,imove
 const PropHero = ({im,renda,custos}:{im:Imovel,renda:number,custos:number}) => {
   const res=renda-custos, pos=res>=0, ac=pos?T.green:T.red
   return (
-    <div style={{background:pos?PROP_GRAD.pos:PROP_GRAD.neg,borderRadius:14,padding:'15px 16px',marginBottom:10,border:'1px solid rgba(255,255,255,0.06)'}}>
+    <div style={{background:T.surface,borderRadius:14,marginBottom:10,border:`1px solid ${T.border}`,overflow:'hidden'}}>
+      <div style={{height:3,background:ac}}/>
+      <div style={{padding:'13px 16px 15px'}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12}}>
-        <div><div style={{fontSize:14,fontWeight:700,color:'#FFF'}}>{im.nome}</div><div style={{fontSize:11,color:'rgba(255,255,255,0.4)',marginTop:2}}>{im.local}</div></div>
-        <div style={{textAlign:'right'}}><div style={{fontSize:19,fontWeight:700,color:ac,fontFamily:T.mono}}>{pos?'+ ':'− '}{dec(Math.abs(res))}</div><div style={{fontSize:9,color:'rgba(255,255,255,0.28)',marginTop:1}}>resultado/mês</div></div>
+        <div><div style={{fontSize:14,fontWeight:700,color:T.text}}>{im.nome}</div><div style={{fontSize:11,color:T.textTer,marginTop:2}}>{im.local}</div></div>
+        <div style={{textAlign:'right'}}><div style={{fontSize:19,fontWeight:700,color:ac,fontFamily:T.mono}}>{pos?'+ ':'− '}{dec(Math.abs(res))}</div><div style={{fontSize:9,color:T.textTer,marginTop:1}}>resultado/mês</div></div>
       </div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6}}>
-        {[{l:'Renda',v:dec(renda),c:T.green},{l:'Custos',v:dec(custos),c:T.red},{l:'Estado',v:im.ativo?'Arrendado':'Sem renda',c:im.ativo?T.green:'rgba(255,255,255,0.35)'}].map((k,i)=>(<div key={i} style={{background:'rgba(255,255,255,0.09)',borderRadius:8,padding:'8px 10px'}}><div style={{fontSize:9,color:'rgba(255,255,255,0.35)',textTransform:'uppercase',letterSpacing:'0.06em',fontWeight:600,marginBottom:2}}>{k.l}</div><div style={{fontSize:11,fontWeight:700,color:k.c,fontFamily:T.mono}}>{k.v}</div></div>))}
+        {[{l:'Renda',v:dec(renda),c:T.green},{l:'Custos',v:dec(custos),c:T.red},{l:'Estado',v:im.ativo?'Arrendado':'Sem renda',c:im.ativo?T.green:T.textTer}].map((k,i)=>(<div key={i} style={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:8,padding:'8px 10px'}}><div style={{fontSize:9,color:T.textTer,textTransform:'uppercase',letterSpacing:'0.06em',fontWeight:600,marginBottom:2}}>{k.l}</div><div style={{fontSize:11,fontWeight:700,color:k.c,fontFamily:T.mono}}>{k.v}</div></div>))}
+      </div>
       </div>
     </div>
   )
@@ -1148,11 +1155,11 @@ const LoginScreen = ({onLogin}:{onLogin:()=>void}) => {
     if (error) { setErr(error.message); setLoading(false) } else onLogin()
   }
   return (
-    <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100vh',background:`radial-gradient(ellipse 420px 340px at 50% 30%, rgba(74,222,128,0.16), transparent 70%), ${T.bg}`,padding:24,fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
+    <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100vh',background:`radial-gradient(ellipse 420px 340px at 50% 30%, rgba(74,222,128,0.16), transparent 70%), ${T.bg}`,padding:24,fontFamily:'var(--font-body),-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
       <div style={{width:'100%',maxWidth:360}}>
         <div style={{textAlign:'center',marginBottom:40}}>
           <div style={{display:'flex',justifyContent:'center',marginBottom:14}}><BioIcon size={56}/></div>
-          <div style={{fontSize:32,fontWeight:800,color:T.text,letterSpacing:'-0.03em'}}>Bio<span style={{color:T.green}}>.</span></div>
+          <div style={{fontSize:32,fontWeight:600,fontStyle:'italic',fontFamily:T.display,color:T.text,letterSpacing:'-0.01em'}}>Bio<span style={{color:T.green,fontStyle:'normal'}}>.</span></div>
           <div style={{fontSize:13,color:T.textSec,marginTop:8}}>Balance It Out</div>
           <div style={{fontSize:12,color:T.textTer,marginTop:2}}>Controla as tuas finanças</div>
         </div>
@@ -1170,7 +1177,7 @@ const LoginScreen = ({onLogin}:{onLogin:()=>void}) => {
                 style={{width:'100%',background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,padding:'10px 12px',color:T.text,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
             </div>
             {err&&<div style={{fontSize:12,color:T.red,marginBottom:12}}>{err}</div>}
-            <button type="submit" disabled={loading} style={{width:'100%',background:T.green,color:'#0B0B12',border:'none',borderRadius:10,padding:'12px',fontSize:14,fontWeight:700,cursor:'pointer'}}>{loading?'A entrar…':'Entrar'}</button>
+            <button type="submit" disabled={loading} style={{width:'100%',background:T.green,color:'#14110F',border:'none',borderRadius:10,padding:'12px',fontSize:14,fontWeight:700,cursor:'pointer'}}>{loading?'A entrar…':'Entrar'}</button>
           </form>
         </Card>
       </div>
@@ -1282,7 +1289,7 @@ const AllCategoriesScreen = ({transactions,accounts,tag,sel,initialMonth,subtitl
   const period = monthYearLabel(currentMonth)
 
   return (
-    <div style={{position:'fixed',inset:0,background:T.bg,zIndex:85,overflowY:'auto',fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
+    <div style={{position:'fixed',inset:0,background:T.bg,zIndex:85,overflowY:'auto',fontFamily:'var(--font-body),-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
       <div style={{maxWidth:440,margin:'0 auto'}}>
         <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',background:T.surface,borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,zIndex:10}}>
           <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ArrowLeft size={18} color={T.textSec}/></button>
@@ -1349,7 +1356,7 @@ const RulesScreen = ({onClose,pal}:{onClose:()=>void,pal:{accent:string,soft:str
   }
 
   return (
-    <div style={{position:'fixed',inset:0,background:T.bg,zIndex:90,overflowY:'auto',fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
+    <div style={{position:'fixed',inset:0,background:T.bg,zIndex:90,overflowY:'auto',fontFamily:'var(--font-body),-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
       <div style={{maxWidth:440,margin:'0 auto'}}>
         <div style={{position:'sticky',top:0,zIndex:10,background:T.surface,borderBottom:`1px solid ${T.border}`}}>
           <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px'}}>
@@ -1359,7 +1366,7 @@ const RulesScreen = ({onClose,pal}:{onClose:()=>void,pal:{accent:string,soft:str
               <div style={{fontSize:11,color:T.textSec}}>{rules.length} padrões guardados</div>
             </div>
             <button onClick={()=>{setSelectMode(!selectMode);setSelected(new Set())}} style={{background:selectMode?pal.accent:T.surface2,border:'none',borderRadius:10,padding:'7px 10px',cursor:'pointer'}}>
-              <CheckSquare size={14} color={selectMode?'#0B0B12':T.textSec}/>
+              <CheckSquare size={14} color={selectMode?'#14110F':T.textSec}/>
             </button>
           </div>
           {selectMode&&(
@@ -1479,7 +1486,7 @@ const EnableBankingScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
   }
 
   return (
-    <div style={{position:'fixed',inset:0,background:T.bg,zIndex:90,overflowY:'auto',fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
+    <div style={{position:'fixed',inset:0,background:T.bg,zIndex:90,overflowY:'auto',fontFamily:'var(--font-body),-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
       <div style={{maxWidth:440,margin:'0 auto'}}>
         <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',background:T.surface,borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,zIndex:10}}>
           <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ArrowLeft size={18} color={T.textSec}/></button>
@@ -1522,7 +1529,7 @@ const EnableBankingScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
                             <div key={bank.name} style={{display:'flex',alignItems:'center',gap:12,padding:'12px 14px',borderBottom:i<unlinked.length-1?`1px solid ${T.border}`:'none'}}>
                               <LogoCell bank={bank}/>
                               <div style={{flex:1}}><div style={{fontSize:13,fontWeight:600,color:T.text}}>{bank.label}</div></div>
-                              <button onClick={()=>connect(bank.name,bank.country)} style={{background:pal.accent,color:'#0B0B12',border:'none',borderRadius:8,padding:'6px 12px',fontSize:11,fontWeight:600,cursor:'pointer'}}>Ligar</button>
+                              <button onClick={()=>connect(bank.name,bank.country)} style={{background:pal.accent,color:'#14110F',border:'none',borderRadius:8,padding:'6px 12px',fontSize:11,fontWeight:600,cursor:'pointer'}}>Ligar</button>
                             </div>
                           ))}
                         </Card>
@@ -1630,7 +1637,7 @@ const T212Screen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accounts:
   const allAccounts = accounts
 
   return (
-    <div style={{position:'fixed',inset:0,background:T.bg,zIndex:90,overflowY:'auto',fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
+    <div style={{position:'fixed',inset:0,background:T.bg,zIndex:90,overflowY:'auto',fontFamily:'var(--font-body),-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
       <div style={{maxWidth:440,margin:'0 auto'}}>
         <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',background:T.surface,borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,zIndex:10}}>
           <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ArrowLeft size={18} color={T.textSec}/></button>
@@ -1773,7 +1780,7 @@ const NotificationsScreen = ({onClose,pal}:{onClose:()=>void,pal:{accent:string,
   }
 
   return (
-    <div onClick={e=>e.stopPropagation()} style={{position:'fixed',inset:0,background:T.bg,zIndex:90,overflowY:'auto',fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
+    <div onClick={e=>e.stopPropagation()} style={{position:'fixed',inset:0,background:T.bg,zIndex:90,overflowY:'auto',fontFamily:'var(--font-body),-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
       <div style={{maxWidth:440,margin:'0 auto'}}>
         <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',background:T.surface,borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,zIndex:10}}>
           <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ArrowLeft size={18} color={T.textSec}/></button>
@@ -1871,7 +1878,7 @@ const NotificationsScreen = ({onClose,pal}:{onClose:()=>void,pal:{accent:string,
                     setCronResult(data)
                     setCronState(data.ok?'done':'error')
                     if(data.ok) await load()
-                  }} style={{flex:2,background:pal.accent,border:'none',borderRadius:10,padding:'10px',color:'#0B0B12',fontSize:13,fontWeight:700,cursor:'pointer',opacity:cronSecret?1:0.4}}>Executar</button>
+                  }} style={{flex:2,background:pal.accent,border:'none',borderRadius:10,padding:'10px',color:'#14110F',fontSize:13,fontWeight:700,cursor:'pointer',opacity:cronSecret?1:0.4}}>Executar</button>
                 </div>
               </>
             )}
@@ -1905,7 +1912,7 @@ const NotificationsScreen = ({onClose,pal}:{onClose:()=>void,pal:{accent:string,
                   setCronSecret('')
                   setCronState('idle')
                   await load()
-                }} style={{width:'100%',background:pal.accent,border:'none',borderRadius:10,padding:'10px',color:'#0B0B12',fontSize:13,fontWeight:700,cursor:'pointer'}}>
+                }} style={{width:'100%',background:pal.accent,border:'none',borderRadius:10,padding:'10px',color:'#14110F',fontSize:13,fontWeight:700,cursor:'pointer'}}>
                   Fechar e actualizar notificações
                 </button>
               </div>
@@ -1982,7 +1989,7 @@ const DriveFolderPicker = ({account,onClose,onSaved,pal}:{account:Account,onClos
 
   return (
     <div onClick={e=>{e.stopPropagation();onClose()}} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:120,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:T.surface,borderRadius:'20px 20px 0 0',width:'100%',maxWidth:440,maxHeight:'88vh',display:'flex',flexDirection:'column',fontFamily:'-apple-system,BlinkMacSystemFont,sans-serif'}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.surface,borderRadius:'20px 20px 0 0',width:'100%',maxWidth:440,maxHeight:'88vh',display:'flex',flexDirection:'column',fontFamily:'var(--font-body),-apple-system,BlinkMacSystemFont,sans-serif'}}>
         <div style={{display:'flex',alignItems:'center',padding:'16px 18px',borderBottom:`1px solid ${T.border}`}}>
           <div style={{flex:1}}>
             <div style={{fontSize:15,fontWeight:700,color:T.text}}>Escolher pasta</div>
@@ -2191,7 +2198,7 @@ const DriveFileSelectScreen = ({account,onClose,onRefresh,pal}:{account:Account,
   const totalDesp = previewTxns.filter(t=>t.keep&&t.valor<0).reduce((s,t)=>s+Math.abs(t.valor),0)
 
   return (
-    <div onClick={e=>e.stopPropagation()} style={{position:'fixed',inset:0,background:T.bg,zIndex:95,overflowY:'auto',fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
+    <div onClick={e=>e.stopPropagation()} style={{position:'fixed',inset:0,background:T.bg,zIndex:95,overflowY:'auto',fontFamily:'var(--font-body),-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
       <div style={{maxWidth:440,margin:'0 auto'}}>
         <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',background:T.surface,borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,zIndex:10}}>
           <button onClick={()=>showingPreview&&!saving&&results.length===0?cancelPreview():onClose()} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ArrowLeft size={18} color={T.textSec}/></button>
@@ -2480,7 +2487,7 @@ const DriveSettingsScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
   }
 
   return (
-    <div style={{position:'fixed',inset:0,background:T.bg,zIndex:90,overflowY:'auto',fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
+    <div style={{position:'fixed',inset:0,background:T.bg,zIndex:90,overflowY:'auto',fontFamily:'var(--font-body),-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
       <div style={{maxWidth:440,margin:'0 auto'}}>
         <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',background:T.surface,borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,zIndex:10}}>
           <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ArrowLeft size={18} color={T.textSec}/></button>
@@ -2517,7 +2524,7 @@ const DriveSettingsScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
                       <div style={{fontSize:13,color:T.text,fontWeight:600}}>Manual</div>
                       <div style={{fontSize:11,color:T.textSec,marginTop:2}}>Verifica pastas associadas por ficheiros novos</div>
                     </div>
-                    <button onClick={checkNow} disabled={!accounts.some(a=>a.drive_folder_id)} style={{background:accounts.some(a=>a.drive_folder_id)?pal.accent:T.surface2,color:accounts.some(a=>a.drive_folder_id)?'#0B0B12':T.textTer,border:'none',borderRadius:8,padding:'8px 12px',fontSize:11,fontWeight:700,cursor:accounts.some(a=>a.drive_folder_id)?'pointer':'default',display:'flex',alignItems:'center',gap:5}}>
+                    <button onClick={checkNow} disabled={!accounts.some(a=>a.drive_folder_id)} style={{background:accounts.some(a=>a.drive_folder_id)?pal.accent:T.surface2,color:accounts.some(a=>a.drive_folder_id)?'#14110F':T.textTer,border:'none',borderRadius:8,padding:'8px 12px',fontSize:11,fontWeight:700,cursor:accounts.some(a=>a.drive_folder_id)?'pointer':'default',display:'flex',alignItems:'center',gap:5}}>
                       <RefreshCw size={12}/> Verificar agora
                     </button>
                   </div>
@@ -2631,7 +2638,7 @@ const SettingsPanel = ({onClose,accounts,onRefresh,pal,me,onMembers,onShowInvite
     await onRefresh()
   }
   return (
-    <div style={{position:'fixed',inset:0,background:T.bg,zIndex:90,overflowY:'auto',fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
+    <div style={{position:'fixed',inset:0,background:T.bg,zIndex:90,overflowY:'auto',fontFamily:'var(--font-body),-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
       <div style={{maxWidth:440,margin:'0 auto'}}>
         <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',background:T.surface,borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,zIndex:10}}>
           <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ArrowLeft size={18} color={T.textSec}/></button>
@@ -2650,7 +2657,7 @@ const SettingsPanel = ({onClose,accounts,onRefresh,pal,me,onMembers,onShowInvite
                 {editingName ? (
                   <div style={{display:'flex',gap:6,alignItems:'center'}}>
                     <input value={nameValue} onChange={e=>setNameValue(e.target.value)} autoFocus style={{flex:1,background:T.surface2,border:`1px solid ${T.border}`,borderRadius:8,padding:'6px 10px',fontSize:13,color:T.text}}/>
-                    <button onClick={saveName} style={{background:pal.accent,color:'#0B0B12',border:'none',borderRadius:8,padding:'6px 10px',fontSize:11,fontWeight:700,cursor:'pointer'}}>Guardar</button>
+                    <button onClick={saveName} style={{background:pal.accent,color:'#14110F',border:'none',borderRadius:8,padding:'6px 10px',fontSize:11,fontWeight:700,cursor:'pointer'}}>Guardar</button>
                     <button onClick={()=>{setEditingName(false);setNameValue(me?.nome??'')}} style={{background:'none',border:'none',padding:4,cursor:'pointer'}}><X size={14} color={T.textSec}/></button>
                   </div>
                 ) : (
@@ -2669,7 +2676,7 @@ const SettingsPanel = ({onClose,accounts,onRefresh,pal,me,onMembers,onShowInvite
             <button onClick={onShowInvites} style={{width:'100%',display:'flex',alignItems:'center',gap:10,background:pal.soft,border:'none',borderRadius:10,padding:'12px 14px',cursor:'pointer',marginBottom:14}}>
               <Bell size={16} color={pal.accent}/>
               <span style={{flex:1,textAlign:'left',fontSize:13,fontWeight:600,color:pal.accent}}>Convites pendentes</span>
-              <span style={{background:pal.accent,color:'#0B0B12',borderRadius:10,padding:'2px 8px',fontSize:11,fontWeight:700}}>{pendingInvitesCount}</span>
+              <span style={{background:pal.accent,color:'#14110F',borderRadius:10,padding:'2px 8px',fontSize:11,fontWeight:700}}>{pendingInvitesCount}</span>
             </button>
           )}
 
@@ -2874,7 +2881,7 @@ const ImportWizard = ({onClose,accounts,pal,onDone,onRefreshAccounts}:{onClose:(
 
   return (
     <div onClick={()=>!parsing&&onClose()} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:100,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:T.surface,borderRadius:'20px 20px 0 0',width:'100%',maxWidth:440,maxHeight:'92vh',display:'flex',flexDirection:'column',fontFamily:'-apple-system,BlinkMacSystemFont,sans-serif'}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.surface,borderRadius:'20px 20px 0 0',width:'100%',maxWidth:440,maxHeight:'92vh',display:'flex',flexDirection:'column',fontFamily:'var(--font-body),-apple-system,BlinkMacSystemFont,sans-serif'}}>
         <input ref={fileRef} type="file" accept=".pdf,.xlsx,.xls,.csv" multiple onChange={handleFiles} style={{display:'none'}}/>
         {/* Header */}
         <div style={{flexShrink:0}}>
@@ -3213,7 +3220,7 @@ const AssignQueue = ({txns,imoveis,onClose,onRefresh,pal}:{txns:Transaction[],im
     setBusy(true); await assignTransactionToImovel(txnId,imovelId); await onRefresh(); setBusy(false)
   }
   return (
-    <div style={{position:'fixed',inset:0,background:T.bg,zIndex:95,overflowY:'auto',fontFamily:'-apple-system,BlinkMacSystemFont,sans-serif'}}>
+    <div style={{position:'fixed',inset:0,background:T.bg,zIndex:95,overflowY:'auto',fontFamily:'var(--font-body),-apple-system,BlinkMacSystemFont,sans-serif'}}>
       <div style={{maxWidth:440,margin:'0 auto'}}>
         <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',background:T.surface,borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,zIndex:10}}>
           <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ArrowLeft size={18} color={T.textSec}/></button>
@@ -3724,7 +3731,7 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
             <FileText size={16} color={PAL.imoveis.accent}/>
             <div style={{fontSize:16,fontWeight:700,color:T.text}}>IRS — Rendimentos Prediais</div>
           </div>
-          <button onClick={()=>setShowQuota(v=>!v)} title="100% do imóvel vs. a tua quota de propriedade — só afecta este resumo, o mapeamento é sempre a tua quota" style={{background:showQuota?PAL.imoveis.accent:PAL.imoveis.soft,border:'none',borderRadius:8,padding:'5px 10px',cursor:'pointer',flexShrink:0}}><span style={{fontSize:11,color:showQuota?'#0B0B12':PAL.imoveis.accent,fontWeight:600}}>{showQuota?'Minha quota':'100%'}</span></button>
+          <button onClick={()=>setShowQuota(v=>!v)} title="100% do imóvel vs. a tua quota de propriedade — só afecta este resumo, o mapeamento é sempre a tua quota" style={{background:showQuota?PAL.imoveis.accent:PAL.imoveis.soft,border:'none',borderRadius:8,padding:'5px 10px',cursor:'pointer',flexShrink:0}}><span style={{fontSize:11,color:showQuota?'#14110F':PAL.imoveis.accent,fontWeight:600}}>{showQuota?'Minha quota':'100%'}</span></button>
         </div>
         <div style={{padding:'16px 14px'}}>
           <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:10,marginBottom:14}}>
@@ -4025,15 +4032,15 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
 
       {/* Card valor total quando toggle ON */}
       {showValoriz&&(
-        <Card style={{marginBottom:16,padding:'14px 16px',background:pal.grad,border:'1px solid rgba(255,255,255,0.06)'}}>
+        <Card style={{marginBottom:16,padding:'14px 16px',background:T.surface2,border:`1px solid ${T.border}`}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
             <div>
-              <div style={{fontSize:10,color:'rgba(255,255,255,0.5)',textTransform:'uppercase',letterSpacing:'0.08em',fontWeight:600,marginBottom:3}}>Valor total (100%)</div>
-              <div style={{fontSize:11,color:'rgba(255,255,255,0.5)'}}>Valorização + resultado do mês</div>
+              <div style={{fontSize:10,color:T.textTer,textTransform:'uppercase',letterSpacing:'0.08em',fontWeight:600,marginBottom:3}}>Valor total (100%)</div>
+              <div style={{fontSize:11,color:T.textSec}}>Valorização + resultado do mês</div>
             </div>
             <div style={{textAlign:'right'}}>
-              <div style={{fontSize:24,fontWeight:700,color:'#FFF',fontFamily:T.mono}}>{big(totValoriz+totRes)}</div>
-              <div style={{fontSize:10,color:'rgba(255,255,255,0.4)',marginTop:2}}>{big(totValoriz)} {totRes>=0?'+ ':'− '}{dec(Math.abs(totRes))}</div>
+              <div style={{fontSize:24,fontWeight:700,color:T.text,fontFamily:T.mono}}>{big(totValoriz+totRes)}</div>
+              <div style={{fontSize:10,color:T.textTer,marginTop:2}}>{big(totValoriz)} {totRes>=0?'+ ':'− '}{dec(Math.abs(totRes))}</div>
             </div>
           </div>
         </Card>
@@ -4063,7 +4070,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'0 2px',minHeight:26}}>
         <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase'}}>Por imóvel</span>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
-          <button onClick={()=>setShowQuota(v=>!v)} title="100% do imóvel vs. a tua quota de propriedade" style={{background:showQuota?pal.accent:pal.soft,border:'none',borderRadius:8,padding:'4px 10px',cursor:'pointer'}}><span style={{fontSize:11,color:showQuota?'#0B0B12':pal.accent,fontWeight:600}}>{showQuota?'Minha quota':'100%'}</span></button>
+          <button onClick={()=>setShowQuota(v=>!v)} title="100% do imóvel vs. a tua quota de propriedade" style={{background:showQuota?pal.accent:pal.soft,border:'none',borderRadius:8,padding:'4px 10px',cursor:'pointer'}}><span style={{fontSize:11,color:showQuota?'#14110F':pal.accent,fontWeight:600}}>{showQuota?'Minha quota':'100%'}</span></button>
           {selImovel&&<button onClick={()=>setSelImovel(null)} style={{display:'flex',alignItems:'center',gap:4,background:pal.soft,border:'none',borderRadius:8,padding:'3px 8px',cursor:'pointer'}}><span style={{fontSize:12,color:pal.accent,fontWeight:600}}>×</span><span style={{fontSize:11,color:pal.accent,fontWeight:600}}>Ver todos</span></button>}
           <button onClick={()=>{setEditing(null);setFormOpen(true)}} style={{display:'flex',alignItems:'center',gap:4,background:pal.soft,border:'none',borderRadius:8,padding:'4px 10px',cursor:'pointer'}}><Plus size={12} color={pal.accent}/><span style={{fontSize:11,color:pal.accent,fontWeight:600}}>Adicionar</span></button>
         </div>
@@ -4075,34 +4082,37 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
         const nLinks=contaImovel.filter(ci=>ci.imovel_id===im.id).length
         const temValoriz=(im.valorizacao||0)>0
         return (
-          <div key={im.id} onClick={()=>setSelImovel(s=>s===im.id?null:im.id)} style={{background:pos?PROP_GRAD.pos:PROP_GRAD.neg,borderRadius:14,padding:'15px 16px',marginBottom:10,border:'1px solid rgba(255,255,255,0.06)',borderLeft:selImovel===im.id?`4px solid ${pal.accent}`:'1px solid rgba(255,255,255,0.06)',cursor:'pointer',transition:'border-left 0.15s'}}>
+          <div key={im.id} onClick={()=>setSelImovel(s=>s===im.id?null:im.id)} style={{background:T.surface,borderRadius:14,marginBottom:10,border:`1px solid ${T.border}`,borderLeft:selImovel===im.id?`3px solid ${pal.accent}`:`1px solid ${T.border}`,overflow:'hidden',cursor:'pointer',transition:'border-left 0.15s'}}>
+            <div style={{height:3,background:pos?T.green:T.red}}/>
+            <div style={{padding:'13px 16px 15px'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12}}>
               <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:14,fontWeight:700,color:'#FFF'}}>{im.nome}</div>
-                <div style={{fontSize:11,color:'rgba(255,255,255,0.4)',marginTop:2}}>{im.local}{nLinks>0?` · ${nLinks} conta${nLinks>1?'s':''}`:' · sem conta'}</div>
+                <div style={{fontSize:14,fontWeight:700,color:T.text}}>{im.nome}</div>
+                <div style={{fontSize:11,color:T.textTer,marginTop:2}}>{im.local}{nLinks>0?` · ${nLinks} conta${nLinks>1?'s':''}`:' · sem conta'}</div>
               </div>
               <div style={{display:'flex',alignItems:'center',gap:8}}>
                 <div style={{textAlign:'right'}}>
                   <div style={{fontSize:19,fontWeight:700,color:pos?T.green:T.red,fontFamily:T.mono}}>{pos?'+ ':'− '}{dec(Math.abs(res))}</div>
-                  <div style={{fontSize:9,color:'rgba(255,255,255,0.28)',marginTop:1}}>resultado/mês{showQuota?` · ${im.ownership_pct}%`:''}</div>
+                  <div style={{fontSize:9,color:T.textTer,marginTop:1}}>resultado/mês{showQuota?` · ${im.ownership_pct}%`:''}</div>
                 </div>
                 <div style={{display:'flex',flexDirection:'column',gap:3}}>
-                  <button onClick={e=>{e.stopPropagation();moveImovel(idx,-1)}} disabled={idx===0} style={{background:'rgba(255,255,255,0.1)',border:'none',borderRadius:6,padding:2,cursor:idx===0?'default':'pointer',opacity:idx===0?0.3:1}}><ChevronUp size={12} color="#FFF"/></button>
-                  <button onClick={e=>{e.stopPropagation();moveImovel(idx,1)}} disabled={idx===imoveis.length-1} style={{background:'rgba(255,255,255,0.1)',border:'none',borderRadius:6,padding:2,cursor:idx===imoveis.length-1?'default':'pointer',opacity:idx===imoveis.length-1?0.3:1}}><ChevronDown size={12} color="#FFF"/></button>
+                  <button onClick={e=>{e.stopPropagation();moveImovel(idx,-1)}} disabled={idx===0} style={{background:T.surface2,border:'none',borderRadius:6,padding:2,cursor:idx===0?'default':'pointer',opacity:idx===0?0.3:1}}><ChevronUp size={12} color={T.textSec}/></button>
+                  <button onClick={e=>{e.stopPropagation();moveImovel(idx,1)}} disabled={idx===imoveis.length-1} style={{background:T.surface2,border:'none',borderRadius:6,padding:2,cursor:idx===imoveis.length-1?'default':'pointer',opacity:idx===imoveis.length-1?0.3:1}}><ChevronDown size={12} color={T.textSec}/></button>
                 </div>
-                <button onClick={e=>{e.stopPropagation();setEditing(im);setFormOpen(true)}} style={{background:'rgba(255,255,255,0.1)',border:'none',borderRadius:8,padding:6,cursor:'pointer'}}><Edit2 size={13} color="#FFF"/></button>
+                <button onClick={e=>{e.stopPropagation();setEditing(im);setFormOpen(true)}} style={{background:T.surface2,border:'none',borderRadius:8,padding:6,cursor:'pointer'}}><Edit2 size={13} color={T.textSec}/></button>
               </div>
             </div>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6,marginBottom:(showValoriz&&temValoriz)?10:0}}>
-              {[{l:'Renda',v:dec(renda),c:T.green},{l:'Custos',v:dec(custo),c:T.red},{l:'Estado',v:im.ativo?'Arrendado':'Não arrend.',c:im.ativo?T.green:'rgba(255,255,255,0.35)'}].map((k,i)=>(<div key={i} style={{background:'rgba(255,255,255,0.09)',borderRadius:8,padding:'8px 10px'}}><div style={{fontSize:9,color:'rgba(255,255,255,0.35)',textTransform:'uppercase',letterSpacing:'0.06em',fontWeight:600,marginBottom:2}}>{k.l}</div><div style={{fontSize:11,fontWeight:700,color:k.c,fontFamily:T.mono}}>{k.v}</div></div>))}
+              {[{l:'Renda',v:dec(renda),c:T.green},{l:'Custos',v:dec(custo),c:T.red},{l:'Estado',v:im.ativo?'Arrendado':'Não arrend.',c:im.ativo?T.green:T.textTer}].map((k,i)=>(<div key={i} style={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:8,padding:'8px 10px'}}><div style={{fontSize:9,color:T.textTer,textTransform:'uppercase',letterSpacing:'0.06em',fontWeight:600,marginBottom:2}}>{k.l}</div><div style={{fontSize:11,fontWeight:700,color:k.c,fontFamily:T.mono}}>{k.v}</div></div>))}
             </div>
             {/* Valorização informativa (só quando toggle ON e há valor definido) */}
             {showValoriz&&temValoriz&&(
-              <div style={{background:'rgba(255,255,255,0.06)',borderRadius:8,padding:'9px 11px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                <div><div style={{fontSize:11,color:'rgba(255,255,255,0.6)',fontWeight:600}}>Valorização estimada</div>{im.valorizacao_data&&<div style={{fontSize:9,color:'rgba(255,255,255,0.3)',marginTop:1}}>actualizado {fmtDate(im.valorizacao_data)}</div>}</div>
-                <div style={{fontSize:14,fontWeight:700,color:'#FFF',fontFamily:T.mono}}>{big(im.valorizacao)}</div>
+              <div style={{background:T.surface2,borderRadius:8,padding:'9px 11px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                <div><div style={{fontSize:11,color:T.textSec,fontWeight:600}}>Valorização estimada</div>{im.valorizacao_data&&<div style={{fontSize:9,color:T.textTer,marginTop:1}}>actualizado {fmtDate(im.valorizacao_data)}</div>}</div>
+                <div style={{fontSize:14,fontWeight:700,color:T.text,fontFamily:T.mono}}>{big(im.valorizacao)}</div>
               </div>
             )}
+            </div>
           </div>
         )
       })}
@@ -4352,7 +4362,7 @@ const MembersScreen = ({accountId,accounts,onClose,pal,onChanged}:{accountId:str
           <Card style={{padding:'12px 14px',marginBottom:8}}>
             <div style={{display:'flex',gap:6}}>
               <input value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)} placeholder="email@exemplo.com" type="email" style={{flex:1,background:T.surface2,border:`1px solid ${T.border}`,borderRadius:8,padding:'8px 10px',fontSize:13,color:T.text}}/>
-              <button onClick={doInvite} disabled={busy||!inviteEmail.trim()} style={{background:pal.accent,color:'#0B0B12',border:'none',borderRadius:8,padding:'8px 14px',fontSize:12,fontWeight:700,cursor:'pointer',opacity:(busy||!inviteEmail.trim())?0.5:1}}><UserPlus size={13}/></button>
+              <button onClick={doInvite} disabled={busy||!inviteEmail.trim()} style={{background:pal.accent,color:'#14110F',border:'none',borderRadius:8,padding:'8px 14px',fontSize:12,fontWeight:700,cursor:'pointer',opacity:(busy||!inviteEmail.trim())?0.5:1}}><UserPlus size={13}/></button>
             </div>
             {inviteMsg && <div style={{fontSize:11,color:inviteMsg.err?'#F87171':'#4ADE80',marginTop:8}}>{inviteMsg.txt}</div>}
           </Card>
@@ -4388,7 +4398,7 @@ const InvitesScreen = ({invites,onClose,pal,onChanged}:{invites:AccountInvite[],
               <div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:4}}>{inv.account_nome}</div>
               <div style={{fontSize:11,color:T.textSec,marginBottom:12}}>Convite de <strong style={{color:T.text}}>{inv.invited_by_nome}</strong></div>
               <div style={{display:'flex',gap:8}}>
-                <button onClick={()=>doAccept(inv.id)} disabled={busy===inv.id} style={{flex:1,background:pal.accent,color:'#0B0B12',border:'none',borderRadius:8,padding:'8px 12px',fontSize:12,fontWeight:700,cursor:'pointer',opacity:busy===inv.id?0.5:1}}>Aceitar</button>
+                <button onClick={()=>doAccept(inv.id)} disabled={busy===inv.id} style={{flex:1,background:pal.accent,color:'#14110F',border:'none',borderRadius:8,padding:'8px 12px',fontSize:12,fontWeight:700,cursor:'pointer',opacity:busy===inv.id?0.5:1}}>Aceitar</button>
                 <button onClick={()=>doReject(inv.id)} disabled={busy===inv.id} style={{flex:1,background:T.surface2,color:T.textSec,border:`1px solid ${T.border}`,borderRadius:8,padding:'8px 12px',fontSize:12,fontWeight:600,cursor:'pointer',opacity:busy===inv.id?0.5:1}}>Rejeitar</button>
               </div>
             </Card>
@@ -4671,7 +4681,7 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
           {/* Toggle de âmbito */}
           <div style={{display:'flex',gap:6,marginBottom:16,background:T.surface2,borderRadius:10,padding:3}}>
             {(['pessoal','familiar','ambos'] as const).map(s=>(
-              <button key={s} onClick={()=>{setScope(s);setSelectedBucket(null)}} style={{flex:1,padding:'7px 0',borderRadius:8,border:'none',cursor:'pointer',background:scope===s?pal.accent:'transparent',color:scope===s?'#0B0B12':T.textSec,fontSize:12,fontWeight:scope===s?700:500}}>{SCOPE_LABEL[s]}</button>
+              <button key={s} onClick={()=>{setScope(s);setSelectedBucket(null)}} style={{flex:1,padding:'7px 0',borderRadius:8,border:'none',cursor:'pointer',background:scope===s?pal.accent:'transparent',color:scope===s?'#14110F':T.textSec,fontSize:12,fontWeight:scope===s?700:500}}>{SCOPE_LABEL[s]}</button>
             ))}
           </div>
 
@@ -4691,15 +4701,15 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
               <Card style={{position:'absolute',top:'calc(100% + 6px)',right:0,zIndex:20,padding:8,minWidth:170}}>
                 <div style={{display:'flex',flexDirection:'column',gap:3}}>
                   {WINDOW_PRESETS.map(n=>(
-                    <button key={n} onClick={()=>{setCustomMode(false);onWindowChanged(n);setShowWindowMenu(false)}} style={{textAlign:'left',padding:'7px 10px',borderRadius:7,border:'none',cursor:'pointer',background:!customMode&&windowMonths===n?pal.accent:'transparent',color:!customMode&&windowMonths===n?'#0B0B12':T.text,fontSize:12,fontWeight:!customMode&&windowMonths===n?700:500}}>{n===1?'Mensal':`${n} meses`}</button>
+                    <button key={n} onClick={()=>{setCustomMode(false);onWindowChanged(n);setShowWindowMenu(false)}} style={{textAlign:'left',padding:'7px 10px',borderRadius:7,border:'none',cursor:'pointer',background:!customMode&&windowMonths===n?pal.accent:'transparent',color:!customMode&&windowMonths===n?'#14110F':T.text,fontSize:12,fontWeight:!customMode&&windowMonths===n?700:500}}>{n===1?'Mensal':`${n} meses`}</button>
                   ))}
                   <div style={{display:'flex',alignItems:'center',gap:6,padding:'7px 10px',borderRadius:7,background:customMode?pal.accent:'transparent'}}>
-                    <span style={{fontSize:12,fontWeight:customMode?700:500,color:customMode?'#0B0B12':T.text,flexShrink:0}}>Personalizado:</span>
+                    <span style={{fontSize:12,fontWeight:customMode?700:500,color:customMode?'#14110F':T.text,flexShrink:0}}>Personalizado:</span>
                     <input type="number" min={2} max={36} value={customInput} onFocus={()=>setCustomMode(true)}
                       onChange={e=>{setCustomMode(true);setCustomInput(e.target.value)}}
                       onBlur={()=>{ const n=Math.max(2,Math.min(36,Number(customInput)||windowMonths)); setCustomInput(String(n)); onWindowChanged(n) }}
-                      style={{width:36,background:'transparent',border:'none',borderBottom:`1px solid ${customMode?'#0B0B12':T.border}`,color:customMode?'#0B0B12':T.text,fontSize:12,fontWeight:700,textAlign:'center',padding:0}}/>
-                    <span style={{fontSize:11,color:customMode?'#0B0B12':T.textSec}}>meses</span>
+                      style={{width:36,background:'transparent',border:'none',borderBottom:`1px solid ${customMode?'#14110F':T.border}`,color:customMode?'#14110F':T.text,fontSize:12,fontWeight:700,textAlign:'center',padding:0}}/>
+                    <span style={{fontSize:11,color:customMode?'#14110F':T.textSec}}>meses</span>
                   </div>
                 </div>
               </Card>
@@ -4749,8 +4759,8 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
                   <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 14px',borderBottom:`1px solid ${T.border}`}}>
                     <div style={{fontSize:12,fontWeight:700,color:T.text}}>{BUCKET_LABELS[selectedBucket]}</div>
                     <div style={{display:'flex',gap:3,background:T.surface,borderRadius:8,padding:2}}>
-                      <button onClick={()=>setDetailView('categorias')} style={{padding:'4px 9px',borderRadius:6,border:'none',cursor:'pointer',background:detailView==='categorias'?pal.accent:'transparent',color:detailView==='categorias'?'#0B0B12':T.textSec,fontSize:10,fontWeight:600}}>Categorias</button>
-                      <button onClick={()=>setDetailView('transacoes')} style={{padding:'4px 9px',borderRadius:6,border:'none',cursor:'pointer',background:detailView==='transacoes'?pal.accent:'transparent',color:detailView==='transacoes'?'#0B0B12':T.textSec,fontSize:10,fontWeight:600}}>Transações</button>
+                      <button onClick={()=>setDetailView('categorias')} style={{padding:'4px 9px',borderRadius:6,border:'none',cursor:'pointer',background:detailView==='categorias'?pal.accent:'transparent',color:detailView==='categorias'?'#14110F':T.textSec,fontSize:10,fontWeight:600}}>Categorias</button>
+                      <button onClick={()=>setDetailView('transacoes')} style={{padding:'4px 9px',borderRadius:6,border:'none',cursor:'pointer',background:detailView==='transacoes'?pal.accent:'transparent',color:detailView==='transacoes'?'#14110F':T.textSec,fontSize:10,fontWeight:600}}>Transações</button>
                     </div>
                   </div>
                   <div style={{padding:'6px 14px 12px'}}>
@@ -4939,10 +4949,10 @@ export default function Page() {
   const pal = PAL[tab]
 
   if(loading||!minSplashElapsed) return (
-    <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',background:T.bg,fontFamily:'system-ui'}}>
+    <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',background:T.bg,fontFamily:'var(--font-body),system-ui'}}>
       <div style={{textAlign:'center'}}>
         <div style={{display:'flex',justifyContent:'center',marginBottom:14}}><BioIcon size={56}/></div>
-        <div style={{fontSize:32,fontWeight:800,color:T.text,letterSpacing:'-0.03em'}}>Bio<span style={{color:T.green}}>.</span></div>
+        <div style={{fontSize:32,fontWeight:600,fontStyle:'italic',fontFamily:T.display,color:T.text,letterSpacing:'-0.01em'}}>Bio<span style={{color:T.green,fontStyle:'normal'}}>.</span></div>
         <div style={{fontSize:13,color:T.textSec,marginTop:8}}>Balance It Out</div>
         <div style={{fontSize:12,color:T.textTer,marginTop:2}}>Controla as tuas finanças</div>
       </div>
@@ -4961,11 +4971,11 @@ export default function Page() {
   const screenStyle = (id:string):React.CSSProperties => ({display: tab===id ? 'block' : 'none'})
 
   return (
-    <div style={{display:'flex',flexDirection:'column',height:'100vh',maxWidth:440,margin:'0 auto',background:T.bg,fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",sans-serif',color:T.text}}>
+    <div style={{display:'flex',flexDirection:'column',height:'100vh',maxWidth:440,margin:'0 auto',background:T.bg,fontFamily:'var(--font-body),-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",sans-serif',color:T.text}}>
       <div style={{flexShrink:0,background:T.surface,borderBottom:`1px solid ${T.border}`,padding:'12px 16px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
         <div style={{display:'flex',alignItems:'center',gap:8}}>
           <BioIcon size={20}/>
-          <div style={{fontSize:18,fontWeight:800,letterSpacing:'-0.03em'}}>Bio<span style={{color:T.green}}>.</span></div>
+          <div style={{fontSize:18,fontWeight:600,fontStyle:'italic',fontFamily:T.display,letterSpacing:'-0.01em'}}>Bio<span style={{color:T.green,fontStyle:'normal'}}>.</span></div>
         </div>
         <div style={{display:'flex',gap:8}}>
           <button onClick={()=>setShowImport(true)} style={{background:pal.soft,border:'none',borderRadius:10,padding:'7px 12px',display:'flex',alignItems:'center',gap:5,cursor:'pointer'}}><Upload size={13} color={pal.accent}/><span style={{fontSize:12,fontWeight:600,color:pal.accent}}>Importar</span></button>
