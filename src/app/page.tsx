@@ -3327,11 +3327,68 @@ const IrsConfigScreen = ({imovel,onClose,onSaved}:{imovel:Imovel,onClose:()=>voi
 // IRS — MAPEAMENTO PARA SUBMISSÃO (facsímile do Anexo F)
 // ─────────────────────────────────────────────────────────────────
 const IrsMappingScreen = ({resumos,ano,onClose}:{resumos:IrsImovelResumo[],ano:number,onClose:()=>void}) => {
+  const [copied,setCopied] = useState(false)
   const linhas41 = resumos.filter(r=>r.regime.quadro==='4.1').flatMap(buildIrsLinhas)
   const linhas42 = resumos.filter(r=>r.regime.quadro==='4.2').flatMap(buildIrsLinhas)
   const th: React.CSSProperties = {background:'#e4e4e0',border:'1px solid #999',padding:'5px 6px',fontSize:8.5,textTransform:'uppercase',letterSpacing:'0.02em',color:'#333'}
   const td: React.CSSProperties = {border:'1px solid #999',padding:'4px 6px',textAlign:'center',fontFamily:T.mono,fontSize:10.5,color:'#111'}
   const tdCampo: React.CSSProperties = {...td,background:'#e4e4e0',fontWeight:700,fontFamily:'inherit',fontSize:9}
+
+  // Colunas partilhadas entre a tabela em ecrã e o texto para colar/exportar —
+  // definidas uma vez para os dois nunca divergirem.
+  const cols41: {label:string,render:(l:IrsLinha)=>string}[] = [
+    {label:'Freguesia',render:l=>l.imovel.freguesia_codigo||'—'},
+    {label:'Tipo',render:l=>l.imovel.matricial_tipo||'—'},
+    {label:'Artigo',render:l=>l.imovel.matricial_artigo||'—'},
+    {label:'Fração',render:l=>l.imovel.matricial_fraccao||'—'},
+    {label:'Renda Ilíquida',render:l=>dec(l.rendaLinha)},
+    {label:'Conservação',render:l=>dec(l.gastos.conservacao)},
+    {label:'Condomínio',render:l=>dec(l.gastos.condominio)},
+    {label:'IMI',render:l=>dec(l.gastos.imi)},
+    {label:'Selo',render:l=>dec(l.gastos.selo)},
+    {label:'Taxas',render:l=>dec(l.gastos.taxas)},
+    {label:'Outros',render:l=>dec(l.gastos.outros)},
+  ]
+  const cols42: {label:string,render:(l:IrsLinha)=>string}[] = [
+    {label:'Freguesia',render:l=>l.imovel.freguesia_codigo||'—'},
+    {label:'Tipo',render:l=>l.imovel.matricial_tipo||'—'},
+    {label:'Artigo',render:l=>l.imovel.matricial_artigo||'—'},
+    {label:'Fração',render:l=>l.imovel.matricial_fraccao||'—'},
+    {label:'Renda Ilíquida',render:l=>dec(l.rendaLinha)},
+    {label:'Conservação',render:l=>dec(l.gastos.conservacao)},
+    {label:'Condomínio',render:l=>dec(l.gastos.condominio)},
+    {label:'IMI',render:l=>dec(l.gastos.imi)},
+    {label:'Outros',render:l=>dec(l.gastos.outros)},
+  ]
+
+  // Texto tabulado (TSV) — cola directamente como tabela no Excel/Sheets/Mail,
+  // e continua legível colado em WhatsApp ou numa nota. Mesma fonte de dados
+  // e colunas que a tabela em ecrã.
+  const buildClipboardText = () => {
+    const tableText = (title:string, linhas:IrsLinha[], cols:{label:string,render:(l:IrsLinha)=>string}[]) => {
+      const header = ['Imóvel',...cols.map(c=>c.label)].join('\t')
+      const rows = linhas.length
+        ? linhas.map(l=>[l.imovel.nome,...cols.map(c=>c.render(l))].join('\t')).join('\n')
+        : `Sem imóveis neste quadro em ${ano}.`
+      return `${title}\n${header}\n${rows}`
+    }
+    return [
+      `MODELO 3 · ANEXO F · CATEGORIA F`,
+      `Rendimentos Prediais — Ano ${ano}`,
+      ``,
+      tableText('QUADRO 4.1 — SEM REDUÇÃO DE TAXA', linhas41, cols41),
+      ``,
+      tableText('QUADRO 4.2 — LONGA DURAÇÃO (TAXA REDUZIDA)', linhas42, cols42),
+      ``,
+      `"Outros" agrega Seguro, Certificado Energético, Honorários e Comissão de Mediação. "Valorização" nunca soma (não dedutível).`,
+      `Cada imóvel com mais de 1 arrendatário aparece dividido em várias linhas (renda e gastos em partes iguais). Confirma o NIF de cada arrendatário no Portal das Finanças.`,
+    ].join('\n')
+  }
+  const copyToClipboard = async () => {
+    await navigator.clipboard.writeText(buildClipboardText())
+    setCopied(true); setTimeout(()=>setCopied(false),2000)
+  }
+
   const Table = ({title,linhas,cols}:{title:string,linhas:IrsLinha[],cols:{label:string,render:(l:IrsLinha)=>string}[]}) => (
     <>
       <div style={{fontSize:11,fontWeight:800,background:'#111',color:'#fff',display:'inline-block',padding:'3px 9px',margin:'14px 0 8px',letterSpacing:'0.03em'}}>{title}</div>
@@ -3353,40 +3410,31 @@ const IrsMappingScreen = ({resumos,ano,onClose}:{resumos:IrsImovelResumo[],ano:n
     </>
   )
   return (
-    <div style={{position:'fixed',inset:0,background:'#f4f4f2',zIndex:98,overflowY:'auto',fontFamily:"'Segoe UI',Arial,sans-serif"}}>
+    <div className="irs-print-root" style={{position:'fixed',inset:0,background:'#f4f4f2',zIndex:98,overflowY:'auto',fontFamily:"'Segoe UI',Arial,sans-serif"}}>
+      {/* Impressão/PDF: só a folha (sem chrome da app); cores de fundo preservadas;
+          a folha deixa de estar "fixed" para poder paginar em vez de cortar. */}
+      <style>{`
+        @media print {
+          .irs-no-print { display: none !important; }
+          .irs-print-root { position: static !important; overflow: visible !important; background: #fff !important; }
+          * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+        }
+      `}</style>
       <div style={{maxWidth:820,margin:'0 auto',padding:'20px 18px 40px'}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',borderBottom:'2px solid #111',paddingBottom:10,marginBottom:6}}>
-          <div>
-            <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',color:'#555',fontSize:13,marginBottom:8,padding:0}}>← Voltar</button>
-            <div style={{fontSize:10,letterSpacing:'0.04em',color:'#555'}}>MODELO 3 · ANEXO F · CATEGORIA F</div>
-            <div style={{fontSize:16,fontWeight:800,color:'#111',marginTop:2}}>Rendimentos Prediais — Ano {ano}</div>
-            <div style={{fontSize:11,color:'#555',marginTop:1}}>Valores calculados pela app, prontos a transcrever</div>
+        <div className="irs-no-print" style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:10,marginBottom:2}}>
+          <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',color:'#555',fontSize:13,padding:0}}>← Voltar</button>
+          <div style={{display:'flex',gap:8}}>
+            <button onClick={copyToClipboard} style={{background:'#fff',border:'1px solid #999',borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:600,color:'#333',cursor:'pointer'}}>{copied?'✓ Copiado':'Copiar para colar'}</button>
+            <button onClick={()=>window.print()} style={{background:'#111',border:'none',borderRadius:8,padding:'6px 12px',fontSize:12,fontWeight:600,color:'#fff',cursor:'pointer'}}>Exportar PDF</button>
           </div>
         </div>
-        <Table title="QUADRO 4.1 — SEM REDUÇÃO DE TAXA" linhas={linhas41} cols={[
-          {label:'Freguesia',render:l=>l.imovel.freguesia_codigo||'—'},
-          {label:'Tipo',render:l=>l.imovel.matricial_tipo||'—'},
-          {label:'Artigo',render:l=>l.imovel.matricial_artigo||'—'},
-          {label:'Fração',render:l=>l.imovel.matricial_fraccao||'—'},
-          {label:'Renda Ilíquida',render:l=>dec(l.rendaLinha)},
-          {label:'Conservação',render:l=>dec(l.gastos.conservacao)},
-          {label:'Condomínio',render:l=>dec(l.gastos.condominio)},
-          {label:'IMI',render:l=>dec(l.gastos.imi)},
-          {label:'Selo',render:l=>dec(l.gastos.selo)},
-          {label:'Taxas',render:l=>dec(l.gastos.taxas)},
-          {label:'Outros',render:l=>dec(l.gastos.outros)},
-        ]}/>
-        <Table title="QUADRO 4.2 — LONGA DURAÇÃO (TAXA REDUZIDA)" linhas={linhas42} cols={[
-          {label:'Freguesia',render:l=>l.imovel.freguesia_codigo||'—'},
-          {label:'Tipo',render:l=>l.imovel.matricial_tipo||'—'},
-          {label:'Artigo',render:l=>l.imovel.matricial_artigo||'—'},
-          {label:'Fração',render:l=>l.imovel.matricial_fraccao||'—'},
-          {label:'Renda Ilíquida',render:l=>dec(l.rendaLinha)},
-          {label:'Conservação',render:l=>dec(l.gastos.conservacao)},
-          {label:'Condomínio',render:l=>dec(l.gastos.condominio)},
-          {label:'IMI',render:l=>dec(l.gastos.imi)},
-          {label:'Outros',render:l=>dec(l.gastos.outros)},
-        ]}/>
+        <div style={{borderBottom:'2px solid #111',paddingBottom:10,marginBottom:6,marginTop:8}}>
+          <div style={{fontSize:10,letterSpacing:'0.04em',color:'#555'}}>MODELO 3 · ANEXO F · CATEGORIA F</div>
+          <div style={{fontSize:16,fontWeight:800,color:'#111',marginTop:2}}>Rendimentos Prediais — Ano {ano}</div>
+          <div style={{fontSize:11,color:'#555',marginTop:1}}>Valores calculados pela app, prontos a transcrever</div>
+        </div>
+        <Table title="QUADRO 4.1 — SEM REDUÇÃO DE TAXA" linhas={linhas41} cols={cols41}/>
+        <Table title="QUADRO 4.2 — LONGA DURAÇÃO (TAXA REDUZIDA)" linhas={linhas42} cols={cols42}/>
         <div style={{fontSize:9.5,color:'#666',marginTop:6,lineHeight:1.5}}>"Outros" agrega Seguro, Certificado Energético, Honorários e Comissão de Mediação — sem coluna própria no formulário oficial. "Valorização" nunca soma (não dedutível).</div>
         <div style={{background:'#fff3cd',border:'1px solid #d4a017',borderRadius:6,padding:'8px 12px',fontSize:10.5,color:'#664d03',marginTop:14}}>⚠ Cada imóvel com mais de 1 arrendatário aparece dividido em várias linhas (renda e gastos a dividir em partes iguais). Confirma o NIF de cada arrendatário directamente no Portal das Finanças.</div>
       </div>
