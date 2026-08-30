@@ -684,7 +684,7 @@ const Hero = ({pal,title,mainValue,mainColor,kpis,trend,period,mainSuffix,sparkM
       </div>
       <div style={{gridColumn:1,gridRow:2}}>
         <div style={{display:'flex',alignItems:'baseline',gap:6}}>
-          <div style={{fontSize:34,fontWeight:600,color:mainColor??T.text,letterSpacing:'-0.01em',fontFamily:T.display}}>{mainValue}</div>
+          <div style={{fontSize:32,fontWeight:700,color:mainColor??T.text,letterSpacing:'-0.03em',fontFamily:T.mono}}>{mainValue}</div>
           {mainSuffix&&<span style={{fontSize:12,color:T.textTer}}>{mainSuffix}</span>}
         </div>
       </div>
