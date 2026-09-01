@@ -1835,6 +1835,11 @@ const NotificationsScreen = ({onClose,pal}:{onClose:()=>void,pal:{accent:string,
                 </div>
                 {isExp&&(
                   <div style={{padding:'0 14px 12px 46px',borderTop:`1px solid ${T.border}`}}>
+                    {/* Texto completo — a pré-visualização acima corta com "…" mesmo quando não há
+                        separador " | " (esse formato só se aplica a resumos de import, com uma linha
+                        por ficheiro). Sem isto, expandir uma notificação normal (ex: "Custos Casa
+                        sincronizado") não mostrava o resto da frase em lado nenhum. */}
+                    {n.body&&!n.body.includes(' | ')&&<div style={{fontSize:11,color:T.textSec,marginTop:8,lineHeight:1.5,wordBreak:'break-word'}}>{n.body}</div>}
                     {meta.account_id&&<div style={{fontSize:11,color:T.textSec,marginTop:8}}>🏦 Conta: {meta.account_id}</div>}
                     {meta.filename&&<div style={{fontSize:11,color:T.textSec,marginTop:4}}>📄 {meta.filename}</div>}
                     {meta.txn_count!=null&&<div style={{fontSize:11,color:T.textSec,marginTop:4}}>📊 {meta.txn_count} transações</div>}
