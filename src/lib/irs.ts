@@ -32,6 +32,9 @@ export const HABITACIONAL_TIPOS = new Set(['apartamento','moradia'])
 // (Lisboa — único concelho relevante hoje). Base 2024 (Portaria 53/2024) + coeficiente anual
 // de actualização das rendas (2025: 2,16%; 2026: 2,24%), arredondado ao euro acima, como a lei manda.
 // Calculado por nós — confirmar despacho oficial se/quando publicado.
+// Usado só para validar o tecto de 150% do Quadro 4.2 (art. 72º nº23 CIRS) — mecanismo mais
+// antigo, distinto da "renda moderada" da Lei 73-A/2025 (ver IRS_LIMITE_RENDA_MODERADA abaixo,
+// que usa uma referência diferente, não esta tabela).
 export const IRS_LIMITE_RENDA_E6: Record<'2024'|'2025'|'2026', Record<'T0'|'T1'|'T2'|'T3'|'T4'|'T5', number>> = {
   '2024': {T0:600, T1:900,  T2:1150, T3:1375, T4:1550, T5:1700},
   '2025': {T0:613, T1:920,  T2:1175, T3:1405, T4:1584, T5:1737},
@@ -43,6 +46,17 @@ export function limiteRendaAplicavel(tipologia:Imovel['irs_tipologia'], ano:numb
   if(!tipologia) return null
   const anoKey = String(Math.min(2026,Math.max(2024,ano))) as '2024'|'2025'|'2026'
   return IRS_LIMITE_RENDA_E6[anoKey][tipologia]
+}
+
+// Limite de "renda moderada" para a taxa de 10% da Lei 73-A/2025 — ao contrário do E6 acima,
+// a cobertura de imprensa descreve isto como um valor ÚNICO nacional (não por concelho/
+// tipologia): ~2,5× a Retribuição Mínima Mensal Garantida. Derivado, não confirmado no
+// diploma — Doutor Finanças e ECO citam ambos €2 300 para 2026, mas nenhum reproduz o texto
+// legal. Só cobre 2026 (a lei só existe a partir daí) — corrigir aqui se/quando o valor
+// oficial (ou a fórmula exacta, e a sua actualização em anos seguintes) for confirmado.
+export const IRS_LIMITE_RENDA_MODERADA_2026 = 2300
+export function limiteRendaModerada(ano:number): number|null {
+  return ano===2026 ? IRS_LIMITE_RENDA_MODERADA_2026 : null
 }
 
 // Duração aproximada do contrato, em anos — a data de fim é inclusiva (um contrato "de 5
@@ -63,15 +77,15 @@ export type IrsRegime = { quadro:'4.1'|'4.2'|'4.1-moderada', taxa:number, escala
 //
 // "4.1-moderada": Lei n.º 73-A/2025 (Orçamento do Estado 2026), publicada em Diário da
 // República a 30/12/2025, altera o art. 72º do CIRS — taxa de 10% para arrendamento
-// habitacional com renda dentro do limite "moderado", em contratos novos ou já existentes
-// (inclui os já em Quadro 4.2 por duração — a lei fala em "todos os contratos com rendas
-// moderadas"). Montado a partir de cobertura de imprensa (Doutor Finanças, ECO), NÃO do texto
-// do diploma — falta confirmar: o limite de renda exacto (assumido = mesma tabela E6/Portaria
-// 176/2019 já usada para o Quadro 4.2, a 100% em vez dos 150%) e se realmente compete com o
-// Quadro 4.2 desta forma. Por segurança, só troca para 10% quando é mais favorável do que o
-// regime base (nunca troca os 5% dos 20+ anos, por exemplo, para pior). Ignora de propósito o
-// RSAA (isenção a 0% para renda ≤80% da mediana, em vigor 1/Set/2026) — regime à parte, ainda
-// por implementar.
+// habitacional com renda dentro do limite "moderado" (IRS_LIMITE_RENDA_MODERADA_2026, um
+// valor único nacional — NÃO a tabela E6, que é de um mecanismo diferente e mais antigo,
+// confundida aqui numa versão anterior), em contratos novos ou já existentes (inclui os já em
+// Quadro 4.2 por duração — a lei fala em "todos os contratos com rendas moderadas"). Montado a
+// partir de cobertura de imprensa (Doutor Finanças, ECO), NÃO do texto do diploma — falta
+// confirmar o valor exacto e se realmente compete com o Quadro 4.2 desta forma. Por segurança,
+// só troca para 10% quando é mais favorável do que o regime base (nunca troca os 5% dos 20+
+// anos, por exemplo, para pior). Ignora de propósito o RSAA (isenção a 0% para renda ≤80% da
+// mediana, em vigor 1/Set/2026) — regime à parte, ainda por implementar.
 export function sugerirRegimeIrs(im:Imovel, ano?:number, rendaMediaMensal100?:number|null): IrsRegime {
   const habitacional = HABITACIONAL_TIPOS.has(im.tipo)
   const anos = contratoDuracaoAnos(im.contrato_data_inicio, im.contrato_data_fim)
@@ -87,7 +101,7 @@ export function sugerirRegimeIrs(im:Imovel, ano?:number, rendaMediaMensal100?:nu
   }
 
   if(habitacional && ano!=null && rendaMediaMensal100!=null && 10<base.taxa){
-    const limite = limiteRendaAplicavel(im.irs_tipologia, ano)
+    const limite = limiteRendaModerada(ano)
     if(limite!=null && rendaMediaMensal100<=limite){
       return { quadro:'4.1-moderada', taxa: im.irs_taxa_override ?? 10, escalao:'Renda moderada', habitacional }
     }
