@@ -56,13 +56,31 @@ export function contratoDuracaoAnos(inicio:string|null, fim:string|null): number
   return ms/(365.25*86400000)
 }
 
-export type IrsRegime = { quadro:'4.1'|'4.2', taxa:number, escalao:string|null, habitacional:boolean }
+export type IrsRegime = { quadro:'4.1'|'4.2'|'4.1-moderada', taxa:number, escalao:string|null, habitacional:boolean }
 // Sugestão de regime/taxa — o override manual (irs_taxa_override) vence sempre, mas o quadro
-// (4.1 vs 4.2) continua a ser calculado a partir da duração, para saberes que tabela usar.
-export function sugerirRegimeIrs(im:Imovel): IrsRegime {
+// continua a ser calculado (duração para 4.2, renda para a nova "4.1-moderada"), para saberes
+// que tabela usar.
+//
+// "4.1-moderada": Lei n.º 73-A/2025 (Orçamento do Estado 2026), publicada em Diário da
+// República a 30/12/2025, altera o art. 72º do CIRS — taxa de 10% (em vez dos 25% normais)
+// para arrendamento habitacional com renda dentro do limite "moderado", em contratos novos ou
+// já existentes. Montado a partir de cobertura de imprensa (Doutor Finanças, ECO), NÃO do
+// texto do diploma — falta confirmar: o limite de renda exacto (assumido = mesma tabela E6/
+// Portaria 176/2019 já usada para o Quadro 4.2, a 100% em vez dos 150%) e se coexiste com os
+// Quadro 4.2 já existentes (aqui, deliberadamente, só se aplica quando NÃO haveria Quadro 4.2 —
+// nunca substitui um regime de longa duração já mais favorável ou já validado). Ignora de
+// propósito o RSAA (isenção a 0% para renda ≤80% da mediana, em vigor 1/Set/2026) — regime
+// à parte, ainda por implementar.
+export function sugerirRegimeIrs(im:Imovel, ano?:number, rendaMediaMensal100?:number|null): IrsRegime {
   const habitacional = HABITACIONAL_TIPOS.has(im.tipo)
   const anos = contratoDuracaoAnos(im.contrato_data_inicio, im.contrato_data_fim)
   if(!habitacional || anos==null || anos<5){
+    if(habitacional && ano!=null && rendaMediaMensal100!=null){
+      const limite = limiteRendaAplicavel(im.irs_tipologia, ano)
+      if(limite!=null && rendaMediaMensal100<=limite){
+        return { quadro:'4.1-moderada', taxa: im.irs_taxa_override ?? 10, escalao:'Renda moderada', habitacional }
+      }
+    }
     return { quadro:'4.1', taxa: im.irs_taxa_override ?? (habitacional?25:28), escalao:null, habitacional }
   }
   let taxa=15, escalao='5 a 10 anos'
@@ -86,14 +104,19 @@ export function computeIrsImovel(im:Imovel, transactions:Transaction[], ano:numb
   const anoTxns = transactions.filter(t=>t.imovel_id===im.id && t.data.startsWith(String(ano)))
   // Todo o rendimento do imóvel conta como renda por defeito — só fica de fora quando marcado
   // explicitamente como "não é renda" (ex: reembolso de utilities pago pelo arrendatário).
-  const bruto = anoTxns.filter(t=>Number(t.valor)>0 && t.subcategoria!=='nao_renda').reduce((s,t)=>s+Number(t.valor)*pct,0)
+  const rendaTxns = anoTxns.filter(t=>Number(t.valor)>0 && t.subcategoria!=='nao_renda')
+  const bruto = rendaTxns.reduce((s,t)=>s+Number(t.valor)*pct,0)
+  // Bruto a 100% (independente do `use100` pedido) só para o teste de renda moderada — o
+  // limite legal é sobre a renda total do contrato, nunca sobre a tua quota de propriedade
+  // (mesma regra que já se aplicava à validação do Quadro 4.2, art. 72º nº23 CIRS).
+  const bruto100 = rendaTxns.reduce((s,t)=>s+Number(t.valor),0)
   const gastosPorCategoria = {} as Record<IrsSubcategoria,number>
   IRS_SUBCATEGORIAS.forEach(c=>{ gastosPorCategoria[c]=0 })
   anoTxns.filter(t=>Number(t.valor)<0 && t.subcategoria && (IRS_SUBCATEGORIAS as readonly string[]).includes(t.subcategoria))
     .forEach(t=>{ gastosPorCategoria[t.subcategoria as IrsSubcategoria] += Math.abs(Number(t.valor))*pct })
   const gastosDedutiveis = IRS_SUBCATEGORIAS.filter(c=>c!=='nao_dedutivel').reduce((s,c)=>s+gastosPorCategoria[c],0)
   const materiaColectavel = Math.max(0, bruto-gastosDedutiveis)
-  const regime = sugerirRegimeIrs(im)
+  const regime = sugerirRegimeIrs(im, ano, bruto100/12)
   const imposto = materiaColectavel*(regime.taxa/100)
   return { imovel:im, bruto, gastosPorCategoria, gastosDedutiveis, materiaColectavel, regime, imposto, liquido: bruto-gastosDedutiveis-imposto }
 }

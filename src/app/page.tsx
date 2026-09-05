@@ -3414,6 +3414,10 @@ const IrsMappingScreen = ({resumos,ano,onClose}:{resumos:IrsImovelResumo[],ano:n
   const captureRef = useRef<HTMLDivElement>(null)
   const linhas41 = resumos.filter(r=>r.regime.quadro==='4.1').flatMap(buildIrsLinhas)
   const linhas42 = resumos.filter(r=>r.regime.quadro==='4.2').flatMap(buildIrsLinhas)
+  // Renda moderada (Lei 73-A/2025) — quadro novo, sem posição confirmada no formulário oficial
+  // ainda; por agora fica com a mesma forma do 4.1, destacado à parte para não se confundir
+  // com "sem redução de taxa" (aqui HÁ redução, só que por preço da renda, não por duração).
+  const linhasModerada = resumos.filter(r=>r.regime.quadro==='4.1-moderada').flatMap(buildIrsLinhas)
   const th: React.CSSProperties = {background:'#e4e4e0',border:'1px solid #999',padding:'5px 6px',fontSize:8.5,textTransform:'uppercase',letterSpacing:'0.02em',color:'#333'}
   const td: React.CSSProperties = {border:'1px solid #999',padding:'4px 6px',textAlign:'center',fontFamily:T.mono,fontSize:10.5,color:'#111'}
   const tdCampo: React.CSSProperties = {...td,background:'#e4e4e0',fontWeight:700,fontFamily:'inherit',fontSize:9}
@@ -3461,6 +3465,8 @@ const IrsMappingScreen = ({resumos,ano,onClose}:{resumos:IrsImovelResumo[],ano:n
       `Rendimentos Prediais — Ano ${ano}`,
       ``,
       tableText('QUADRO 4.1 — SEM REDUÇÃO DE TAXA', linhas41, cols41),
+      ``,
+      tableText('RENDA MODERADA — TAXA 10% (Lei 73-A/2025, confirmar oficialmente)', linhasModerada, cols41),
       ``,
       tableText('QUADRO 4.2 — LONGA DURAÇÃO (TAXA REDUZIDA)', linhas42, cols42),
       ``,
@@ -3548,7 +3554,7 @@ const IrsMappingScreen = ({resumos,ano,onClose}:{resumos:IrsImovelResumo[],ano:n
   const exportadoEm = `${now.toLocaleDateString('pt-PT',{day:'2-digit',month:'2-digit',year:'numeric'})} às ${now.toLocaleTimeString('pt-PT',{hour:'2-digit',minute:'2-digit'})}`
   const anoEmCurso = ano===now.getFullYear()
   const periodoLabel = anoEmCurso ? `1 Jan – ${now.toLocaleDateString('pt-PT',{day:'2-digit',month:'short'})} ${ano}` : `1 Jan – 31 Dez ${ano}`
-  const todasLinhas = [...linhas41,...linhas42]
+  const todasLinhas = [...linhas41,...linhasModerada,...linhas42]
   const nImoveis = new Set(todasLinhas.map(l=>l.imovel.id)).size
   const quotas = Array.from(new Map(todasLinhas.map(l=>[l.imovel.id,{nome:l.imovel.nome,pct:l.imovel.ownership_pct}])).values())
   const quotasIguais = quotas.every(q=>q.pct===quotas[0]?.pct)
@@ -3610,7 +3616,9 @@ const IrsMappingScreen = ({resumos,ano,onClose}:{resumos:IrsImovelResumo[],ano:n
           {quotaLabel&&<div style={{fontSize:10,color:'#555',marginBottom:10,lineHeight:1.5}}>{quotaLabel}</div>}
 
           <Table title="QUADRO 4.1 — SEM REDUÇÃO DE TAXA" linhas={linhas41} cols={cols41}/>
+          {linhasModerada.length>0&&<Table title="RENDA MODERADA — TAXA 10%" linhas={linhasModerada} cols={cols41}/>}
           <Table title="QUADRO 4.2 — LONGA DURAÇÃO (TAXA REDUZIDA)" linhas={linhas42} cols={cols42}/>
+          {linhasModerada.length>0&&<div style={{background:'#fff3cd',border:'1px solid #d4a017',borderRadius:6,padding:'8px 12px',fontSize:10.5,color:'#664d03',marginTop:8}}>⚠ "Renda moderada" (10%, Lei 73-A/2025) ainda não tem posição confirmada no formulário oficial — a app junta estas linhas ao Quadro 4.1 por agora. Confirma com o Portal das Finanças ou contabilista antes de submeter.</div>}
           <div style={{fontSize:9.5,color:'#666',marginTop:6,lineHeight:1.5}}>"Outros" agrega Seguro, Certificado Energético, Honorários e Comissão de Mediação — sem coluna própria no formulário oficial. "Valorização" nunca soma (não dedutível).</div>
           <div style={{background:'#fff3cd',border:'1px solid #d4a017',borderRadius:6,padding:'8px 12px',fontSize:10.5,color:'#664d03',marginTop:14}}>⚠ Cada imóvel com mais de 1 arrendatário aparece dividido em várias linhas (renda e gastos a dividir em partes iguais). Confirma o NIF de cada arrendatário directamente no Portal das Finanças.</div>
 
@@ -3855,7 +3863,7 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
                   <div style={{fontSize:10.5,color:T.textTer,marginTop:2}}>Bruto {dec(r.bruto)} · Gastos {dec(r.gastosDedutiveis)} · matéria colectável {dec(r.materiaColectavel)}</div>
                 </div>
                 <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',background:T.surface2,borderRadius:8,padding:'6px 10px',marginTop:6}}>
-                  <span style={{fontSize:10.5,color:T.textSec}}>Q{r.regime.quadro}{r.regime.escalao?` · ${r.regime.escalao}`:''} · taxa</span>
+                  <span style={{fontSize:10.5,color:T.textSec}}>{r.regime.quadro==='4.1-moderada'?'Renda moderada':`Q${r.regime.quadro}${r.regime.escalao?` · ${r.regime.escalao}`:''}`} · taxa</span>
                   <div style={{display:'flex',alignItems:'center',gap:4}}>
                     <input value={taxaVal} onChange={e=>setTaxaInputs({...taxaInputs,[r.imovel.id]:e.target.value})} onBlur={()=>saveTaxa(r.imovel,taxaInputs[r.imovel.id]??String(r.regime.taxa))}
                       style={{width:36,background:'none',border:'none',color:PAL.imoveis.accent,fontSize:12,fontWeight:700,fontFamily:T.mono,textAlign:'right'}}/>
