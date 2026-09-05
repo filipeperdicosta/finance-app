@@ -3868,7 +3868,7 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
                 <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',background:T.surface2,borderRadius:8,padding:'6px 10px',marginTop:6}}>
                   <span style={{fontSize:10.5,color:T.textSec}}>{r.regime.quadro==='4.1-moderada'?'Renda moderada':`Q${r.regime.quadro}${r.regime.escalao?` · ${r.regime.escalao}`:''}`} · taxa</span>
                   <div style={{display:'flex',alignItems:'center',gap:4}}>
-                    <input value={taxaVal} onChange={e=>setTaxaInputs({...taxaInputs,[r.imovel.id]:e.target.value})} onBlur={()=>saveTaxa(r.imovel,taxaInputs[r.imovel.id]??String(r.regime.taxa))}
+                    <input value={taxaVal} onChange={e=>setTaxaInputs({...taxaInputs,[r.imovel.id]:e.target.value})} onBlur={()=>{if(taxaInputs[r.imovel.id]!==undefined)saveTaxa(r.imovel,taxaInputs[r.imovel.id])}}
                       style={{width:36,background:'none',border:'none',color:PAL.imoveis.accent,fontSize:12,fontWeight:700,fontFamily:T.mono,textAlign:'right'}}/>
                     <span style={{fontSize:10.5,color:T.textSec}}>% → imposto {dec(r.imposto)}</span>
                   </div>
