@@ -81,7 +81,7 @@ const tagPal = (tag:string) => tag==='investimento' ? PAL.imoveis : (PAL[tag] ??
 const CAT_LIST = ['Receita','Groceries','Restauração','Compras','Saúde','Transportes','Lazer','Levantamentos','Habitação','Utilities','Subscrições','Investimentos','Comissões e Taxas','Transferências','Despesas Gerais']
 const CAT_META: Record<string,{cor:string,Icon:React.ElementType}> = {
   'Receita':{cor:'#4ADE80',Icon:CurrencyEur},
-  'Groceries':{cor:'#4ADE80',Icon:ShoppingCart},
+  'Groceries':{cor:'#EAB308',Icon:ShoppingCart},
   'Restauração':{cor:'#F97316',Icon:ForkKnife},
   'Compras':{cor:'#FB923C',Icon:ShoppingBag},
   'Saúde':{cor:'#38BDF8',Icon:Heart},
