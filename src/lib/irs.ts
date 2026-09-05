@@ -62,31 +62,38 @@ export type IrsRegime = { quadro:'4.1'|'4.2'|'4.1-moderada', taxa:number, escala
 // que tabela usar.
 //
 // "4.1-moderada": Lei n.º 73-A/2025 (Orçamento do Estado 2026), publicada em Diário da
-// República a 30/12/2025, altera o art. 72º do CIRS — taxa de 10% (em vez dos 25% normais)
-// para arrendamento habitacional com renda dentro do limite "moderado", em contratos novos ou
-// já existentes. Montado a partir de cobertura de imprensa (Doutor Finanças, ECO), NÃO do
-// texto do diploma — falta confirmar: o limite de renda exacto (assumido = mesma tabela E6/
-// Portaria 176/2019 já usada para o Quadro 4.2, a 100% em vez dos 150%) e se coexiste com os
-// Quadro 4.2 já existentes (aqui, deliberadamente, só se aplica quando NÃO haveria Quadro 4.2 —
-// nunca substitui um regime de longa duração já mais favorável ou já validado). Ignora de
-// propósito o RSAA (isenção a 0% para renda ≤80% da mediana, em vigor 1/Set/2026) — regime
-// à parte, ainda por implementar.
+// República a 30/12/2025, altera o art. 72º do CIRS — taxa de 10% para arrendamento
+// habitacional com renda dentro do limite "moderado", em contratos novos ou já existentes
+// (inclui os já em Quadro 4.2 por duração — a lei fala em "todos os contratos com rendas
+// moderadas"). Montado a partir de cobertura de imprensa (Doutor Finanças, ECO), NÃO do texto
+// do diploma — falta confirmar: o limite de renda exacto (assumido = mesma tabela E6/Portaria
+// 176/2019 já usada para o Quadro 4.2, a 100% em vez dos 150%) e se realmente compete com o
+// Quadro 4.2 desta forma. Por segurança, só troca para 10% quando é mais favorável do que o
+// regime base (nunca troca os 5% dos 20+ anos, por exemplo, para pior). Ignora de propósito o
+// RSAA (isenção a 0% para renda ≤80% da mediana, em vigor 1/Set/2026) — regime à parte, ainda
+// por implementar.
 export function sugerirRegimeIrs(im:Imovel, ano?:number, rendaMediaMensal100?:number|null): IrsRegime {
   const habitacional = HABITACIONAL_TIPOS.has(im.tipo)
   const anos = contratoDuracaoAnos(im.contrato_data_inicio, im.contrato_data_fim)
+
+  let base: IrsRegime
   if(!habitacional || anos==null || anos<5){
-    if(habitacional && ano!=null && rendaMediaMensal100!=null){
-      const limite = limiteRendaAplicavel(im.irs_tipologia, ano)
-      if(limite!=null && rendaMediaMensal100<=limite){
-        return { quadro:'4.1-moderada', taxa: im.irs_taxa_override ?? 10, escalao:'Renda moderada', habitacional }
-      }
-    }
-    return { quadro:'4.1', taxa: im.irs_taxa_override ?? (habitacional?25:28), escalao:null, habitacional }
+    base = { quadro:'4.1', taxa: habitacional?25:28, escalao:null, habitacional }
+  } else {
+    let taxa=15, escalao='5 a 10 anos'
+    if(anos>=20){ taxa=5; escalao='20+ anos' }
+    else if(anos>=10){ taxa=10; escalao='10 a 20 anos' }
+    base = { quadro:'4.2', taxa, escalao, habitacional }
   }
-  let taxa=15, escalao='5 a 10 anos'
-  if(anos>=20){ taxa=5; escalao='20+ anos' }
-  else if(anos>=10){ taxa=10; escalao='10 a 20 anos' }
-  return { quadro:'4.2', taxa: im.irs_taxa_override ?? taxa, escalao, habitacional }
+
+  if(habitacional && ano!=null && rendaMediaMensal100!=null && 10<base.taxa){
+    const limite = limiteRendaAplicavel(im.irs_tipologia, ano)
+    if(limite!=null && rendaMediaMensal100<=limite){
+      return { quadro:'4.1-moderada', taxa: im.irs_taxa_override ?? 10, escalao:'Renda moderada', habitacional }
+    }
+  }
+
+  return { ...base, taxa: im.irs_taxa_override ?? base.taxa }
 }
 
 export type IrsImovelResumo = {

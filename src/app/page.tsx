@@ -3339,7 +3339,10 @@ const IrsConfigScreen = ({imovel,onClose,onSaved}:{imovel:Imovel,onClose:()=>voi
   const regime = sugerirRegimeIrs({...imovel, contrato_data_inicio:dataInicio||null, contrato_data_fim:dataFim||null})
   const anos = contratoDuracaoAnos(dataInicio||null, dataFim||null)
   const anoComunicacao = dataInicio ? Number(dataInicio.slice(0,4))+1 : null
-  const precisaTipologia = regime.quadro==='4.2' && !!dataInicio && dataInicio>='2024-01-01'
+  // Antes só pedia tipologia para contratos já em Quadro 4.2 (o limite dos 150% só se aplica
+  // aí) — mas a tipologia passou a ser precisa também para o teste de renda moderada (10%),
+  // que se aplica a qualquer imóvel habitacional, não só aos de longa duração.
+  const precisaTipologia = regime.habitacional
 
   const submit = async () => {
     setSaving(true)
