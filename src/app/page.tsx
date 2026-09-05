@@ -11,9 +11,15 @@ import {
   Filter, CheckSquare, Square, Tag, Calendar, SlidersHorizontal, Link2, Inbox,
   Sparkles, Target, BrainCircuit, Folder, ChevronRight, AlertTriangle, Bell,
   Users, UserPlus, Mail, HeartPulse, ChevronUp, ChevronDown,
-  Coins, ShoppingCart, UtensilsCrossed, ShoppingBag, Car, Ticket, Banknote,
-  Repeat, Landmark, ArrowLeftRight, Package,
 } from 'lucide-react'
+// Ícones de categoria — família à parte (Phosphor, peso "fill"): a chrome da app
+// (setas, botões, cabeçalhos) fica lucide-outline; as categorias, sólidas a branco
+// sobre fundo na cor da categoria. Par deliberado, não a mesma inconsistência que
+// o emoji tinha — aqui as duas famílias têm peso visual e propósito diferentes.
+import {
+  Heart, ShoppingCart, ForkKnife, ShoppingBag, Car, Popcorn, Wallet, House,
+  Lightning, Rss, Vault, Bank, ArrowsLeftRight, Package, CurrencyEur,
+} from '@phosphor-icons/react'
 import {
   supabase, loadAllData, loadAllTransactions, saveAccount, deleteAccount, updateAccount,
   saveTransactions, updateTransaction, deleteTransaction, deleteTransactions, recategorizeTransactions,
@@ -73,30 +79,34 @@ const BioIcon = ({size=20}:{size?:number}) => (
 )
 const tagPal = (tag:string) => tag==='investimento' ? PAL.imoveis : (PAL[tag] ?? PAL.pessoal)
 const CAT_LIST = ['Receita','Groceries','Restauração','Compras','Saúde','Transportes','Lazer','Levantamentos','Habitação','Utilities','Subscrições','Investimentos','Comissões e Taxas','Transferências','Despesas Gerais']
-// Traço fino (lucide) em vez de emoji — emoji renderiza de forma diferente por
-// OS/browser e destoa dos ícones de UI, que já eram lucide. Uma só linguagem de ícones.
 const CAT_META: Record<string,{cor:string,Icon:React.ElementType}> = {
-  'Receita':{cor:'#4ADE80',Icon:Coins},
+  'Receita':{cor:'#4ADE80',Icon:CurrencyEur},
   'Groceries':{cor:'#4ADE80',Icon:ShoppingCart},
-  'Restauração':{cor:'#F97316',Icon:UtensilsCrossed},
+  'Restauração':{cor:'#F97316',Icon:ForkKnife},
   'Compras':{cor:'#FB923C',Icon:ShoppingBag},
-  'Saúde':{cor:'#38BDF8',Icon:HeartPulse},
+  'Saúde':{cor:'#38BDF8',Icon:Heart},
   'Transportes':{cor:'#22D3EE',Icon:Car},
-  'Lazer':{cor:'#FBBF24',Icon:Ticket},
-  'Levantamentos':{cor:'#A3A3A3',Icon:Banknote},
-  'Habitação':{cor:'#A78BFA',Icon:Home},
-  'Utilities':{cor:'#818CF8',Icon:Zap},
-  'Subscrições':{cor:'#FB7185',Icon:Repeat},
-  'Investimentos':{cor:'#60A5FA',Icon:TrendingUp},
-  'Comissões e Taxas':{cor:'#94A3B8',Icon:Landmark},
-  'Transferências':{cor:'#94A3B8',Icon:ArrowLeftRight},
+  'Lazer':{cor:'#FBBF24',Icon:Popcorn},
+  'Levantamentos':{cor:'#A3A3A3',Icon:Wallet},
+  'Habitação':{cor:'#A78BFA',Icon:House},
+  'Utilities':{cor:'#818CF8',Icon:Lightning},
+  'Subscrições':{cor:'#FB7185',Icon:Rss},
+  'Investimentos':{cor:'#60A5FA',Icon:Vault},
+  'Comissões e Taxas':{cor:'#94A3B8',Icon:Bank},
+  'Transferências':{cor:'#94A3B8',Icon:ArrowsLeftRight},
   'Despesas Gerais':{cor:'#64748B',Icon:Package},
 }
 const getCatStyle = (nome:string) => CAT_META[nome] ?? CAT_META['Despesas Gerais']
-// Ícone de categoria pronto a usar — centraliza tamanho/cor para não repetir em cada sítio.
-const CatIcon = ({categoria,size=16}:{categoria:string,size?:number}) => {
+// Chip de categoria pronto a usar — ícone sólido branco sobre fundo na cor da
+// categoria, misturada com a superfície (color-mix) para controlar a opacidade
+// por contexto: 50% nas Despesas, 35% nas listas de transações, 80% no selector.
+const CatChip = ({categoria,size=38,opacity=50,radius}:{categoria:string,size?:number,opacity?:number,radius?:number}) => {
   const {Icon,cor} = getCatStyle(categoria)
-  return <Icon size={size} color={cor} strokeWidth={2}/>
+  return (
+    <div style={{width:size,height:size,borderRadius:radius??Math.round(size*0.3),background:`color-mix(in srgb, ${cor} ${opacity}%, ${T.surface})`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+      <Icon size={Math.round(size*0.47)} weight="fill" color="#fff"/>
+    </div>
+  )
 }
 const MONTHS_SHORT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
 const MONTHS_FULL = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
@@ -510,6 +520,43 @@ const Sel = ({label,value,onChange,options}:{label:string,value:string,onChange:
     </select>
   </div>
 )
+// Selector de categoria com ícones — o <select> nativo só aceita texto (por isso os
+// ícones tinham desaparecido de lá); esta folha própria mostra o chip a sério (80%
+// de opacidade) em grelha, para escolher a categoria a ver o ícone dela.
+const CategoryPicker = ({label,value,onChange,categorias}:{label:string,value:string,onChange:(v:string)=>void,categorias:string[]}) => {
+  const [open,setOpen] = useState(false)
+  return (
+    <div style={{marginBottom:14}}>
+      <div style={{fontSize:11,color:T.textSec,fontWeight:600,marginBottom:5,textTransform:'uppercase',letterSpacing:'0.06em'}}>{label}</div>
+      <button onClick={()=>setOpen(true)} style={{width:'100%',background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,padding:'8px 12px',display:'flex',alignItems:'center',gap:10,cursor:'pointer',textAlign:'left'}}>
+        <CatChip categoria={value} size={30} opacity={80} radius={9}/>
+        <span style={{flex:1,color:T.text,fontSize:13}}>{value}</span>
+        <ChevronRight size={14} color={T.textTer} style={{transform:'rotate(90deg)'}}/>
+      </button>
+      {open&&(
+        <div onClick={()=>setOpen(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:130,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:T.surface,borderRadius:'20px 20px 0 0',width:'100%',maxWidth:440,maxHeight:'75vh',overflow:'auto',padding:'0 0 20px'}}>
+            <div style={{display:'flex',alignItems:'center',padding:'16px 18px',borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,background:T.surface}}>
+              <div style={{flex:1,fontSize:15,fontWeight:700,color:T.text}}>{label}</div>
+              <button onClick={()=>setOpen(false)} style={{background:'none',border:'none',cursor:'pointer'}}><X size={18} color={T.textSec}/></button>
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:14,padding:'18px 16px'}}>
+              {categorias.map(c=>(
+                <div key={c} onClick={()=>{onChange(c);setOpen(false)}} style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6,cursor:'pointer'}}>
+                  <div style={{position:'relative'}}>
+                    <CatChip categoria={c} size={48} opacity={80}/>
+                    {value===c&&<div style={{position:'absolute',inset:-3,border:`2px solid ${getCatStyle(c).cor}`,borderRadius:15}}/>}
+                  </div>
+                  <span style={{fontSize:9.5,color:value===c?T.text:T.textSec,fontWeight:value===c?700:500,textAlign:'center',lineHeight:1.25}}>{c}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ─────────────────────────────────────────────────────────────────
 // CHARTS
@@ -741,11 +788,11 @@ const AccountList = ({accounts,sel,onSel,pal}:{accounts:Account[],sel:string|nul
 // ─────────────────────────────────────────────────────────────────
 // CATEGORY + TXN ROWS
 // ─────────────────────────────────────────────────────────────────
-const CatRow = ({nome,v,pct,cor,Icon,last,onClick}:{nome:string,v:number,pct:number,cor:string,Icon:React.ElementType,last:boolean,onClick?:()=>void}) => (
+const CatRow = ({nome,v,pct,cor,last,onClick}:{nome:string,v:number,pct:number,cor:string,last:boolean,onClick?:()=>void}) => (
   <div onClick={onClick} style={{padding:'10px 16px',borderBottom:last?'none':`1px solid ${T.border}`,cursor:onClick?'pointer':'default'}}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
       <div style={{display:'flex',alignItems:'center',gap:9}}>
-        <div style={{width:26,height:26,borderRadius:8,background:`${cor}26`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><Icon size={13} color={cor} strokeWidth={2}/></div>
+        <CatChip categoria={nome} size={26} opacity={50}/>
         <span style={{fontSize:13,color:T.text}}>{nome}</span>
       </div>
       <div style={{display:'flex',alignItems:'center',gap:10}}><span style={{fontSize:10,color:T.textTer,fontWeight:500}}>{pct}%</span><span style={{fontSize:13,fontWeight:600,color:T.text,fontFamily:T.mono,minWidth:72,textAlign:'right'}}>{dec(v)}</span></div>
@@ -757,7 +804,7 @@ const TxnRow = ({t,last,onClick,accounts}:{t:Transaction,last:boolean,onClick?:(
   const accountName = accounts?.find(a=>a.id===t.account_id)?.nome
   return (
   <div onClick={onClick} style={{display:'flex',alignItems:'center',gap:12,padding:'11px 16px',borderBottom:last?'none':`1px solid ${T.border}`,cursor:onClick?'pointer':'default'}}>
-    <div style={{width:38,height:38,borderRadius:12,background:T.surface2,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><CatIcon categoria={t.categoria??'Despesas Gerais'} size={17}/></div>
+    <CatChip categoria={t.categoria??'Despesas Gerais'} size={38} opacity={35}/>
     <div style={{flex:1,minWidth:0}}>
       <div style={{fontSize:13,fontWeight:500,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div>
       <div style={{fontSize:11,color:T.textSec,marginTop:2}}>
@@ -887,7 +934,7 @@ const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis,accounts,isDetectedTransfe
               <div style={{background:T.surface3,border:`1px solid ${T.border}`,borderRadius:10,padding:'10px 12px',color:T.textSec,fontSize:13,display:'flex',alignItems:'center',gap:6}}>💰 Receita</div>
             </div>
           ):(
-            <Sel label="Categoria" value={categoria} onChange={setCategoria} options={CAT_LIST.filter(c=>c!=='Receita').map(c=>({value:c,label:c}))}/>
+            <CategoryPicker label="Categoria" value={categoria} onChange={setCategoria} categorias={CAT_LIST.filter(c=>c!=='Receita')}/>
           )}
           {hasImoveis&&<Sel label="Imóvel associado" value={imovelId} onChange={setImovelId} options={[{value:'',label:'Geral (nenhum imóvel)'},...imoveis!.map(im=>({value:im.id,label:`🏠 ${im.nome}`}))]}/>}
           {imovelId&&tipo==='despesa'&&<Sel label="Balde IRS (Anexo F)" value={irsSubcategoria} onChange={setIrsSubcategoria} options={[{value:'',label:'Não classificado'},...IRS_SUBCATEGORIAS.map(c=>({value:c,label:IRS_SUBCATEGORIA_LABELS[c]}))]}/>}
@@ -1107,7 +1154,7 @@ const AllTransactionsScreen = ({allTxns,accounts,tag,pal,onClose,onRefresh,imove
                   return (
                     <div key={t.id} onClick={()=>selectMode?toggleSel(t.id):setEditTxn(t)} style={{display:'flex',alignItems:'center',gap:11,padding:'11px 14px',borderBottom:i<txns.length-1?`1px solid ${T.border}`:'none',cursor:'pointer',background:isSel?pal.soft:'transparent',transition:'background 0.12s'}}>
                       {selectMode&&<div style={{flexShrink:0}}>{isSel?<CheckSquare size={18} color={pal.accent}/>:<Square size={18} color={T.textTer}/>}</div>}
-                      <div style={{width:36,height:36,borderRadius:11,background:T.surface2,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><CatIcon categoria={t.categoria??'Despesas Gerais'} size={16}/></div>
+                      <CatChip categoria={t.categoria??'Despesas Gerais'} size={36} opacity={35}/>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontSize:13,fontWeight:500,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div>
                         <div style={{fontSize:11,color:T.textSec,marginTop:2}}>
@@ -1329,7 +1376,7 @@ const AllCategoriesScreen = ({transactions,accounts,tag,sel,initialMonth,subtitl
             {cats.map((c,i)=>(
               <div key={i} onClick={()=>currentMonth&&onSelectCategoria(c.nome,currentMonth)} style={{background:T.surface,border:`1px solid ${T.border}`,borderRadius:12,padding:12,cursor:'pointer'}}>
                 <div style={{display:'flex',alignItems:'center',gap:7,marginBottom:6}}>
-                  <c.Icon size={14} color={c.cor}/>
+                  <CatChip categoria={c.nome} size={22} opacity={50} radius={7}/>
                   <span style={{fontSize:11,color:T.text,fontWeight:600,flex:1,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{c.nome}</span>
                 </div>
                 <div style={{display:'flex',alignItems:'baseline',justifyContent:'space-between',marginBottom:4}}>
@@ -1416,7 +1463,7 @@ const RulesScreen = ({onClose,pal}:{onClose:()=>void,pal:{accent:string,soft:str
               <Card key={r.id} style={{marginBottom:8,padding:'12px 14px',background:isSel?pal.soft:T.surface}}>
                 <div onClick={()=>selectMode?toggleSel(r.id):undefined} style={{display:'flex',alignItems:'center',gap:10,cursor:selectMode?'pointer':'default'}}>
                   {selectMode&&<div style={{flexShrink:0}}>{isSel?<CheckSquare size={18} color={pal.accent}/>:<Square size={18} color={T.textTer}/>}</div>}
-                  <div style={{width:34,height:34,borderRadius:10,background:T.surface2,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><CatIcon categoria={r.categoria} size={15}/></div>
+                  <CatChip categoria={r.categoria} size={34} opacity={35}/>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontSize:13,fontWeight:600,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>"{r.pattern}"</div>
                     <div style={{fontSize:11,color:T.textSec,marginTop:1}}>→ {r.categoria} · usada {r.vezes_usada}×</div>
@@ -3257,7 +3304,7 @@ const AssignQueue = ({txns,imoveis,onClose,onRefresh,pal}:{txns:Transaction[],im
           {txns.map(t=>(
             <Card key={t.id} style={{marginBottom:10,padding:'13px 14px'}}>
               <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}>
-                <div style={{width:34,height:34,borderRadius:10,background:T.surface2,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><CatIcon categoria={t.categoria??'Despesas Gerais'} size={15}/></div>
+                <CatChip categoria={t.categoria??'Despesas Gerais'} size={34} opacity={35}/>
                 <div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:600,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div><div style={{fontSize:11,color:T.textSec}}>{t.data}</div></div>
                 <div style={{fontSize:14,fontWeight:700,color:t.valor>=0?T.green:T.red,fontFamily:T.mono}}>{t.valor>=0?'+ ':'− '}{dec(t.valor)}</div>
               </div>
@@ -4184,7 +4231,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
             const imN = imovelNome(t.imovel_id)
             return (
               <div key={t.id} onClick={()=>setEditTxn(t)} style={{display:'flex',alignItems:'center',gap:12,padding:'11px 16px',borderBottom:i<recentTxns.length-1?`1px solid ${T.border}`:'none',cursor:'pointer'}}>
-                <div style={{width:38,height:38,borderRadius:12,background:T.surface2,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><CatIcon categoria={t.categoria??'Despesas Gerais'} size={17}/></div>
+                <CatChip categoria={t.categoria??'Despesas Gerais'} size={38} opacity={35}/>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:13,fontWeight:500,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div>
                   <div style={{fontSize:11,color:T.textSec,marginTop:2}}>{imN?`🏠 ${imN}`:(t.categoria??'Sem categoria')} · {t.data}</div>
