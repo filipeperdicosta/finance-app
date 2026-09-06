@@ -450,6 +450,25 @@ const Lbl = ({title,action,accent,onAction}:{title:string,action?:string,accent?
     {action&&<span onClick={onAction} style={{fontSize:12,color:accent,fontWeight:600,cursor:'pointer'}}>{action}</span>}
   </div>
 )
+// Linha do P&L (IRS Imóveis) — cada nível fica sempre à mesma indentação, com ou sem botão de
+// abrir: `open` undefined reserva o espaço do chevron sem o desenhar (placeholder), mantendo o
+// texto alinhado entre linhas irmãs tocáveis e não-tocáveis. `level` 1 indenta e ganha guia
+// vertical (filha de uma linha de nível 0, ex: categorias dentro de "Custos").
+const PlRow = ({level=0,open,label,value,onClick,variant='line',color,valueColor}:{level?:0|1,open?:boolean,label:React.ReactNode,value:React.ReactNode,onClick?:()=>void,variant?:'line'|'section'|'total',color?:string,valueColor?:string}) => {
+  const sizes = variant==='total' ? {lbl:12.5,val:14} : variant==='section' ? {lbl:10.5,val:12} : {lbl:11,val:12.5}
+  const destacado = variant!=='line'
+  return (
+    <div onClick={onClick} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:level===0?'6px 0':'5px 0 5px 18px',borderLeft:level===1?`1px solid ${T.border}`:undefined,marginLeft:level===1?2:undefined,cursor:onClick?'pointer':'default'}}>
+      <span style={{display:'flex',alignItems:'center',gap:5,fontSize:sizes.lbl,color:color??(variant==='total'?T.text:T.textSec),fontWeight:destacado?700:(level===0?600:400),textTransform:variant==='line'&&level===0?'uppercase':'none',letterSpacing:variant==='line'&&level===0?'0.03em':'normal'}}>
+        {open!==undefined
+          ? <ChevronRight size={11} color={color??T.textTer} style={{transform:open?'rotate(90deg)':'none',flexShrink:0}}/>
+          : <span style={{display:'inline-block',width:11,flexShrink:0}}/>}
+        {label}
+      </span>
+      <span style={{fontFamily:T.mono,fontSize:sizes.val,fontWeight:destacado?700:600,color:valueColor??T.text}}>{value}</span>
+    </div>
+  )
+}
 const Btn = ({children,onClick,variant='primary',accent,style={}}:{children:React.ReactNode,onClick?:()=>void,variant?:string,accent?:string,style?:React.CSSProperties}) => {
   const v:Record<string,React.CSSProperties> = {
     primary:{background:accent,color:'#14110F',padding:'10px 18px',fontSize:13},
@@ -999,8 +1018,8 @@ const FilterSheet = ({filters,onApply,onClose,pal,tagAccounts,imoveis}:{filters:
           <Sel label="Tipo de transação" value={f.tipo} onChange={upd('tipo')} options={[{value:'todos',label:'Todas'},{value:'receita',label:'🟢 Só receitas'},{value:'despesa',label:'🔴 Só despesas'}]}/>
           <div style={{fontSize:11,color:T.textTer,fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:10}}>Intervalo de valores (€)</div>
           <div style={{display:'flex',gap:10}}>
-            <div style={{flex:1}}><Inp label="Mínimo" value={f.valMin} onChange={upd('valMin')} type="number"/></div>
-            <div style={{flex:1}}><Inp label="Máximo" value={f.valMax} onChange={upd('valMax')} type="number"/></div>
+            <div style={{flex:1}}><MoneyInp label="Mínimo" value={f.valMin} onChange={upd('valMin')}/></div>
+            <div style={{flex:1}}><MoneyInp label="Máximo" value={f.valMax} onChange={upd('valMax')}/></div>
           </div>
           <Sel label="Categoria" value={f.categoria} onChange={upd('categoria')} options={[{value:'todas',label:'Todas as categorias'},...CAT_LIST.map(c=>({value:c,label:c}))]}/>
           <div style={{display:'flex',gap:10,marginTop:4}}>
@@ -1067,8 +1086,8 @@ const AllTransactionsScreen = ({allTxns,accounts,tag,pal,onClose,onRefresh,imove
       if(filters.imovel!=='todos' && t.imovel_id!==filters.imovel) return false
       if(filters.descricao.trim() && !t.descritivo.toLowerCase().includes(filters.descricao.trim().toLowerCase())) return false
       const abs = Math.abs(t.valor)
-      if(filters.valMin && abs < Number(filters.valMin)) return false
-      if(filters.valMax && abs > Number(filters.valMax)) return false
+      if(filters.valMin && abs < parseNum(filters.valMin)) return false
+      if(filters.valMax && abs > parseNum(filters.valMax)) return false
       return true
     })
   },[allTxns,tagAccountIds,filters])
@@ -3339,26 +3358,34 @@ const IrsConfigScreen = ({imovel,onClose,onSaved}:{imovel:Imovel,onClose:()=>voi
   const [saving,setSaving] = useState(false)
 
   // Prejuízos reportáveis (Categoria F, até 6 anos) — caso excecional, por isso fica
-  // escondido por omissão, não misturado com os campos do contrato acima.
+  // escondido por omissão, MAS abre-se sozinho assim que houver algum já registado (ver
+  // reloadPrejuizosLocal) — não misturado com os campos do contrato acima.
   const [prejuizosOpen,setPrejuizosOpen] = useState(false)
   const [prejuizos,setPrejuizos] = useState<PrejuizoReportavel[]>([])
   const [novoAno,setNovoAno] = useState(String(new Date().getFullYear()-1))
   const [novoValor,setNovoValor] = useState('')
   const [prejuizoSaving,setPrejuizoSaving] = useState(false)
-  const reloadPrejuizosLocal = useCallback(async()=>{ setPrejuizos(await loadPrejuizosReportaveis([imovel.id])) },[imovel.id])
+  const [prejuizoErro,setPrejuizoErro] = useState<string|null>(null)
+  const reloadPrejuizosLocal = useCallback(async()=>{
+    const lista = await loadPrejuizosReportaveis([imovel.id])
+    setPrejuizos(lista)
+    if(lista.length>0) setPrejuizosOpen(true)
+  },[imovel.id])
   useEffect(()=>{ reloadPrejuizosLocal() },[reloadPrejuizosLocal])
   const addPrejuizo = async () => {
-    const valor = Number(novoValor.replace(',','.'))
+    const valor = parseNum(novoValor)
     const ano_origem = Number(novoAno)
     if(!valor || valor<=0 || !ano_origem) return
-    setPrejuizoSaving(true)
-    await savePrejuizoReportavel(imovel.id, ano_origem, valor)
+    setPrejuizoSaving(true); setPrejuizoErro(null)
+    const { error } = await savePrejuizoReportavel(imovel.id, ano_origem, valor)
+    if(error){ setPrejuizoErro(error.message); setPrejuizoSaving(false); return }
     await reloadPrejuizosLocal(); await onSaved()
     setNovoValor(''); setPrejuizoSaving(false)
   }
   const removePrejuizo = async (id:string) => {
-    setPrejuizoSaving(true)
-    await deletePrejuizoReportavel(id)
+    setPrejuizoSaving(true); setPrejuizoErro(null)
+    const { error } = await deletePrejuizoReportavel(id)
+    if(error){ setPrejuizoErro(error.message); setPrejuizoSaving(false); return }
     await reloadPrejuizosLocal(); await onSaved()
     setPrejuizoSaving(false)
   }
@@ -3442,9 +3469,10 @@ const IrsConfigScreen = ({imovel,onClose,onSaved}:{imovel:Imovel,onClose:()=>voi
               {prejuizos.length===0&&<div style={{fontSize:11,color:T.textTer,padding:'2px 0 8px'}}>Sem prejuízos reportáveis registados.</div>}
               <div style={{display:'flex',gap:8,alignItems:'flex-end',marginTop:8}}>
                 <div style={{flex:1}}><Inp label="Ano de origem" value={novoAno} onChange={setNovoAno} type="number"/></div>
-                <div style={{flex:1}}><Inp label="Valor (€, total do imóvel)" value={novoValor} onChange={setNovoValor} type="number"/></div>
+                <div style={{flex:1}}><MoneyInp label="Valor (€, total do imóvel)" value={novoValor} onChange={setNovoValor}/></div>
                 <Btn onClick={addPrejuizo} variant="ghost" accent={PAL.imoveis.accent} style={{marginBottom:14}}>{prejuizoSaving?'…':'Adicionar'}</Btn>
               </div>
+              {prejuizoErro&&<div style={{fontSize:11,color:T.red,marginTop:-6,marginBottom:8}}>Erro ao gravar: {prejuizoErro}</div>}
             </div>
           )}
 
@@ -3911,19 +3939,18 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
   // a lista de categorias. `scopeKey` (imovel.id ou 'agregado') mantém as chaves de openCat
   // separadas entre cards que estejam abertos ao mesmo tempo.
   const renderCustosBody = (scopeKey:string, gastos:Record<IrsSubcategoria,number>, txnsFor:(cat:string)=>Transaction[]) => {
+    // Categorias dedutíveis ficam sempre indentadas (nível 1) — filhas de "Custos" mesmo quando
+    // não há split (sem cabeçalho "Custos Dedutíveis" a mostrar), para nunca ficarem à mesma
+    // indentação de "Custos" acima.
     const linhaCategoria = (c:IrsSubcategoria) => {
       const key = `${scopeKey}:${c}`
       const catOpen = openCat===key
       const catTxns = txnsFor(c)
-      const cor = c==='nao_dedutivel' ? '#FBBF24' : T.text
       return (
         <div key={c}>
-          <div onClick={()=>setOpenCat(catOpen?null:key)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',cursor:'pointer'}}>
-            <span style={{fontSize:12,color:cor}}>{IRS_SUBCATEGORIA_LABELS[c]}</span>
-            <span style={{fontSize:12,fontFamily:T.mono,color:cor}}>{dec(gastos[c])}</span>
-          </div>
+          <PlRow level={1} open={catOpen} onClick={()=>setOpenCat(catOpen?null:key)} label={IRS_SUBCATEGORIA_LABELS[c]} value={dec(gastos[c])}/>
           {catOpen&&(
-            <div style={{background:T.surface,borderRadius:8,padding:'6px 10px',marginBottom:6}}>
+            <div style={{background:T.surface,borderRadius:8,padding:'6px 10px',marginLeft:20,marginBottom:6}}>
               {catTxns.length===0?(
                 <div style={{fontSize:11,color:T.textTer,padding:'6px 0'}}>Sem transações.</div>
               ):catTxns.map(t=>(
@@ -3937,20 +3964,35 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
         </div>
       )
     }
+    const dedutiveisTotal = IRS_SUBCATEGORIAS.filter(c=>c!=='nao_dedutivel').reduce((s,c)=>s+gastos[c],0)
     return (
       <div style={{marginTop:4}}>
-        {gastos.nao_dedutivel>0&&<div style={{fontSize:10.5,fontWeight:700,color:T.text,padding:'4px 0'}}>Custos Dedutíveis</div>}
+        {gastos.nao_dedutivel>0&&<PlRow variant="section" label="Custos Dedutíveis" value={dec(dedutiveisTotal)}/>}
         {IRS_SUBCATEGORIAS.filter(c=>c!=='nao_dedutivel').map(c=>gastos[c]!==0?linhaCategoria(c):null)}
-        {gastos.nao_dedutivel>0&&(
-          <>
-            <div style={{fontSize:10.5,fontWeight:700,color:T.text,padding:'8px 0 4px'}}>Custos Não Dedutíveis</div>
-            {linhaCategoria('nao_dedutivel')}
-          </>
-        )}
+        {gastos.nao_dedutivel>0&&(()=>{
+          const key = `${scopeKey}:nao_dedutivel`
+          const catOpen = openCat===key
+          return (
+            <>
+              <PlRow variant="section" open={catOpen} onClick={()=>setOpenCat(catOpen?null:key)} label="Custos Não Dedutíveis" value={dec(gastos.nao_dedutivel)} color="#FBBF24" valueColor="#FBBF24"/>
+              {catOpen&&(
+                <div style={{background:T.surface,borderRadius:8,padding:'6px 10px',marginBottom:6}}>
+                  {txnsFor('nao_dedutivel').length===0?(
+                    <div style={{fontSize:11,color:T.textTer,padding:'6px 0'}}>Sem transações.</div>
+                  ):txnsFor('nao_dedutivel').map(t=>(
+                    <div key={t.id} onClick={()=>setEditTxn(t)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:`1px solid ${T.border}`,cursor:'pointer',gap:8}}>
+                      <div style={{minWidth:0}}><div style={{fontSize:11.5,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div><div style={{fontSize:10,color:T.textTer}}>{t.data}</div></div>
+                      <div style={{display:'flex',alignItems:'center',gap:5,flexShrink:0}}><span style={{fontSize:11.5,fontFamily:T.mono,color:T.textSec}}>{dec(Math.abs(Number(t.valor)))}</span><ChevronRight size={12} color={T.textTer}/></div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )
+        })()}
       </div>
     )
   }
-  const ratio = totalBruto>0 ? (totalLiquido/totalBruto*100) : 0
   // Despesas de imóveis sem Balde IRS atribuído — ficam FORA dos totais acima até serem
   // classificadas, por isso têm de aparecer sempre visíveis, nunca silenciosamente omitidas.
   const naoClassificadas = (imId:string) => yearTxns.filter(t=>t.imovel_id===imId && t.data.startsWith(String(ano)) && Number(t.valor)<0 && !t.subcategoria)
@@ -3999,26 +4041,20 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
               </div>
 
               <div style={{marginTop:10}}>
-                <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0'}}><span style={{fontSize:11,color:T.textSec,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.03em'}}>Receitas</span><span style={{fontSize:12.5,fontFamily:T.mono,color:T.text,fontWeight:600}}>{dec(totalBruto)}</span></div>
+                <PlRow label="Receitas" value={dec(totalBruto)}/>
                 <div style={{height:1,background:T.border}}/>
-                <div onClick={()=>setCustosOpen({...custosOpen,agregado:!custosOpen.agregado})} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',cursor:'pointer'}}>
-                  <span style={{display:'flex',alignItems:'center',gap:5,fontSize:11,color:T.textSec,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.03em'}}><ChevronRight size={11} color={T.textTer} style={{transform:custosOpen.agregado?'rotate(90deg)':'none'}}/>Custos</span>
-                  <span style={{fontSize:12.5,fontFamily:T.mono,color:T.text,fontWeight:600}}>− {dec(totalGastos+totalNaoDedutivel)}</span>
-                </div>
+                <PlRow open={!!custosOpen.agregado} onClick={()=>setCustosOpen({...custosOpen,agregado:!custosOpen.agregado})} label="Custos" value={`− ${dec(totalGastos+totalNaoDedutivel)}`}/>
                 {custosOpen.agregado&&renderCustosBody('agregado',gastosAgregado,(cat)=>yearTxns.filter(t=>t.data.startsWith(String(ano)) && t.subcategoria===cat && relevantes.some(im=>im.id===t.imovel_id)))}
                 <div style={{height:1,background:T.textTer,opacity:0.5,margin:'4px 0'}}/>
-                <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0'}}><span style={{fontSize:12.5,color:T.text,fontWeight:700}}>EBITDA</span><span style={{fontSize:13.5,fontFamily:T.mono,color:T.text,fontWeight:700}}>{dec(totalBruto-totalGastos)}</span></div>
+                <PlRow variant="total" label="EBITDA" value={dec(totalBruto-totalGastos)}/>
 
                 {totalPrejuizoAplicado>0&&(
                   <>
-                    <div onClick={()=>setPrejuizoOpen({...prejuizoOpen,agregado:!prejuizoOpen.agregado})} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',cursor:'pointer'}}>
-                      <span style={{display:'flex',alignItems:'center',gap:5,fontSize:11,color:'#FBBF24'}}><ChevronRight size={11} color="#FBBF24" style={{transform:prejuizoOpen.agregado?'rotate(90deg)':'none'}}/>Prejuízo reportado aplicado</span>
-                      <span style={{fontSize:12.5,fontFamily:T.mono,color:'#FBBF24',fontWeight:600}}>− {dec(totalPrejuizoAplicado)}</span>
-                    </div>
+                    <PlRow open={!!prejuizoOpen.agregado} onClick={()=>setPrejuizoOpen({...prejuizoOpen,agregado:!prejuizoOpen.agregado})} label="Prejuízo reportado aplicado" value={`− ${dec(totalPrejuizoAplicado)}`} color="#FBBF24" valueColor="#FBBF24"/>
                     {prejuizoOpen.agregado&&(
-                      <div style={{background:T.surface,borderRadius:8,padding:'6px 10px',marginBottom:6}}>
+                      <div style={{marginLeft:2,borderLeft:`1px solid ${T.border}`}}>
                         {resumos.filter(r=>r.prejuizoAplicado>0).flatMap(r=>r.prejuizoDetalhe.map(d=>(
-                          <div key={`${r.imovel.id}-${d.ano_origem}`} style={{display:'flex',justifyContent:'space-between',padding:'4px 0',fontSize:11,color:T.textSec}}>
+                          <div key={`${r.imovel.id}-${d.ano_origem}`} style={{display:'flex',justifyContent:'space-between',padding:'5px 0 5px 16px',fontSize:11,color:T.textSec}}>
                             <span>{r.imovel.nome} · {d.ano_origem}</span><span style={{fontFamily:T.mono,color:T.text}}>{dec(d.valor)}</span>
                           </div>
                         )))}
@@ -4027,12 +4063,12 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
                   </>
                 )}
 
-                <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0'}}><span style={{fontSize:12,color:T.textSec}}>Rendimento Coletável</span><span style={{fontSize:12.5,fontFamily:T.mono,color:T.text}}>{dec(totalColectavel)}</span></div>
+                <PlRow label="Rendimento Coletável" value={dec(totalColectavel)}/>
                 <div style={{height:1,background:T.border}}/>
-                <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0'}}><span style={{fontSize:11,color:T.textSec,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.03em'}}>Imposto</span><span style={{fontSize:12.5,fontFamily:T.mono,color:T.red,fontWeight:600}}>− {dec(totalImposto)}</span></div>
+                <PlRow label="Imposto" value={`− ${dec(totalImposto)}`} valueColor={T.red}/>
                 <div style={{height:1,background:T.textTer,opacity:0.5,margin:'4px 0'}}/>
-                <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0'}}><span style={{fontSize:13,color:T.text,fontWeight:700}}>Resultado líquido</span><span style={{fontSize:18,fontFamily:T.mono,fontWeight:700,color:totalLiquido>=0?T.green:T.red}}>{dec(totalLiquido)}</span></div>
-                {totalNaoDedutivel>0&&<div style={{display:'flex',justifyContent:'space-between',padding:'6px 0'}}><span style={{fontSize:12,color:T.textSec,fontWeight:700}}>Resultado económico real</span><span style={{fontSize:13,fontFamily:T.mono,fontWeight:700,color:resultadoEconomicoRealTotal>=0?T.green:T.red}}>{dec(resultadoEconomicoRealTotal)}</span></div>}
+                <PlRow variant="total" label="Resultado líquido" value={dec(totalLiquido)} valueColor={totalLiquido>=0?T.green:T.red}/>
+                {totalNaoDedutivel>0&&<PlRow variant="total" label="Resultado económico real" value={dec(resultadoEconomicoRealTotal)} valueColor={resultadoEconomicoRealTotal>=0?T.green:T.red}/>}
               </div>
 
               <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${T.border}`}}>
@@ -4095,31 +4131,25 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
                 </div>
 
                 <div style={{marginTop:10}}>
-                  <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0'}}><span style={{fontSize:11,color:T.textSec,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.03em'}}>Receitas</span><span style={{fontSize:12.5,fontFamily:T.mono,color:T.text,fontWeight:600}}>{dec(r.bruto)}</span></div>
+                  <PlRow label="Receitas" value={dec(r.bruto)}/>
                   <div style={{height:1,background:T.border}}/>
-                  <div onClick={()=>setCustosOpen({...custosOpen,[r.imovel.id]:!custosIsOpen})} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',cursor:'pointer'}}>
-                    <span style={{display:'flex',alignItems:'center',gap:5,fontSize:11,color:T.textSec,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.03em'}}><ChevronRight size={11} color={T.textTer} style={{transform:custosIsOpen?'rotate(90deg)':'none'}}/>Custos</span>
-                    <span style={{fontSize:12.5,fontFamily:T.mono,color:T.text,fontWeight:600}}>− {dec(r.gastosDedutiveis+naoDedutivel)}</span>
-                  </div>
+                  <PlRow open={custosIsOpen} onClick={()=>setCustosOpen({...custosOpen,[r.imovel.id]:!custosIsOpen})} label="Custos" value={`− ${dec(r.gastosDedutiveis+naoDedutivel)}`}/>
                   {custosIsOpen&&renderCustosBody(r.imovel.id,r.gastosPorCategoria,(cat)=>yearTxns.filter(t=>t.imovel_id===r.imovel.id && t.data.startsWith(String(ano)) && t.subcategoria===cat))}
                   <div style={{height:1,background:T.textTer,opacity:0.5,margin:'4px 0'}}/>
-                  <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0'}}><span style={{fontSize:12.5,color:T.text,fontWeight:700}}>EBITDA</span><span style={{fontSize:13.5,fontFamily:T.mono,color:T.text,fontWeight:700}}>{dec(r.rendimentoLiquido)}</span></div>
+                  <PlRow variant="total" label="EBITDA" value={dec(r.rendimentoLiquido)}/>
 
                   {r.prejuizoAplicado>0&&(
                     <>
-                      <div onClick={()=>setPrejuizoOpen({...prejuizoOpen,[r.imovel.id]:!prejuizoIsOpen})} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',cursor:'pointer'}}>
-                        <span style={{display:'flex',alignItems:'center',gap:5,fontSize:11,color:'#FBBF24'}}><ChevronRight size={11} color="#FBBF24" style={{transform:prejuizoIsOpen?'rotate(90deg)':'none'}}/>Prejuízo reportado aplicado</span>
-                        <span style={{fontSize:12.5,fontFamily:T.mono,color:'#FBBF24',fontWeight:600}}>− {dec(r.prejuizoAplicado)}</span>
-                      </div>
+                      <PlRow open={prejuizoIsOpen} onClick={()=>setPrejuizoOpen({...prejuizoOpen,[r.imovel.id]:!prejuizoIsOpen})} label="Prejuízo reportado aplicado" value={`− ${dec(r.prejuizoAplicado)}`} color="#FBBF24" valueColor="#FBBF24"/>
                       {prejuizoIsOpen&&(
-                        <div style={{background:T.surface,borderRadius:8,padding:'6px 10px',marginBottom:6}}>
+                        <div style={{marginLeft:2,borderLeft:`1px solid ${T.border}`}}>
                           {r.prejuizoDetalhe.map(d=>{
                             const pct = showQuota ? r.imovel.ownership_pct/100 : 1
                             const antes = (prejuizosDisponiveis[r.imovel.id]??[]).find(p=>p.ano_origem===d.ano_origem)
                             const disponivelNaBase = antes ? antes.restante*pct : d.valor
                             const usadoTudo = d.valor >= disponivelNaBase-0.005
                             return (
-                              <div key={d.ano_origem} style={{fontSize:11,color:T.textSec,padding:'4px 0'}}>
+                              <div key={d.ano_origem} style={{fontSize:11,color:T.textSec,padding:'5px 0 5px 16px'}}>
                                 De {d.ano_origem} (restava {dec(disponivelNaBase)} — {usadoTudo?'usado por completo':`usado ${dec(d.valor)}, resta ${dec(disponivelNaBase-d.valor)}`})
                               </div>
                             )
@@ -4130,12 +4160,9 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
                   )}
                   {geraPrejuizo&&<div style={{fontSize:10,color:'#FBBF24',padding:'4px 0',lineHeight:1.5}}>Prejuízo reportável gerado: {dec(Math.abs(r.rendimentoLiquido))} (aplicável até {ano+6})</div>}
 
-                  <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0'}}><span style={{fontSize:12,color:T.textSec}}>Rendimento Coletável</span><span style={{fontSize:12.5,fontFamily:T.mono,color:T.text}}>{dec(r.materiaColectavel)}</span></div>
+                  <PlRow label="Rendimento Coletável" value={dec(r.materiaColectavel)}/>
                   <div style={{height:1,background:T.border}}/>
-                  <div onClick={()=>setImpostoOpen({...impostoOpen,[r.imovel.id]:!impostoIsOpen})} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',cursor:'pointer'}}>
-                    <span style={{display:'flex',alignItems:'center',gap:5,fontSize:11,color:T.textSec,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.03em'}}><ChevronRight size={11} color={T.textTer} style={{transform:impostoIsOpen?'rotate(90deg)':'none'}}/>Imposto</span>
-                    <span style={{fontSize:12.5,fontFamily:T.mono,color:T.red,fontWeight:600}}>− {dec(r.imposto)}</span>
-                  </div>
+                  <PlRow open={impostoIsOpen} onClick={()=>setImpostoOpen({...impostoOpen,[r.imovel.id]:!impostoIsOpen})} label="Imposto" value={`− ${dec(r.imposto)}`} valueColor={T.red}/>
                   {impostoIsOpen&&(
                     <div style={{background:T.surface,borderRadius:8,padding:'8px 10px',marginBottom:6}}>
                       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
@@ -4163,8 +4190,8 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
                   )}
 
                   <div style={{height:1,background:T.textTer,opacity:0.5,margin:'4px 0'}}/>
-                  <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0'}}><span style={{fontSize:12.5,color:T.text,fontWeight:700}}>Resultado líquido</span><span style={{fontSize:14,fontFamily:T.mono,fontWeight:700,color:r.liquido>=0?T.green:T.red}}>{dec(r.liquido)}</span></div>
-                  {naoDedutivel>0&&<div style={{display:'flex',justifyContent:'space-between',padding:'6px 0'}}><span style={{fontSize:12,fontWeight:700,color:T.textSec}}>Resultado económico real</span><span style={{fontSize:13,fontFamily:T.mono,fontWeight:700,color:resultadoEconomicoReal>=0?T.green:T.red}}>{dec(resultadoEconomicoReal)}</span></div>}
+                  <PlRow variant="total" label="Resultado líquido" value={dec(r.liquido)} valueColor={r.liquido>=0?T.green:T.red}/>
+                  {naoDedutivel>0&&<PlRow variant="total" label="Resultado económico real" value={dec(resultadoEconomicoReal)} valueColor={resultadoEconomicoReal>=0?T.green:T.red}/>}
                 </div>
 
                 <button onClick={()=>setConfigImovel(r.imovel)} style={{background:'none',border:'none',cursor:'pointer',color:T.textTer,fontSize:10.5,marginTop:8,padding:0}}>⚙ Configurar contrato / identificação</button>
