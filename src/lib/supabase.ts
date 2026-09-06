@@ -227,9 +227,12 @@ export async function loadImovelTxnsForYear(imovelIds: string[], ano: number): P
 // ── Prejuízos reportáveis (Categoria F — até 6 anos) ───────────
 export async function loadPrejuizosReportaveis(imovelIds: string[]): Promise<PrejuizoReportavel[]> {
   if (imovelIds.length === 0) return []
-  const { data } = await supabase.from('irs_prejuizos_reportaveis').select('*')
+  const { data, error } = await supabase.from('irs_prejuizos_reportaveis').select('*')
     .in('imovel_id', imovelIds)
     .order('ano_origem', { ascending: true })
+  // Sem isto, uma leitura bloqueada por RLS fica indistinguível de "não há prejuízos" —
+  // volta [] na mesma, mas ao menos fica registado na consola para diagnóstico.
+  if (error) console.error('loadPrejuizosReportaveis:', error.message)
   return (data ?? []) as PrejuizoReportavel[]
 }
 export async function savePrejuizoReportavel(imovel_id: string, ano_origem: number, valor: number) {

@@ -3945,7 +3945,7 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
     const linhaCategoria = (c:IrsSubcategoria) => {
       const key = `${scopeKey}:${c}`
       const catOpen = openCat===key
-      const catTxns = txnsFor(c)
+      const catTxns = txnsFor(c).sort((a,b)=>b.data.localeCompare(a.data))
       return (
         <div key={c}>
           <PlRow level={1} open={catOpen} onClick={()=>setOpenCat(catOpen?null:key)} label={IRS_SUBCATEGORIA_LABELS[c]} value={dec(gastos[c])}/>
@@ -3972,14 +3972,15 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
         {gastos.nao_dedutivel>0&&(()=>{
           const key = `${scopeKey}:nao_dedutivel`
           const catOpen = openCat===key
+          const naoDedTxns = txnsFor('nao_dedutivel').sort((a,b)=>b.data.localeCompare(a.data))
           return (
             <>
               <PlRow variant="section" open={catOpen} onClick={()=>setOpenCat(catOpen?null:key)} label="Custos Não Dedutíveis" value={dec(gastos.nao_dedutivel)} color="#FBBF24" valueColor="#FBBF24"/>
               {catOpen&&(
                 <div style={{background:T.surface,borderRadius:8,padding:'6px 10px',marginBottom:6}}>
-                  {txnsFor('nao_dedutivel').length===0?(
+                  {naoDedTxns.length===0?(
                     <div style={{fontSize:11,color:T.textTer,padding:'6px 0'}}>Sem transações.</div>
-                  ):txnsFor('nao_dedutivel').map(t=>(
+                  ):naoDedTxns.map(t=>(
                     <div key={t.id} onClick={()=>setEditTxn(t)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:`1px solid ${T.border}`,cursor:'pointer',gap:8}}>
                       <div style={{minWidth:0}}><div style={{fontSize:11.5,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div><div style={{fontSize:10,color:T.textTer}}>{t.data}</div></div>
                       <div style={{display:'flex',alignItems:'center',gap:5,flexShrink:0}}><span style={{fontSize:11.5,fontFamily:T.mono,color:T.textSec}}>{dec(Math.abs(Number(t.valor)))}</span><ChevronRight size={12} color={T.textTer}/></div>
@@ -3995,7 +3996,7 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
   }
   // Despesas de imóveis sem Balde IRS atribuído — ficam FORA dos totais acima até serem
   // classificadas, por isso têm de aparecer sempre visíveis, nunca silenciosamente omitidas.
-  const naoClassificadas = (imId:string) => yearTxns.filter(t=>t.imovel_id===imId && t.data.startsWith(String(ano)) && Number(t.valor)<0 && !t.subcategoria)
+  const naoClassificadas = (imId:string) => yearTxns.filter(t=>t.imovel_id===imId && t.data.startsWith(String(ano)) && Number(t.valor)<0 && !t.subcategoria).sort((a,b)=>b.data.localeCompare(a.data))
   // flatMap agrupa por imóvel primeiro — sem o sort a seguir, a lista ficaria ordenada por
   // imóvel e só depois por data dentro de cada um, em vez de globalmente por data decrescente.
   const allNaoClassificadas = useMemo(()=>relevantes.flatMap(im=>naoClassificadas(im.id)).sort((a,b)=>b.data.localeCompare(a.data)),[relevantes,yearTxns,ano])
