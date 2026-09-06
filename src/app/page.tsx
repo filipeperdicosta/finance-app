@@ -3710,6 +3710,11 @@ const IrsMappingScreen = ({resumos,ano,onClose}:{resumos:IrsImovelResumo[],ano:n
           {linhasModerada.length>0&&<div style={{background:'#fff3cd',border:'1px solid #d4a017',borderRadius:6,padding:'8px 12px',fontSize:10.5,color:'#664d03',marginTop:8}}>⚠ "Renda moderada" (10%, Lei 73-A/2025) ainda não tem posição confirmada no formulário oficial — a app junta estas linhas ao Quadro 4.1 por agora. Confirma com o Portal das Finanças ou contabilista antes de submeter.</div>}
           <div style={{fontSize:9.5,color:'#666',marginTop:6,lineHeight:1.5}}>"Outros" agrega Seguro, Certificado Energético, Honorários e Comissão de Mediação — sem coluna própria no formulário oficial. "Valorização" nunca soma (não dedutível).</div>
           <div style={{background:'#fff3cd',border:'1px solid #d4a017',borderRadius:6,padding:'8px 12px',fontSize:10.5,color:'#664d03',marginTop:14}}>⚠ Cada imóvel com mais de 1 arrendatário aparece dividido em várias linhas (renda e gastos a dividir em partes iguais). Confirma o NIF de cada arrendatário directamente no Portal das Finanças.</div>
+          {resumos.some(r=>r.prejuizoAplicado>0)&&(
+            <div style={{background:'#e7f0fe',border:'1px solid #7ba7e8',borderRadius:6,padding:'8px 12px',fontSize:10.5,color:'#1e3a5f',marginTop:8,lineHeight:1.5}}>
+              ℹ O Anexo F não tem campo próprio para prejuízos reportáveis de anos anteriores — a AT aplica-os automaticamente com base no que já foi declarado nos anos de origem, sem seres tu a identificá-los aqui. Os quadros abaixo mostram o rendimento bruto e os gastos de {ano}; a liquidação final da AT deve ainda reflectir, para além disto, a dedução de: {resumos.filter(r=>r.prejuizoAplicado>0).map(r=>`${r.imovel.nome} — ${dec(r.prejuizoAplicado)} (origem ${r.prejuizoDetalhe.map(d=>d.ano_origem).join('/')})`).join(' · ')}.
+            </div>
+          )}
 
           <div style={{borderTop:'1px solid #ccc',marginTop:16,paddingTop:8,display:'flex',justifyContent:'space-between',flexWrap:'wrap',gap:6,fontSize:9,color:'#999'}}>
             <span>Gerado por Bio — documento de apoio, não substitui o Portal das Finanças</span>
