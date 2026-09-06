@@ -33,6 +33,15 @@ Enable Banking espera — já tivemos 2 erros 422 por nome errado.
   "Ligados" em baixo com logos reais (Google favicon service)
 - Botão de desassociar conta EB (mantém histórico de transacções)
 - Santander PT estava bloqueado a nível SCA — **resolvido**, funciona agora
+- **Religar um banco não duplica contas (2026-08-26)**: re-autorizar um
+  ASPSP já ligado devolve um `account_uid` novo para a mesma conta física
+  (mesmo IBAN); o upsert por `account_uid` criava uma linha nova em vez de
+  actualizar a existente — ficava uma conta duplicada "sem conta associada"
+  ao lado da já ligada. Agora casa por IBAN dentro da mesma sessão antes de
+  decidir inserir vs actualizar. Adicionado também botão na UI para remover
+  directamente uma linha EB nunca associada (sem `account_id`, logo sem
+  histórico a proteger). `api/auth/enablebanking/callback/route.ts`,
+  `supabase.ts`, `page.tsx`
 
 ### Google Drive PDF import
 - Prompt Gemini melhorado: distingue "Saldo em Dívida" de "Saldo disponível"
@@ -350,6 +359,32 @@ preenchimento — não a partir de blogs, para evitar erros de categoria/regime.
   do toggle) — não podem variar com uma preferência de visualização, são os
   valores que realmente vão para a declaração
 
+### Exportação do mapeamento (2026-08-30)
+O `IrsMappingScreen` (facsímile do Anexo F) ganhou botões para levar o
+cálculo para fora da app — útil para partilhar com um coproprietário do
+imóvel:
+- **Copiar para colar**: texto TSV das duas tabelas, cola directo no
+  Excel/Sheets ou legível em email/WhatsApp
+- **Copiar imagem**: renderiza as tabelas com `html2canvas` (import
+  dinâmico, só carrega ao clicar) e escreve o PNG no clipboard via
+  `ClipboardItem` com o PNG passado como Promise (padrão exigido pelo
+  Safari para não perder o gesto de clique enquanto renderiza); sem
+  suporte, descarrega o PNG
+- **Exportar PDF**: passou a gerar um PDF a sério com `jsPDF` (a mesma
+  captura embutida como imagem) em vez de `window.print()` — no Safari/iOS
+  o `print()` imprimia o que estava por baixo do modal `position:fixed`,
+  encolhido, e ficava inútil
+- `renderCapture()` alarga a janela virtual do `html2canvas` até à largura
+  real das tabelas antes de capturar — sem isto, no telemóvel a imagem
+  saía cortada à largura do ecrã (a tabela tem scroll horizontal próprio)
+- Documento contextualizado para se explicar sozinho a quem o recebe:
+  moldura de "folha" (fundo branco, borda, sombra), marca "Bio." no
+  cabeçalho, tiras de contexto (período coberto, nº de imóveis, nº de
+  linhas), aviso de dados parciais quando o ano ainda está em curso, nota
+  de que os valores já vêm ponderados pela quota de propriedade de cada
+  imóvel, e rodapé com carimbo de data/hora de exportação + aviso de que
+  não substitui o Portal das Finanças
+
 ### Bugs resolvidos (IRS/Imóveis, 2026-08-09/10)
 - **Janela de 6 meses escondia dados**: `loadAllData()` só carrega
   transações dos últimos ~6 meses (optimização para o resto da app). A fila
@@ -404,6 +439,55 @@ várias fontes secundárias (blogs) dizem que sim — nova taxa de 10% para
 fontes. Ficou combinado avançar com a tabela acima e o Filipe confirma à
 parte — avisa se for diferente. Taxa fica sempre editável por imóvel no
 ecrã de resumo, com aviso visível.
+
+---
+
+## Refresh visual — "Opção A" (2026-08-30)
+
+Primeira fase da implementação de uma direção visual aprovada à parte.
+Fica registado só o que já está em código; fases seguintes por confirmar.
+
+### Tipografia (`layout.tsx`, `next/font/google`)
+- **Fraunces** (itálico) — só a marca "Bio." e o wordmark
+- **Hanken Grotesk** — corpo/UI, substitui a stack de sistema em toda a app
+- **JetBrains Mono** — todos os valores monetários (KPIs, contas,
+  transações, e o saldo grande do Hero). O saldo grande chegou a passar a
+  Fraunces itálico (`8c8d9a5`) mas **reverteu para mono** (`6c220c7`) —
+  Fraunces no número grande estava difícil de ler; volta ao mesmo lettering
+  do resto dos € (mono peso 700, tracking -0.03em)
+- Expostas como CSS vars `--font-display` / `--font-body` / `--font-mono`
+
+### Paleta (objecto `T`)
+Base migrou de quase-preto frio `#0B0B12` para grafite quente `#14110F` —
+bg/surface/border/texto, propagado a `layout.tsx`, `manifest.json` e a
+todos os `#0B0B12` hardcoded usados como tinta sobre fundos de acento.
+Continua tema escuro.
+
+### Hero e cartões-resumo
+- Hero: fora o gradiente por secção, entra superfície plana + barra de
+  acento de 3px no topo + eyebrow colorido — mantém a orientação espacial
+  por cor sem o alto-contraste do gradiente
+- Mesmo padrão aplicado a `PropHero`, ao cartão de imóvel
+  (Património/Imóveis, com barra verde/vermelha pelo resultado) e ao
+  cartão-resumo do `IrsResumoScreen` (era o único elemento preso à paleta
+  azul-fria anterior nesse ecrã)
+- Nav de mês e botão Saúde Financeira do Hero alinhados à direita
+  (`justifySelf:'end'`) — antes a largura da coluna variava consoante o
+  ecrã tivesse ou não esses controlos, desalinhando o período entre
+  Familiar/Pessoal (com Saúde) e Imóveis/Património (sem)
+
+### Ícones de categoria
+Emoji → `lucide-react` (traço fino, mesma linguagem visual já usada na
+chrome da UI). `CAT_META` passa a mapear para componentes em vez de
+strings; `CatIcon` centraliza o render. Dropdowns nativos (`<select>`)
+perdem o prefixo de ícone — só conseguem renderizar texto.
+
+### Ajuste não-visual apanhado na mesma ronda
+"Últimas transações" (Familiar/Pessoal via `computeView`, e Imóveis)
+mostrava sempre as últimas 8 do histórico todo — passa a respeitar o mês
+em navegação no Hero (corte no fim desse mês, continuando para trás se
+esse mês tiver pouca coisa, para nunca ficar vazia). Antes, recuar para
+Julho no Hero continuava a listar transações de Agosto.
 
 ---
 
@@ -660,6 +744,11 @@ Aprendizagens, entrada Recharts, já corrigida.
 - **Enable Banking**: nomes ASPSP têm de bater exactamente com o que a API
   espera (ex: "Santander Totta", não "Santander"; "Millennium BCP" com 2 L
   e 2 N — já corrigimos um erro de ortografia nosso aqui)
+- **Enable Banking — `account_uid` muda ao religar o banco**: re-autorizar
+  um ASPSP já ligado devolve um `account_uid` novo para a mesma conta
+  física (mesmo IBAN). Qualquer upsert/dedup de contas EB tem de casar por
+  IBAN, não só por `account_uid`, senão cada religação cria uma conta
+  fantasma "sem conta associada" ao lado da real.
 - **Ambiente de desenvolvimento anterior (Claude.ai chat)**: sandbox sem
   persistência entre mensagens — cada resposta tinha de restaurar checkpoint
   + reaplicar deltas. Não se aplica ao Claude Code (filesystem persistente).
