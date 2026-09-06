@@ -3875,7 +3875,15 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
     return ()=>{ cancelado=true }
   },[relevantes,prejuizos,ano])
 
-  const resumos100 = useMemo(()=>relevantes.map(im=>computeIrsImovel(im,yearTxns,ano,true)),[relevantes,yearTxns,ano])
+  // O prejuízo guardado é sempre à tua quota (é a base real do imposto). O toggle 100%/Minha
+  // quota é só uma lente de visualização — devia ser indiferente a qual delas o prejuízo
+  // aparece, por isso escalamos para 100% dividindo pela quota (ex: quota 50% → dobro), em vez
+  // de simplesmente escondê-lo nessa vista.
+  const resumos100 = useMemo(()=>relevantes.map(im=>{
+    const pct = im.ownership_pct/100
+    const disp100 = pct>0 ? (prejuizosDisponiveis[im.id]??[]).map(p=>({...p, restante:p.restante/pct})) : []
+    return computeIrsImovel(im,yearTxns,ano,true,disp100)
+  }),[relevantes,yearTxns,ano,prejuizosDisponiveis])
   const resumosQuota = useMemo(()=>relevantes.map(im=>computeIrsImovel(im,yearTxns,ano,false,prejuizosDisponiveis[im.id]??[])),[relevantes,yearTxns,ano,prejuizosDisponiveis])
   const resumos = showQuota ? resumosQuota : resumos100
   const totalBruto = resumos.reduce((s,r)=>s+r.bruto,0)
