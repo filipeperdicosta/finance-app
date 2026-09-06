@@ -35,6 +35,8 @@ import {
   getCurrentProfile, updateMyProfile, loadAccountMembers, updateMemberOwnership, removeMember,
   findUserByEmail, inviteUserToAccount, loadPendingInvites, acceptInvite, rejectInvite,
   loadAccountPendingInvites, cancelInvite,
+  loadImovelMembers, updateImovelMemberOwnership, removeImovelMember, loadImovelPendingInvites,
+  inviteUserToImovel, cancelImovelInvite, loadPendingImovelInvites, acceptImovelInvite, rejectImovelInvite,
   countSuspiciousDuplicates, loadSuspiciousDuplicates, resolveDuplicate, keepBothTransactions,
   getLedgerAutoConfig, saveLedgerAutoConfig, syncLedgerAuto, getGoogleAccessToken,
   getCustosCasaConfig, saveCustosCasaConfig, syncCustosCasa,
@@ -42,7 +44,7 @@ import {
   type Account, type Transaction, type Imovel, type ContaImovel, type CategoryRule, type SaudeRule,
   type DriveToken, type DriveFile, type AppNotification, type T212Config,
   type Profile, type AccountMember, type AccountInvite, type SuspiciousPair, type LedgerAutoConfig, type CustosCasaConfig,
-  type PrejuizoReportavel,
+  type PrejuizoReportavel, type ImovelInvite,
 } from '@/lib/supabase'
 import {
   IRS_SUBCATEGORIAS, IRS_SUBCATEGORIA_LABELS, limiteRendaAplicavel, contratoDuracaoAnos,
@@ -3668,7 +3670,7 @@ const IrsMappingScreen = ({resumos,ano,onClose}:{resumos:IrsImovelResumo[],ano:n
   const periodoLabel = anoEmCurso ? `1 Jan – ${now.toLocaleDateString('pt-PT',{day:'2-digit',month:'short'})} ${ano}` : `1 Jan – 31 Dez ${ano}`
   const todasLinhas = [...linhas41,...linhasModerada,...linhas42]
   const nImoveis = new Set(todasLinhas.map(l=>l.imovel.id)).size
-  const quotas = Array.from(new Map(todasLinhas.map(l=>[l.imovel.id,{nome:l.imovel.nome,pct:l.imovel.ownership_pct}])).values())
+  const quotas = Array.from(new Map(todasLinhas.map(l=>[l.imovel.id,{nome:l.imovel.nome,pct:l.imovel.my_ownership_pct??l.imovel.ownership_pct}])).values())
   const quotasIguais = quotas.every(q=>q.pct===quotas[0]?.pct)
   const quotaLabel = quotas.length===0 ? null
     : quotasIguais ? `Valores já à tua quota de propriedade (${quotas[0].pct}% em todos os imóveis).`
@@ -3942,7 +3944,7 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
         if(doImovel.length===0) continue
         let restantes: PrejuizoDisponivel[] = doImovel.map(p=>({ano_origem:p.ano_origem, restante:Number(p.valor)}))
         const primeiroAno = Math.min(...doImovel.map(p=>p.ano_origem))+1
-        const pct = im.ownership_pct/100
+        const pct = (im.my_ownership_pct??im.ownership_pct)/100
         for(let anoIntermedio=primeiroAno; anoIntermedio<ano; anoIntermedio++){
           const txnsIntermedio = await loadImovelTxnsForYear([im.id], anoIntermedio)
           // computeIrsImovel devolve o consumo à quota (use100=false); convertemos de volta para
@@ -4199,7 +4201,7 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
                       {prejuizoIsOpen&&(
                         <div style={{marginLeft:2,borderLeft:`1px solid ${T.border}`}}>
                           {r.prejuizoDetalhe.map(d=>{
-                            const pct = showQuota ? r.imovel.ownership_pct/100 : 1
+                            const pct = showQuota ? (r.imovel.my_ownership_pct??r.imovel.ownership_pct)/100 : 1
                             const antes = (prejuizosDisponiveis[r.imovel.id]??[]).find(p=>p.ano_origem===d.ano_origem)
                             const disponivelNaBase = antes ? antes.restante*pct : d.valor
                             const usadoTudo = d.valor >= disponivelNaBase-0.005
@@ -4312,7 +4314,7 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
 // ─────────────────────────────────────────────────────────────────
 // IMÓVEIS SCREEN — full management
 // ─────────────────────────────────────────────────────────────────
-const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,onViewAll}:{imoveis:Imovel[],transactions:Transaction[],accounts:Account[],contaImovel:ContaImovel[],pal:{grad:string,accent:string,soft:string},onRefresh:()=>void,onViewAll:(imovelId?:string)=>void}) => {
+const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,onViewAll,onMembers}:{imoveis:Imovel[],transactions:Transaction[],accounts:Account[],contaImovel:ContaImovel[],pal:{grad:string,accent:string,soft:string},onRefresh:()=>void,onViewAll:(imovelId?:string)=>void,onMembers:(imovelId:string)=>void}) => {
   const [formOpen,setFormOpen] = useState(false)
   const [editing,setEditing] = useState<Imovel|null>(null)
   const [showQueue,setShowQueue] = useState(false)
@@ -4487,7 +4489,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
       </div>
       {imoveis.length===0&&<Card style={{marginBottom:20}}><div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem imóveis ainda. Toca em "Adicionar" para criar o primeiro.</div></Card>}
       {imoveis.map((im,idx)=>{
-        const quotaFactor = showQuota ? (im.ownership_pct||100)/100 : 1
+        const quotaFactor = showQuota ? (im.my_ownership_pct??im.ownership_pct??100)/100 : 1
         const renda=getImRenda(im.id)*quotaFactor, custo=getImCusto(im.id)*quotaFactor, res=renda-custo, pos=res>=0
         const nLinks=contaImovel.filter(ci=>ci.imovel_id===im.id).length
         const temValoriz=(im.valorizacao||0)>0
@@ -4503,12 +4505,13 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
               <div style={{display:'flex',alignItems:'center',gap:8}}>
                 <div style={{textAlign:'right'}}>
                   <div style={{fontSize:19,fontWeight:700,color:pos?T.green:T.red,fontFamily:T.mono}}>{pos?'+ ':'− '}{dec(Math.abs(res))}</div>
-                  <div style={{fontSize:9,color:T.textTer,marginTop:1}}>resultado/mês{showQuota?` · ${im.ownership_pct}%`:''}</div>
+                  <div style={{fontSize:9,color:T.textTer,marginTop:1}}>resultado/mês{showQuota?` · ${im.my_ownership_pct??im.ownership_pct}%`:''}</div>
                 </div>
                 <div style={{display:'flex',flexDirection:'column',gap:3}}>
                   <button onClick={e=>{e.stopPropagation();moveImovel(idx,-1)}} disabled={idx===0} style={{background:T.surface2,border:'none',borderRadius:6,padding:2,cursor:idx===0?'default':'pointer',opacity:idx===0?0.3:1}}><ChevronUp size={12} color={T.textSec}/></button>
                   <button onClick={e=>{e.stopPropagation();moveImovel(idx,1)}} disabled={idx===imoveis.length-1} style={{background:T.surface2,border:'none',borderRadius:6,padding:2,cursor:idx===imoveis.length-1?'default':'pointer',opacity:idx===imoveis.length-1?0.3:1}}><ChevronDown size={12} color={T.textSec}/></button>
                 </div>
+                <button onClick={e=>{e.stopPropagation();onMembers(im.id)}} title="Partilhar/gerir membros" style={{background:T.surface2,border:'none',borderRadius:8,padding:6,cursor:'pointer'}}><Users size={13} color={T.textSec}/></button>
                 <button onClick={e=>{e.stopPropagation();setEditing(im);setFormOpen(true)}} style={{background:T.surface2,border:'none',borderRadius:8,padding:6,cursor:'pointer'}}><Edit2 size={13} color={T.textSec}/></button>
               </div>
             </div>
@@ -4589,7 +4592,7 @@ const PatrimonioScreen = ({accounts,imoveis,transactions,pal}:{accounts:Account[
   const pesQuota=quotaTag('pessoal'), famQuota=quotaTag('familiar'), invQuota=quotaTag('investimento')
 
   const valorizBruto = imoveis.reduce((s,im)=>s+(im.valorizacao||0),0)
-  const valorizQuota = imoveis.reduce((s,im)=>s+(im.valorizacao||0)*(im.ownership_pct/100),0)
+  const valorizQuota = imoveis.reduce((s,im)=>s+(im.valorizacao||0)*((im.my_ownership_pct??im.ownership_pct)/100),0)
 
   const baseItems=[
     {nome:'Contas Pessoais',    valor:pesSaldo, meu:pesQuota, cor:PAL.pessoal.accent},
@@ -4667,9 +4670,19 @@ const PctInput = ({value,onCommit,disabled}:{value:number,onCommit:(n:number)=>v
   )
 }
 
-const MembersScreen = ({accountId,accounts,onClose,pal,onChanged}:{accountId:string,accounts:Account[],onClose:()=>void,pal:{accent:string,soft:string},onChanged:()=>void}) => {
-  const account = accounts.find(a=>a.id===accountId)
-  const [members,setMembers] = useState<AccountMember[]>([])
+// Partilha genérica — usado tanto para contas bancárias (account_users/account_invites)
+// como para imóveis (imovel_users/imovel_invites); cada chamador passa as funções certas
+// em `api`, o resto do ecrã (lista, %, convite, cancelar) é idêntico aos dois casos.
+type MembersApi = {
+  loadMembers:()=>Promise<{id:string,user_id:string,ownership_pct:number,status:'active'|'pending',nome:string,email:string|null}[]>
+  loadPending:()=>Promise<{id:string,invited_nome:string,invited_email:string|null,created_at:string}[]>
+  invite:(userId:string)=>Promise<{error?:{message:string}|null}>
+  updateOwnership:(membershipId:string,pct:number)=>Promise<{error?:{message:string}|null}>
+  removeMember:(membershipId:string)=>Promise<any>
+  cancelInvite:(inviteId:string)=>Promise<any>
+}
+const MembersScreen = ({title,subtitle,onClose,pal,onChanged,api}:{title:string,subtitle:string,onClose:()=>void,pal:{accent:string,soft:string},onChanged:()=>void,api:MembersApi}) => {
+  const [members,setMembers] = useState<Awaited<ReturnType<MembersApi['loadMembers']>>>([])
   const [pending,setPending] = useState<Array<{id:string,invited_nome:string,invited_email:string|null,created_at:string}>>([])
   const [loading,setLoading] = useState(true)
   const [inviteEmail,setInviteEmail] = useState('')
@@ -4677,11 +4690,11 @@ const MembersScreen = ({accountId,accounts,onClose,pal,onChanged}:{accountId:str
   const [busy,setBusy] = useState(false)
   const refresh = useCallback(async()=>{
     setLoading(true)
-    const [m, p] = await Promise.all([loadAccountMembers(accountId), loadAccountPendingInvites(accountId)])
+    const [m, p] = await Promise.all([api.loadMembers(), api.loadPending()])
     setMembers(m)
-    setPending(p.map(x=>({id:x.id, invited_nome:x.invited_nome, invited_email:x.invited_email, created_at:x.created_at})))
+    setPending(p)
     setLoading(false)
-  },[accountId])
+  },[api])
   useEffect(()=>{ refresh() },[refresh])
 
   const totalPct = members.reduce((s,m)=>s+m.ownership_pct,0)
@@ -4693,27 +4706,27 @@ const MembersScreen = ({accountId,accounts,onClose,pal,onChanged}:{accountId:str
     const u = await findUserByEmail(email)
     if(!u){ setInviteMsg({txt:'Não existe utilizador com esse email',err:true}); setBusy(false); return }
     if(members.some(m=>m.user_id===u.id)){ setInviteMsg({txt:'Este utilizador já é membro',err:true}); setBusy(false); return }
-    const res = await inviteUserToAccount(accountId, u.id)
+    const res = await api.invite(u.id)
     if(res.error){ setInviteMsg({txt:'Erro: '+res.error.message,err:true}); setBusy(false); return }
     setInviteMsg({txt:'✓ Convite enviado',err:false})
     setInviteEmail('')
     setBusy(false)
     await refresh()
   }
-  const changePct = async (m:AccountMember, v:string) => {
+  const changePct = async (m:{id:string,ownership_pct:number}, v:string) => {
     const n = Math.max(0, Math.min(100, Number(v)||0))
     if (n === m.ownership_pct) return
-    const { error } = await updateMemberOwnership(m.id, n)
+    const { error } = await api.updateOwnership(m.id, n)
     if (error) { alert('Erro ao actualizar %: '+error.message); return }
     await refresh(); onChanged()
   }
-  const doRemove = async (m:AccountMember) => {
-    if(!confirm(`Remover ${m.nome} desta conta?`)) return
-    await removeMember(m.id); await refresh(); onChanged()
+  const doRemove = async (m:{id:string,nome:string}) => {
+    if(!confirm(`Remover ${m.nome}?`)) return
+    await api.removeMember(m.id); await refresh(); onChanged()
   }
   const doCancelInvite = async (id:string) => {
     if(!confirm('Cancelar este convite pendente?')) return
-    await cancelInvite(id); await refresh()
+    await api.cancelInvite(id); await refresh()
   }
 
   return (
@@ -4722,8 +4735,8 @@ const MembersScreen = ({accountId,accounts,onClose,pal,onChanged}:{accountId:str
         <div style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',background:T.surface,borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,zIndex:10}}>
           <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ArrowLeft size={18} color={T.textSec}/></button>
           <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:15,fontWeight:700,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>Membros</div>
-            <div style={{fontSize:11,color:T.textSec,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{account?.nome ?? ''}</div>
+            <div style={{fontSize:15,fontWeight:700,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{title}</div>
+            <div style={{fontSize:11,color:T.textSec,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{subtitle}</div>
           </div>
           <button onClick={refresh} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><RefreshCw size={14} color={T.textSec}/></button>
         </div>
@@ -4786,10 +4799,16 @@ const MembersScreen = ({accountId,accounts,onClose,pal,onChanged}:{accountId:str
 // ─────────────────────────────────────────────────────────────────
 // CONVITES PENDENTES
 // ─────────────────────────────────────────────────────────────────
-const InvitesScreen = ({invites,onClose,pal,onChanged}:{invites:AccountInvite[],onClose:()=>void,pal:{accent:string,soft:string},onChanged:()=>void}) => {
+const InvitesScreen = ({accountInvites,imovelInvites,onClose,pal,onChanged}:{accountInvites:AccountInvite[],imovelInvites:ImovelInvite[],onClose:()=>void,pal:{accent:string,soft:string},onChanged:()=>void}) => {
   const [busy,setBusy] = useState<string|null>(null)
-  const doAccept = async (id:string) => { setBusy(id); await acceptInvite(id); await onChanged(); setBusy(null) }
-  const doReject = async (id:string) => { setBusy(id); await rejectInvite(id); await onChanged(); setBusy(null) }
+  const doAccept = async (id:string,kind:'account'|'imovel') => { setBusy(id); await (kind==='account'?acceptInvite(id):acceptImovelInvite(id)); await onChanged(); setBusy(null) }
+  const doReject = async (id:string,kind:'account'|'imovel') => { setBusy(id); await (kind==='account'?rejectInvite(id):rejectImovelInvite(id)); await onChanged(); setBusy(null) }
+  // Convites de contas e de imóveis fundidos numa só caixa de entrada — ao teu irmão (ou
+  // a quem quer que convides) não interessa a distinção técnica, só "o que me partilharam".
+  const merged = [
+    ...accountInvites.map(i=>({id:i.id,kind:'account' as const,nome:i.account_nome,invited_by_nome:i.invited_by_nome})),
+    ...imovelInvites.map(i=>({id:i.id,kind:'imovel' as const,nome:i.imovel_nome,invited_by_nome:i.invited_by_nome})),
+  ]
   return (
     <div style={{position:'fixed',inset:0,background:T.bg,zIndex:95,overflowY:'auto'}}>
       <div style={{maxWidth:440,margin:'0 auto'}}>
@@ -4798,18 +4817,18 @@ const InvitesScreen = ({invites,onClose,pal,onChanged}:{invites:AccountInvite[],
           <div style={{fontSize:16,fontWeight:700,color:T.text,flex:1}}>Convites pendentes</div>
         </div>
         <div style={{padding:'16px 14px'}}>
-          {invites.length===0 ? (
+          {merged.length===0 ? (
             <div style={{padding:40,textAlign:'center',fontSize:13,color:T.textSec}}>
               <Mail size={32} color={T.textTer} style={{marginBottom:12}}/>
               <div>Sem convites pendentes</div>
             </div>
-          ) : invites.map(inv => (
-            <Card key={inv.id} style={{padding:'14px 16px',marginBottom:10}}>
-              <div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:4}}>{inv.account_nome}</div>
-              <div style={{fontSize:11,color:T.textSec,marginBottom:12}}>Convite de <strong style={{color:T.text}}>{inv.invited_by_nome}</strong></div>
+          ) : merged.map(inv => (
+            <Card key={`${inv.kind}-${inv.id}`} style={{padding:'14px 16px',marginBottom:10}}>
+              <div style={{fontSize:13,fontWeight:600,color:T.text,marginBottom:4}}>{inv.nome}</div>
+              <div style={{fontSize:11,color:T.textSec,marginBottom:12}}>Convite de <strong style={{color:T.text}}>{inv.invited_by_nome}</strong> · {inv.kind==='imovel'?'partilha de imóvel':'partilha de conta'}</div>
               <div style={{display:'flex',gap:8}}>
-                <button onClick={()=>doAccept(inv.id)} disabled={busy===inv.id} style={{flex:1,background:pal.accent,color:'#14110F',border:'none',borderRadius:8,padding:'8px 12px',fontSize:12,fontWeight:700,cursor:'pointer',opacity:busy===inv.id?0.5:1}}>Aceitar</button>
-                <button onClick={()=>doReject(inv.id)} disabled={busy===inv.id} style={{flex:1,background:T.surface2,color:T.textSec,border:`1px solid ${T.border}`,borderRadius:8,padding:'8px 12px',fontSize:12,fontWeight:600,cursor:'pointer',opacity:busy===inv.id?0.5:1}}>Rejeitar</button>
+                <button onClick={()=>doAccept(inv.id,inv.kind)} disabled={busy===inv.id} style={{flex:1,background:pal.accent,color:'#14110F',border:'none',borderRadius:8,padding:'8px 12px',fontSize:12,fontWeight:700,cursor:'pointer',opacity:busy===inv.id?0.5:1}}>Aceitar</button>
+                <button onClick={()=>doReject(inv.id,inv.kind)} disabled={busy===inv.id} style={{flex:1,background:T.surface2,color:T.textSec,border:`1px solid ${T.border}`,borderRadius:8,padding:'8px 12px',fontSize:12,fontWeight:600,cursor:'pointer',opacity:busy===inv.id?0.5:1}}>Rejeitar</button>
               </div>
             </Card>
           ))}
@@ -5305,8 +5324,10 @@ export default function Page() {
   const [showSaude, setShowSaude] = useState(false)
   const [me, setMe] = useState<Profile|null>(null)
   const [invites, setInvites] = useState<AccountInvite[]>([])
+  const [imovelInvites, setImovelInvites] = useState<ImovelInvite[]>([])
   const [showInvites, setShowInvites] = useState(false)
   const [membersAccountId, setMembersAccountId] = useState<string|null>(null)
+  const [membersImovelId, setMembersImovelId] = useState<string|null>(null)
   const [viewAllCategoria, setViewAllCategoria] = useState<string|undefined>(undefined)
   const [viewAllImovelId, setViewAllImovelId] = useState<string|undefined>(undefined)
   const [viewAllContaId, setViewAllContaId] = useState<string|undefined>(undefined)
@@ -5322,7 +5343,10 @@ export default function Page() {
   const loadFull = useCallback(async()=>{ const all = await loadAllTransactions(); setAllTxns(all) },[])
   const refreshAll = useCallback(async()=>{ await load(); await loadFull() },[load,loadFull])
 
-  const refreshInvites = useCallback(async()=>{ setInvites(await loadPendingInvites()) },[])
+  const refreshInvites = useCallback(async()=>{
+    setInvites(await loadPendingInvites())
+    setImovelInvites(await loadPendingImovelInvites())
+  },[])
   const refreshMe = useCallback(async()=>{ setMe(await getCurrentProfile()) },[])
   const refreshSuspeitas = useCallback(async()=>{ setSuspeitasCount(await countSuspiciousDuplicates()) },[])
 
@@ -5331,7 +5355,7 @@ export default function Page() {
     const {data:{subscription}} = supabase.auth.onAuthStateChange((_,session)=>{
       setSession(session)
       if(session){ load(); loadFull(); refreshMe(); refreshInvites(); countUnreadNotifications().then(setUnreadCount); refreshSuspeitas() }
-      else { setLoading(false); setSession(null); setMe(null); setInvites([]) }
+      else { setLoading(false); setSession(null); setMe(null); setInvites([]); setImovelInvites([]) }
     })
     return ()=>subscription.unsubscribe()
   },[load,loadFull,refreshMe,refreshInvites,refreshSuspeitas])
@@ -5403,7 +5427,7 @@ export default function Page() {
       <div style={{flex:1,overflowY:'auto',padding:'14px 12px 0'}}>
         <div style={screenStyle('familiar')}><BudgetScreen accounts={accounts} transactions={transactions} tag="familiar" pal={PAL.familiar} title="Conta Corrente Familiar" onViewAllTxns={openAllTxns} onRefresh={async()=>{await refreshAll();showToast('✓ Transação actualizada')}} onSaudeFinanceira={()=>setShowSaude(true)}/></div>
         <div style={screenStyle('pessoal')}><BudgetScreen accounts={accounts} transactions={transactions} tag="pessoal" pal={PAL.pessoal} title="Conta Corrente Pessoal" onViewAllTxns={openAllTxns} onRefresh={async()=>{await refreshAll();showToast('✓ Transação actualizada')}} onSaudeFinanceira={()=>setShowSaude(true)}/></div>
-        <div style={screenStyle('imoveis')}><ImoveisScreen imoveis={imoveis} transactions={transactions} accounts={accounts} contaImovel={contaImovel} pal={PAL.imoveis} onRefresh={async()=>{await refreshAll();showToast('✓ Imóveis actualizados')}} onViewAll={(imovelId)=>{setViewAllImovelId(imovelId);openAllTxns()}}/></div>
+        <div style={screenStyle('imoveis')}><ImoveisScreen imoveis={imoveis} transactions={transactions} accounts={accounts} contaImovel={contaImovel} pal={PAL.imoveis} onRefresh={async()=>{await refreshAll();showToast('✓ Imóveis actualizados')}} onViewAll={(imovelId)=>{setViewAllImovelId(imovelId);openAllTxns()}} onMembers={(id)=>setMembersImovelId(id)}/></div>
         <div style={screenStyle('patrimonio')}><PatrimonioScreen accounts={accounts} imoveis={imoveis} transactions={transactions} pal={PAL.patrimonio}/></div>
         <div style={{height:16}}/>
       </div>
@@ -5411,11 +5435,34 @@ export default function Page() {
         {TABS.map(({id,label,Icon})=>{const active=tab===id,c=active?PAL[id].accent:T.textTer;return (<button key={id} onClick={()=>setTab(id)} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:3,background:'none',border:'none',cursor:'pointer',padding:'4px 0'}}><Icon size={20} color={c} strokeWidth={active?2.5:1.5}/><span style={{fontSize:10,fontWeight:active?700:400,color:c}}>{label}</span>{active&&<div style={{width:4,height:4,borderRadius:'50%',background:c}}/>}</button>)})}
       </div>
       {showImport&&<ImportWizard onClose={()=>setShowImport(false)} accounts={accounts} pal={pal} onDone={async()=>{await refreshAll();showToast('✓ Importação concluída')}} onRefreshAccounts={refreshAll}/>}
-      {showSettings&&<SettingsPanel onClose={()=>setShowSettings(false)} accounts={accounts} onRefresh={async()=>{await refreshAll();showToast('✓ Dados actualizados')}} pal={pal} me={me} onMembers={(id)=>setMembersAccountId(id)} onShowInvites={()=>setShowInvites(true)} pendingInvitesCount={invites.length} onProfileUpdated={refreshMe}/>}
+      {showSettings&&<SettingsPanel onClose={()=>setShowSettings(false)} accounts={accounts} onRefresh={async()=>{await refreshAll();showToast('✓ Dados actualizados')}} pal={pal} me={me} onMembers={(id)=>setMembersAccountId(id)} onShowInvites={()=>setShowInvites(true)} pendingInvitesCount={invites.length+imovelInvites.length} onProfileUpdated={refreshMe}/>}
       {showDuplicates&&<DuplicatesWizard onClose={()=>setShowDuplicates(false)} pal={pal} onResolved={async()=>{ setSuspeitasCount(await countSuspiciousDuplicates()) }} imoveis={imoveis} accounts={accounts}/>}
       {showSaude&&<SaudeFinanceiraScreen accounts={accounts} transactions={transactions} me={me} onWindowChanged={async(n)=>{await updateMyProfile({saude_window_months:n});await refreshMe()}} onRefresh={refreshAll} onClose={()=>setShowSaude(false)}/>}
-      {membersAccountId&&<MembersScreen accountId={membersAccountId} accounts={accounts} onClose={()=>setMembersAccountId(null)} pal={pal} onChanged={refreshAll}/>}
-      {showInvites&&<InvitesScreen invites={invites} onClose={()=>setShowInvites(false)} pal={pal} onChanged={async()=>{await refreshInvites();await refreshAll()}}/>}
+      {membersAccountId&&<MembersScreen
+        title="Membros" subtitle={accounts.find(a=>a.id===membersAccountId)?.nome ?? ''}
+        onClose={()=>setMembersAccountId(null)} pal={pal} onChanged={refreshAll}
+        api={{
+          loadMembers:()=>loadAccountMembers(membersAccountId),
+          loadPending:()=>loadAccountPendingInvites(membersAccountId).then(p=>p.map(x=>({id:x.id,invited_nome:x.invited_nome,invited_email:x.invited_email,created_at:x.created_at}))),
+          invite:(userId)=>inviteUserToAccount(membersAccountId,userId),
+          updateOwnership:updateMemberOwnership,
+          removeMember:removeMember,
+          cancelInvite:cancelInvite,
+        }}
+      />}
+      {membersImovelId&&<MembersScreen
+        title="Membros" subtitle={imoveis.find(i=>i.id===membersImovelId)?.nome ?? ''}
+        onClose={()=>setMembersImovelId(null)} pal={pal} onChanged={refreshAll}
+        api={{
+          loadMembers:()=>loadImovelMembers(membersImovelId),
+          loadPending:()=>loadImovelPendingInvites(membersImovelId).then(p=>p.map(x=>({id:x.id,invited_nome:x.invited_nome,invited_email:x.invited_email,created_at:x.created_at}))),
+          invite:(userId)=>inviteUserToImovel(membersImovelId,userId),
+          updateOwnership:updateImovelMemberOwnership,
+          removeMember:removeImovelMember,
+          cancelInvite:cancelImovelInvite,
+        }}
+      />}
+      {showInvites&&<InvitesScreen accountInvites={invites} imovelInvites={imovelInvites} onClose={()=>setShowInvites(false)} pal={pal} onChanged={async()=>{await refreshInvites();await refreshAll()}}/>}
       {showAllTxns&&<AllTransactionsScreen allTxns={allTxns} accounts={accounts} tag={tab==='imoveis'?'investimento':tab} pal={pal} onClose={()=>{setShowAllTxns(false);setViewAllCategoria(undefined);setViewAllContaId(undefined);setViewAllImovelId(undefined)}} onRefresh={async()=>{await refreshAll();showToast('✓ Transações actualizadas')}} imoveis={tab==='imoveis'?imoveis:undefined} initialCategoria={viewAllCategoria} initialContaId={viewAllContaId} initialImovelId={viewAllImovelId}/>}
       {showNotifications&&<NotificationsScreen onClose={()=>setShowNotifications(false)} pal={pal}/>}
       {toast&&<div style={{position:'fixed',bottom:90,left:'50%',transform:'translateX(-50%)',background:T.surface,border:`1px solid ${pal.accent}`,borderRadius:12,padding:'10px 16px',display:'flex',alignItems:'flex-start',gap:8,zIndex:200,boxShadow:'0 8px 24px rgba(0,0,0,0.4)',width:'calc(100% - 32px)',maxWidth:400,boxSizing:'border-box'}}><Check size={15} color={pal.accent} style={{flexShrink:0,marginTop:1}}/><span style={{fontSize:13,fontWeight:600,color:T.text,wordBreak:'break-word'}}>{toast}</span></div>}

@@ -95,7 +95,8 @@ export type Imovel = {
   hipoteca_valor: number | null
   ativo: boolean
   ordem: number
-  ownership_pct: number
+  ownership_pct: number          // legado — mantido para compat (semente de imovel_users)
+  my_ownership_pct?: number      // % do user actual, vem de imovel_users; único usado no cálculo
   valorizacao: number
   valorizacao_data: string | null
   owner_user_id: string | null
@@ -117,6 +118,28 @@ export type ContaImovel = {
   imovel_id: string
 }
 
+// Partilha de imóveis — mesmo padrão de AccountMember/AccountInvite, aplicado a `imoveis`.
+export type ImovelMember = {
+  id: string
+  imovel_id: string
+  user_id: string
+  ownership_pct: number
+  status: 'active' | 'pending'
+  nome: string
+  email: string | null
+}
+
+export type ImovelInvite = {
+  id: string
+  imovel_id: string
+  imovel_nome: string
+  invited_by: string
+  invited_by_nome: string
+  invited_user_id: string
+  status: 'pending' | 'accepted' | 'rejected'
+  created_at: string
+}
+
 // Prejuízo reportável (Categoria F) — guardado ao valor GLOBAL do imóvel (100%), tal como o
 // resto dos valores brutos/gastos; `computeIrsImovel` escala-o pela quota de cada dono, tal
 // como faz ao bruto e aos gastos.
@@ -134,7 +157,7 @@ export async function loadAllData() {
   const TAG_ORDER: Record<string,number> = { familiar:0, pessoal:1, investimento:2, patrimonio:3 }
   const { data: { user } } = await supabase.auth.getUser()
 
-  const [accounts, transactions, imoveis, contaImovel, accountUsers] = await Promise.all([
+  const [accounts, transactions, imoveis, contaImovel, accountUsers, imovelUsers] = await Promise.all([
     supabase.from('accounts').select('*').eq('ativa', true).order('nome'),
     supabase.from('transactions').select('*')
       .eq('excluir_analise', false)
@@ -144,6 +167,7 @@ export async function loadAllData() {
     supabase.from('imoveis').select('*').order('ordem'),
     supabase.from('conta_imovel').select('*'),
     user ? supabase.from('account_users').select('account_id, ownership_pct').eq('user_id', user.id).eq('status', 'active') : Promise.resolve({ data: [] }),
+    user ? supabase.from('imovel_users').select('imovel_id, ownership_pct').eq('user_id', user.id).eq('status', 'active') : Promise.resolve({ data: [] }),
   ])
 
   // Map account_id → my_ownership_pct do user actual
@@ -155,6 +179,14 @@ export async function loadAllData() {
     my_ownership_pct: myPctMap.get(a.id) ?? a.ownership_pct,
   }))
 
+  // Map imovel_id → my_ownership_pct do user actual (vem de imovel_users, tal como as contas)
+  const myImovelPctMap = new Map<string, number>()
+  for (const iu of (imovelUsers.data ?? [])) myImovelPctMap.set(iu.imovel_id, Number(iu.ownership_pct))
+  const enrichedImoveis: Imovel[] = ((imoveis.data ?? []) as Imovel[]).map(im => ({
+    ...im,
+    my_ownership_pct: myImovelPctMap.get(im.id) ?? im.ownership_pct,
+  }))
+
   const sortedAccounts = enrichedAccounts.sort((a,b)=>{
     const ta = TAG_ORDER[a.budget_tag??''] ?? 9
     const tb = TAG_ORDER[b.budget_tag??''] ?? 9
@@ -164,7 +196,7 @@ export async function loadAllData() {
   return {
     accounts: sortedAccounts,
     transactions: (transactions.data ?? []) as Transaction[],
-    imoveis: (imoveis.data ?? []) as Imovel[],
+    imoveis: enrichedImoveis,
     contaImovel: (contaImovel.data ?? []) as ContaImovel[],
   }
 }
@@ -180,6 +212,58 @@ export async function updateImovel(id: string, fields: Partial<Omit<Imovel, 'id'
 }
 export async function deleteImovel(id: string) {
   return supabase.from('imoveis').delete().eq('id', id)
+}
+
+// ── Partilha de imóveis (mesmo padrão de accounts/account_users) ─
+export async function loadImovelMembers(imovelId: string): Promise<ImovelMember[]> {
+  const { data, error } = await supabase.rpc('get_imovel_members', { p_imovel_id: imovelId })
+  if (error) { console.error('loadImovelMembers', error); return [] }
+  return ((data ?? []) as any[]).map(r => ({
+    id: r.id, imovel_id: r.imovel_id, user_id: r.user_id,
+    ownership_pct: Number(r.ownership_pct), status: r.status,
+    nome: r.nome ?? '', email: r.email ?? null,
+  }))
+}
+export async function updateImovelMemberOwnership(membershipId: string, ownership_pct: number) {
+  return supabase.rpc('update_imovel_member_ownership', { p_membership_id: membershipId, p_new_pct: ownership_pct })
+}
+export async function loadImovelPendingInvites(imovelId: string) {
+  const { data, error } = await supabase.rpc('get_imovel_pending_invites', { p_imovel_id: imovelId })
+  if (error) { console.error('loadImovelPendingInvites', error); return [] }
+  return (data ?? []) as Array<{
+    id: string; imovel_id: string; invited_by: string; invited_by_nome: string;
+    invited_user_id: string; invited_nome: string; invited_email: string|null;
+    status: string; created_at: string;
+  }>
+}
+export async function cancelImovelInvite(inviteId: string) {
+  return supabase.rpc('cancel_imovel_invite', { p_invite_id: inviteId })
+}
+export async function removeImovelMember(membershipId: string) {
+  return supabase.rpc('remove_imovel_member', { p_membership_id: membershipId })
+}
+// Convidar user para partilhar um imóvel — cria/actualiza convite pendente
+export async function inviteUserToImovel(imovelId: string, invitedUserId: string) {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: { message: 'Não autenticado' } as any }
+  return supabase.from('imovel_invites').upsert({
+    imovel_id: imovelId, invited_by: user.id, invited_user_id: invitedUserId, status: 'pending',
+  }, { onConflict: 'imovel_id,invited_user_id' })
+}
+export async function loadPendingImovelInvites(): Promise<ImovelInvite[]> {
+  const { data, error } = await supabase.rpc('get_my_pending_imovel_invites')
+  if (error) { console.error('loadPendingImovelInvites', error); return [] }
+  return ((data ?? []) as any[]).map(r => ({
+    id: r.id, imovel_id: r.imovel_id, imovel_nome: r.imovel_nome ?? '',
+    invited_by: r.invited_by, invited_by_nome: r.invited_by_nome ?? '',
+    invited_user_id: r.invited_user_id, status: r.status, created_at: r.created_at,
+  }))
+}
+export async function acceptImovelInvite(inviteId: string) {
+  return supabase.rpc('accept_imovel_invite', { p_invite_id: inviteId })
+}
+export async function rejectImovelInvite(inviteId: string) {
+  return supabase.rpc('reject_imovel_invite', { p_invite_id: inviteId })
 }
 
 // ── Ligação conta ↔ imóvel ─────────────────────────────────────

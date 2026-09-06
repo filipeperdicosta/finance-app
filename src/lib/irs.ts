@@ -146,7 +146,7 @@ export type IrsImovelResumo = {
   liquido: number
 }
 export function computeIrsImovel(im:Imovel, transactions:Transaction[], ano:number, use100=false, prejuizosDisponiveis:PrejuizoDisponivel[]=[]): IrsImovelResumo {
-  const pct = use100 ? 1 : im.ownership_pct/100
+  const pct = use100 ? 1 : (im.my_ownership_pct ?? im.ownership_pct)/100
   const anoTxns = transactions.filter(t=>t.imovel_id===im.id && t.data.startsWith(String(ano)))
   // Todo o rendimento do imóvel conta como renda por defeito — só fica de fora quando marcado
   // explicitamente como "não é renda" (ex: reembolso de utilities pago pelo arrendatário).
