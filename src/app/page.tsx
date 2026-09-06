@@ -1233,15 +1233,30 @@ const PropHero = ({im,renda,custos}:{im:Imovel,renda:number,custos:number}) => {
 // LOGIN
 // ─────────────────────────────────────────────────────────────────
 const LoginScreen = ({onLogin}:{onLogin:()=>void}) => {
+  const [mode,setMode] = useState<'login'|'signup'>('login')
   const [email,setEmail] = useState('')
   const [pass,setPass] = useState('')
   const [err,setErr] = useState('')
+  const [msg,setMsg] = useState('')
   const [loading,setLoading] = useState(false)
   const login = async () => {
     setLoading(true); setErr('')
     const {error} = await supabase.auth.signInWithPassword({email,password:pass})
     if (error) { setErr(error.message); setLoading(false) } else onLogin()
   }
+  // Conta nova — cada pessoa arranca com o seu próprio espaço em branco (imóveis, contas,
+  // etc. são isolados por RLS); não junta ninguém a dados de outra pessoa. Se as confirmações
+  // de email estiverem activas no projecto Supabase, o signUp não devolve sessão de imediato —
+  // fica pendente até confirmar o link enviado.
+  const signup = async () => {
+    setLoading(true); setErr(''); setMsg('')
+    const {data,error} = await supabase.auth.signUp({email,password:pass})
+    if (error) { setErr(error.message); setLoading(false); return }
+    if (data.session) { onLogin(); return }
+    setMsg('Conta criada. Confirma o email que acabámos de enviar para poderes entrar.')
+    setLoading(false)
+  }
+  const submit = mode==='login' ? login : signup
   return (
     <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100vh',background:`radial-gradient(ellipse 420px 340px at 50% 30%, rgba(74,222,128,0.16), transparent 70%), ${T.bg}`,padding:24,fontFamily:'var(--font-body),-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
       <div style={{width:'100%',maxWidth:360}}>
@@ -1253,7 +1268,7 @@ const LoginScreen = ({onLogin}:{onLogin:()=>void}) => {
         </div>
         <Card style={{padding:24}}>
           {/* form real para que browsers/iOS/Android ofereçam guardar a password */}
-          <form onSubmit={e=>{e.preventDefault();login()}} autoComplete="on">
+          <form onSubmit={e=>{e.preventDefault();submit()}} autoComplete="on">
             <div style={{marginBottom:14}}>
               <div style={{fontSize:11,color:T.textSec,fontWeight:600,marginBottom:5,textTransform:'uppercase',letterSpacing:'0.06em'}}>Email</div>
               <input name="email" type="email" autoComplete="username email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="o-teu@email.com"
@@ -1261,12 +1276,20 @@ const LoginScreen = ({onLogin}:{onLogin:()=>void}) => {
             </div>
             <div style={{marginBottom:14}}>
               <div style={{fontSize:11,color:T.textSec,fontWeight:600,marginBottom:5,textTransform:'uppercase',letterSpacing:'0.06em'}}>Password</div>
-              <input name="password" type="password" autoComplete="current-password" value={pass} onChange={e=>setPass(e.target.value)} placeholder="••••••••"
+              <input name="password" type="password" autoComplete={mode==='login'?'current-password':'new-password'} value={pass} onChange={e=>setPass(e.target.value)} placeholder="••••••••"
                 style={{width:'100%',background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,padding:'10px 12px',color:T.text,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
             </div>
             {err&&<div style={{fontSize:12,color:T.red,marginBottom:12}}>{err}</div>}
-            <button type="submit" disabled={loading} style={{width:'100%',background:T.green,color:'#14110F',border:'none',borderRadius:10,padding:'12px',fontSize:14,fontWeight:700,cursor:'pointer'}}>{loading?'A entrar…':'Entrar'}</button>
+            {msg&&<div style={{fontSize:12,color:T.green,marginBottom:12,lineHeight:1.5}}>{msg}</div>}
+            <button type="submit" disabled={loading} style={{width:'100%',background:T.green,color:'#14110F',border:'none',borderRadius:10,padding:'12px',fontSize:14,fontWeight:700,cursor:'pointer'}}>
+              {loading?(mode==='login'?'A entrar…':'A criar…'):(mode==='login'?'Entrar':'Criar conta')}
+            </button>
           </form>
+          <div style={{textAlign:'center',marginTop:16}}>
+            <button onClick={()=>{setMode(mode==='login'?'signup':'login');setErr('');setMsg('')}} style={{background:'none',border:'none',cursor:'pointer',color:T.textSec,fontSize:12}}>
+              {mode==='login'?'Não tens conta? Criar conta':'Já tens conta? Entrar'}
+            </button>
+          </div>
         </Card>
       </div>
     </div>
