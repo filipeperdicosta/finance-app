@@ -24,7 +24,11 @@ bancárias (PSD2 + PDF), investimentos, imóveis e património num dashboard ún
   (sync Excel IRS), `custosCasaSync.ts` (sync Excel custos casa)
 - `src/app/api/cron/check-drive/route.ts` — cron diário (5h): Drive PDF + Enable Banking + T212
   + LedgerAuto + Custos Casa
-- UI em português (PT), tema escuro. Tokens de design no objecto `T`, paletas `PAL` por tab.
+- UI em português (PT), tema escuro (grafite quente `#14110F` desde 2026-08-30).
+  Tokens de design no objecto `T`, paletas `PAL` por tab. Fontes via
+  `next/font/google`: Fraunces (marca "Bio."), Hanken Grotesk (UI/corpo),
+  JetBrains Mono (valores monetários). Ícones de categoria em `lucide-react`
+  (`CAT_META` → componente, render por `CatIcon`).
 
 ## Comandos úteis
 - `npm run dev` — servidor local
@@ -46,8 +50,10 @@ bancárias (PSD2 + PDF), investimentos, imóveis e património num dashboard ún
 Consulta `docs/PROJECT_STATE.md` para: funcionalidades já feitas, bugs em aberto,
 roadmap acordado, decisões técnicas e aprendizagens/armadilhas conhecidas.
 
-**Sem bug activo de momento.** Último resolvido: tabs Familiar/Pessoal/
-Imóveis/Património perdiam filtro/mês/conta seleccionada ao navegar entre
-si (2026-08-14) — trocar o componente na mesma posição da árvore fazia o
-React desmontar/partilhar estado. Ver PROJECT_STATE.md → "Funcionalidades
-completas".
+**Sem bug activo de momento.** Último resolvido: religar um banco no Enable
+Banking criava uma conta duplicada "sem conta associada" porque o
+`account_uid` muda a cada religação — agora casa por IBAN (2026-08-26).
+Trabalho mais recente (2026-08-30): refresh visual "Opção A" (tipografia
+Fraunces/Hanken/JetBrains Mono, paleta grafite quente, Hero sem gradiente,
+ícones `lucide-react`) e exportação do mapeamento IRS Anexo F para
+PDF/imagem/texto. Ver PROJECT_STATE.md.
