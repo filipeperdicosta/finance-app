@@ -3777,8 +3777,14 @@ async function openLedgerPicker(accessToken: string, apiKey: string): Promise<st
 // ─────────────────────────────────────────────────────────────────
 const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],accounts:Account[],onClose:()=>void,onRefresh:()=>void}) => {
   const [ano,setAno] = useState(new Date().getFullYear())
-  const [openId,setOpenId] = useState<string|null>(null)
-  const [openCat,setOpenCat] = useState<IrsSubcategoria|'nao_classificadas'|null>(null)
+  // Cada card (por imóvel, chave = imovel.id, mais 'agregado' para o consolidado) abre/fecha
+  // Custos, Imposto e Prejuízo de forma independente — o resto do P&L fica sempre visível.
+  const [custosOpen,setCustosOpen] = useState<Record<string,boolean>>({})
+  const [impostoOpen,setImpostoOpen] = useState<Record<string,boolean>>({})
+  const [prejuizoOpen,setPrejuizoOpen] = useState<Record<string,boolean>>({})
+  // Chave `${scope}:${categoria}` (scope = imovel.id ou 'agregado') — para o detalhe de
+  // transacções por categoria, dentro de "Custos", e "Por classificar".
+  const [openCat,setOpenCat] = useState<string|null>(null)
   const [editTxn,setEditTxn] = useState<Transaction|null>(null)
   const [configImovel,setConfigImovel] = useState<Imovel|null>(null)
   const [showMapping,setShowMapping] = useState(false)
@@ -3889,6 +3895,61 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
   const totalImposto = resumos.reduce((s,r)=>s+r.imposto,0)
   const totalLiquido = resumos.reduce((s,r)=>s+r.liquido,0)
   const totalPrejuizoAplicado = resumos.reduce((s,r)=>s+r.prejuizoAplicado,0)
+  const totalNaoDedutivel = resumos.reduce((s,r)=>s+r.gastosPorCategoria.nao_dedutivel,0)
+  const totalColectavel = resumos.reduce((s,r)=>s+r.materiaColectavel,0)
+  const resultadoEconomicoRealTotal = totalLiquido-totalNaoDedutivel
+  // Custos agregados por categoria — soma de todos os imóveis, para o detalhe de "Custos" no
+  // card consolidado (o resto do card já soma bruto/gastos/imposto directamente de `resumos`).
+  const gastosAgregado = useMemo(()=>{
+    const g = {} as Record<IrsSubcategoria,number>
+    IRS_SUBCATEGORIAS.forEach(c=>{ g[c] = resumos.reduce((s,r)=>s+r.gastosPorCategoria[c],0) })
+    return g
+  },[resumos])
+
+  // Corpo de "Custos" partilhado entre o card consolidado e cada card de imóvel — divide-se em
+  // dois subtotais (Dedutíveis/Não Dedutíveis) só quando há não-dedutível a mostrar; senão é só
+  // a lista de categorias. `scopeKey` (imovel.id ou 'agregado') mantém as chaves de openCat
+  // separadas entre cards que estejam abertos ao mesmo tempo.
+  const renderCustosBody = (scopeKey:string, gastos:Record<IrsSubcategoria,number>, txnsFor:(cat:string)=>Transaction[]) => {
+    const linhaCategoria = (c:IrsSubcategoria) => {
+      const key = `${scopeKey}:${c}`
+      const catOpen = openCat===key
+      const catTxns = txnsFor(c)
+      const cor = c==='nao_dedutivel' ? '#FBBF24' : T.text
+      return (
+        <div key={c}>
+          <div onClick={()=>setOpenCat(catOpen?null:key)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',cursor:'pointer'}}>
+            <span style={{fontSize:12,color:cor}}>{IRS_SUBCATEGORIA_LABELS[c]}</span>
+            <span style={{fontSize:12,fontFamily:T.mono,color:cor}}>{dec(gastos[c])}</span>
+          </div>
+          {catOpen&&(
+            <div style={{background:T.surface,borderRadius:8,padding:'6px 10px',marginBottom:6}}>
+              {catTxns.length===0?(
+                <div style={{fontSize:11,color:T.textTer,padding:'6px 0'}}>Sem transações.</div>
+              ):catTxns.map(t=>(
+                <div key={t.id} onClick={()=>setEditTxn(t)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:`1px solid ${T.border}`,cursor:'pointer',gap:8}}>
+                  <div style={{minWidth:0}}><div style={{fontSize:11.5,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div><div style={{fontSize:10,color:T.textTer}}>{t.data}</div></div>
+                  <div style={{display:'flex',alignItems:'center',gap:5,flexShrink:0}}><span style={{fontSize:11.5,fontFamily:T.mono,color:T.textSec}}>{dec(Math.abs(Number(t.valor)))}</span><ChevronRight size={12} color={T.textTer}/></div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )
+    }
+    return (
+      <div style={{marginTop:4}}>
+        {gastos.nao_dedutivel>0&&<div style={{fontSize:10.5,fontWeight:700,color:T.text,padding:'4px 0'}}>Custos Dedutíveis</div>}
+        {IRS_SUBCATEGORIAS.filter(c=>c!=='nao_dedutivel').map(c=>gastos[c]!==0?linhaCategoria(c):null)}
+        {gastos.nao_dedutivel>0&&(
+          <>
+            <div style={{fontSize:10.5,fontWeight:700,color:T.text,padding:'8px 0 4px'}}>Custos Não Dedutíveis</div>
+            {linhaCategoria('nao_dedutivel')}
+          </>
+        )}
+      </div>
+    )
+  }
   const ratio = totalBruto>0 ? (totalLiquido/totalBruto*100) : 0
   // Despesas de imóveis sem Balde IRS atribuído — ficam FORA dos totais acima até serem
   // classificadas, por isso têm de aparecer sempre visíveis, nunca silenciosamente omitidas.
@@ -3926,15 +3987,71 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
           {!loadingYear&&<Card style={{padding:0,marginBottom:16,overflow:'hidden'}}>
             <div style={{height:3,background:PAL.imoveis.accent}}/>
             <div style={{padding:16}}>
-            <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0'}}><span style={{fontSize:11.5,color:T.textSec}}>Rendimento bruto total</span><span style={{fontSize:13,fontWeight:700,fontFamily:T.mono,color:T.text}}>{dec(totalBruto)}</span></div>
-            <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0'}}><span style={{fontSize:11.5,color:T.textSec}}>Gastos dedutíveis</span><span style={{fontSize:13,fontWeight:700,fontFamily:T.mono,color:T.textSec}}>− {dec(totalGastos)}</span></div>
-            {totalPrejuizoAplicado>0&&<div style={{display:'flex',justifyContent:'space-between',padding:'4px 0'}}><span style={{fontSize:11.5,color:T.textSec}}>Prejuízo reportado aplicado</span><span style={{fontSize:13,fontWeight:700,fontFamily:T.mono,color:'#FBBF24'}}>− {dec(totalPrejuizoAplicado)}</span></div>}
-            <div style={{height:1,background:T.border,margin:'6px 0'}}/>
-            <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0'}}><span style={{fontSize:11.5,color:T.textSec}}>Imposto estimado (IRS)</span><span style={{fontSize:13,fontWeight:700,fontFamily:T.mono,color:T.red}}>− {dec(totalImposto)}</span></div>
-            <div style={{height:1,background:T.border,margin:'6px 0'}}/>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',padding:'4px 0'}}><span style={{fontSize:11.5,color:T.textSec}}>Rendimento líquido total</span><span style={{fontSize:20,fontWeight:700,fontFamily:T.mono,color:T.green}}>{dec(totalLiquido)}</span></div>
-            <div style={{textAlign:'right'}}><span style={{fontSize:10,fontWeight:700,color:ratio>=60?T.green:'#FBBF24',background:ratio>=60?'rgba(74,222,128,0.15)':'rgba(251,191,36,0.15)',padding:'2px 8px',borderRadius:10}}>{ratio.toFixed(1)}% líquido/bruto</span></div>
-            <div style={{fontSize:9.5,color:'#FBBF24',marginTop:8}}>⚠ Taxa por confirmar para 2026 — editável por imóvel abaixo.</div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+                <div>
+                  <div style={{fontSize:13,fontWeight:700,color:T.text}}>Todos os imóveis</div>
+                  <div style={{fontSize:10,color:T.textTer,marginTop:1}}>Ano fiscal {ano} · {resumos.length} imóve{resumos.length===1?'l':'is'}</div>
+                </div>
+                <div style={{textAlign:'right'}}>
+                  <div style={{fontSize:18,fontWeight:700,fontFamily:T.mono,color:totalLiquido>=0?T.green:T.red}}>{dec(totalLiquido)}</div>
+                  <div style={{fontSize:9,color:T.textTer,marginTop:1}}>líquido</div>
+                </div>
+              </div>
+
+              <div style={{marginTop:10}}>
+                <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0'}}><span style={{fontSize:11,color:T.textSec,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.03em'}}>Receitas</span><span style={{fontSize:12.5,fontFamily:T.mono,color:T.text,fontWeight:600}}>{dec(totalBruto)}</span></div>
+                <div style={{height:1,background:T.border}}/>
+                <div onClick={()=>setCustosOpen({...custosOpen,agregado:!custosOpen.agregado})} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',cursor:'pointer'}}>
+                  <span style={{display:'flex',alignItems:'center',gap:5,fontSize:11,color:T.textSec,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.03em'}}><ChevronRight size={11} color={T.textTer} style={{transform:custosOpen.agregado?'rotate(90deg)':'none'}}/>Custos</span>
+                  <span style={{fontSize:12.5,fontFamily:T.mono,color:T.text,fontWeight:600}}>− {dec(totalGastos+totalNaoDedutivel)}</span>
+                </div>
+                {custosOpen.agregado&&renderCustosBody('agregado',gastosAgregado,(cat)=>yearTxns.filter(t=>t.data.startsWith(String(ano)) && t.subcategoria===cat && relevantes.some(im=>im.id===t.imovel_id)))}
+                <div style={{height:1,background:T.textTer,opacity:0.5,margin:'4px 0'}}/>
+                <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0'}}><span style={{fontSize:12.5,color:T.text,fontWeight:700}}>EBITDA</span><span style={{fontSize:13.5,fontFamily:T.mono,color:T.text,fontWeight:700}}>{dec(totalBruto-totalGastos)}</span></div>
+
+                {totalPrejuizoAplicado>0&&(
+                  <>
+                    <div onClick={()=>setPrejuizoOpen({...prejuizoOpen,agregado:!prejuizoOpen.agregado})} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',cursor:'pointer'}}>
+                      <span style={{display:'flex',alignItems:'center',gap:5,fontSize:11,color:'#FBBF24'}}><ChevronRight size={11} color="#FBBF24" style={{transform:prejuizoOpen.agregado?'rotate(90deg)':'none'}}/>Prejuízo reportado aplicado</span>
+                      <span style={{fontSize:12.5,fontFamily:T.mono,color:'#FBBF24',fontWeight:600}}>− {dec(totalPrejuizoAplicado)}</span>
+                    </div>
+                    {prejuizoOpen.agregado&&(
+                      <div style={{background:T.surface,borderRadius:8,padding:'6px 10px',marginBottom:6}}>
+                        {resumos.filter(r=>r.prejuizoAplicado>0).flatMap(r=>r.prejuizoDetalhe.map(d=>(
+                          <div key={`${r.imovel.id}-${d.ano_origem}`} style={{display:'flex',justifyContent:'space-between',padding:'4px 0',fontSize:11,color:T.textSec}}>
+                            <span>{r.imovel.nome} · {d.ano_origem}</span><span style={{fontFamily:T.mono,color:T.text}}>{dec(d.valor)}</span>
+                          </div>
+                        )))}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0'}}><span style={{fontSize:12,color:T.textSec}}>Rendimento Coletável</span><span style={{fontSize:12.5,fontFamily:T.mono,color:T.text}}>{dec(totalColectavel)}</span></div>
+                <div style={{height:1,background:T.border}}/>
+                <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0'}}><span style={{fontSize:11,color:T.textSec,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.03em'}}>Imposto</span><span style={{fontSize:12.5,fontFamily:T.mono,color:T.red,fontWeight:600}}>− {dec(totalImposto)}</span></div>
+                <div style={{height:1,background:T.textTer,opacity:0.5,margin:'4px 0'}}/>
+                <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0'}}><span style={{fontSize:13,color:T.text,fontWeight:700}}>Resultado líquido</span><span style={{fontSize:18,fontFamily:T.mono,fontWeight:700,color:totalLiquido>=0?T.green:T.red}}>{dec(totalLiquido)}</span></div>
+                {totalNaoDedutivel>0&&<div style={{display:'flex',justifyContent:'space-between',padding:'6px 0'}}><span style={{fontSize:12,color:T.textSec,fontWeight:700}}>Resultado económico real</span><span style={{fontSize:13,fontFamily:T.mono,fontWeight:700,color:resultadoEconomicoRealTotal>=0?T.green:T.red}}>{dec(resultadoEconomicoRealTotal)}</span></div>}
+              </div>
+
+              <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${T.border}`}}>
+                <div style={{fontSize:10,color:T.textTer,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Por imóvel</div>
+                {resumos.map(r=>(
+                  <div key={r.imovel.id} style={{display:'flex',justifyContent:'space-between',padding:'4px 0',fontSize:11.5}}>
+                    <span style={{color:T.textSec}}>{r.imovel.nome}</span>
+                    <span style={{fontFamily:T.mono,fontWeight:600,color:r.liquido>=0?T.green:T.red}}>{dec(r.liquido)}</span>
+                  </div>
+                ))}
+              </div>
+
+              {resumos.some(r=>r.rendimentoLiquido<0)&&(
+                <div style={{marginTop:8,paddingTop:8,borderTop:`1px dashed ${T.border}`,fontSize:10,color:'#FBBF24',lineHeight:1.5}}>
+                  Prejuízo reportável gerado este ano: {resumos.filter(r=>r.rendimentoLiquido<0).map(r=>`${dec(Math.abs(r.rendimentoLiquido))} (${r.imovel.nome}, aplicável até ${ano+6})`).join(' · ')}
+                </div>
+              )}
+
+              <div style={{fontSize:9.5,color:'#FBBF24',marginTop:8}}>⚠ Taxa por confirmar para 2026 — editável por imóvel abaixo.</div>
             </div>
           </Card>}
 
@@ -3951,114 +4068,114 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
           {resumos.length===0&&<Card><div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem imóveis activos.</div></Card>}
 
           {resumos.map(r=>{
-            const isOpen = openId===r.imovel.id
             const taxaVal = taxaInputs[r.imovel.id] ?? String(r.regime.taxa)
+            const custosIsOpen = !!custosOpen[r.imovel.id]
+            const impostoIsOpen = !!impostoOpen[r.imovel.id]
+            const prejuizoIsOpen = !!prejuizoOpen[r.imovel.id]
+            const naoDedutivel = r.gastosPorCategoria.nao_dedutivel
+            const resultadoEconomicoReal = r.liquido-naoDedutivel
+            const geraPrejuizo = r.rendimentoLiquido<0
+            // Art. 72º nº23 CIRS — usa sempre o bruto a 100% (resumos100), independente do
+            // toggle "Minha quota": a renda paga é sempre a totalidade, não a tua quota.
+            const precisaTipologia = r.regime.quadro==='4.2' && !!r.imovel.contrato_data_inicio && r.imovel.contrato_data_inicio>='2024-01-01'
+            const bruto100 = resumos100.find(rr=>rr.imovel.id===r.imovel.id)?.bruto ?? 0
+            const limiteGeral = precisaTipologia && r.imovel.irs_tipologia ? limiteRendaAplicavel(r.imovel.irs_tipologia, ano) : null
+            const mostraLimite = precisaTipologia && !!r.imovel.irs_tipologia && bruto100>0 && limiteGeral!=null
             return (
-              <Card key={r.imovel.id} style={{marginBottom:10,padding:'12px 14px',border:`1px solid ${isOpen?PAL.imoveis.accent:T.border}`}}>
-                <div onClick={()=>{setOpenId(isOpen?null:r.imovel.id);setOpenCat(null)}} style={{cursor:'pointer'}}>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
-                    <span style={{fontSize:13,fontWeight:700,color:T.text}}>{r.imovel.nome}</span>
-                    <div style={{textAlign:'right'}}>
-                      <div style={{fontSize:13,fontWeight:700,fontFamily:T.mono,color:T.green}}>{dec(r.liquido)}</div>
-                      <div style={{fontSize:9,color:T.textTer,marginTop:1}}>líquido</div>
-                    </div>
+              <Card key={r.imovel.id} style={{marginBottom:10,padding:'12px 14px'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+                  <div>
+                    <div style={{fontSize:13,fontWeight:700,color:T.text}}>{r.imovel.nome}</div>
+                    <div style={{fontSize:10,color:T.textTer,marginTop:1}}>{r.regime.quadro==='4.1-moderada'?'Renda moderada':`Q${r.regime.quadro}${r.regime.escalao?` · ${r.regime.escalao}`:''}`} · taxa {r.regime.taxa}%</div>
                   </div>
-                  <div style={{fontSize:10.5,color:T.textTer,marginTop:2}}>Bruto {dec(r.bruto)} · Gastos {dec(r.gastosDedutiveis)} · matéria colectável {dec(r.materiaColectavel)}{r.prejuizoAplicado>0&&<span style={{color:'#FBBF24'}}> · prejuízo aplicado {dec(r.prejuizoAplicado)}</span>}</div>
-                </div>
-                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',background:T.surface2,borderRadius:8,padding:'6px 10px',marginTop:6}}>
-                  <span style={{fontSize:10.5,color:T.textSec}}>{r.regime.quadro==='4.1-moderada'?'Renda moderada':`Q${r.regime.quadro}${r.regime.escalao?` · ${r.regime.escalao}`:''}`} · taxa</span>
-                  <div style={{display:'flex',alignItems:'center',gap:4}}>
-                    <input value={taxaVal} onChange={e=>setTaxaInputs({...taxaInputs,[r.imovel.id]:e.target.value})} onBlur={()=>{if(taxaInputs[r.imovel.id]!==undefined)saveTaxa(r.imovel,taxaInputs[r.imovel.id])}}
-                      style={{width:36,background:'none',border:'none',color:PAL.imoveis.accent,fontSize:12,fontWeight:700,fontFamily:T.mono,textAlign:'right'}}/>
-                    <span style={{fontSize:10.5,color:T.textSec}}>% → imposto {dec(r.imposto)}</span>
+                  <div style={{textAlign:'right'}}>
+                    <div style={{fontSize:13,fontWeight:700,fontFamily:T.mono,color:r.liquido>=0?T.green:T.red}}>{dec(r.liquido)}</div>
+                    <div style={{fontSize:9,color:T.textTer,marginTop:1}}>líquido</div>
                   </div>
                 </div>
-                <button onClick={()=>setConfigImovel(r.imovel)} style={{background:'none',border:'none',cursor:'pointer',color:T.textTer,fontSize:10.5,marginTop:6,padding:0}}>⚙ Configurar contrato / identificação</button>
 
-                {(()=>{
-                  // Art. 72º nº23 CIRS — usa sempre o bruto a 100% (resumos100), independente
-                  // do toggle "Minha quota": a renda paga é sempre a totalidade, não a tua
-                  // quota. Divide por 12 aqui (não no ecrã de configuração do contrato) porque
-                  // só aqui há o ano fiscal completo a contabilizar — a meio do ano em curso o
-                  // resultado é uma estimativa provisória, não o valor final.
-                  const precisaTipologia = r.regime.quadro==='4.2' && !!r.imovel.contrato_data_inicio && r.imovel.contrato_data_inicio>='2024-01-01'
-                  if(!precisaTipologia || !r.imovel.irs_tipologia) return null
-                  const bruto100 = resumos100.find(rr=>rr.imovel.id===r.imovel.id)?.bruto ?? 0
-                  if(!bruto100) return null
-                  const rendaMediaMensal = bruto100/12
-                  const limiteGeral = limiteRendaAplicavel(r.imovel.irs_tipologia, ano)
-                  if(limiteGeral==null) return null
-                  const limiteMax = limiteGeral*1.5
-                  const dentro = rendaMediaMensal<=limiteMax
-                  const anoEmCurso = ano===new Date().getFullYear()
-                  return (
-                    <div style={{fontSize:10,color:T.textTer,marginTop:6,lineHeight:1.5}}>
-                      Renda média mensal{anoEmCurso?' (provisória)':''} ({dec(rendaMediaMensal)}) vs. limite legal de {dec(limiteMax)} (150% de {dec(limiteGeral)}, {r.imovel.irs_tipologia}) —{' '}
-                      <span style={{color:dentro?T.green:T.red,fontWeight:600}}>{dentro?'dentro do limite':'acima do limite'}</span>.
-                      {!dentro&&' Acima disto, o art. 72º nº23 CIRS diz que o Quadro 4.2 deixa de se aplicar — usa o Quadro 4.1.'}
+                <div style={{marginTop:10}}>
+                  <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0'}}><span style={{fontSize:11,color:T.textSec,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.03em'}}>Receitas</span><span style={{fontSize:12.5,fontFamily:T.mono,color:T.text,fontWeight:600}}>{dec(r.bruto)}</span></div>
+                  <div style={{height:1,background:T.border}}/>
+                  <div onClick={()=>setCustosOpen({...custosOpen,[r.imovel.id]:!custosIsOpen})} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',cursor:'pointer'}}>
+                    <span style={{display:'flex',alignItems:'center',gap:5,fontSize:11,color:T.textSec,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.03em'}}><ChevronRight size={11} color={T.textTer} style={{transform:custosIsOpen?'rotate(90deg)':'none'}}/>Custos</span>
+                    <span style={{fontSize:12.5,fontFamily:T.mono,color:T.text,fontWeight:600}}>− {dec(r.gastosDedutiveis+naoDedutivel)}</span>
+                  </div>
+                  {custosIsOpen&&renderCustosBody(r.imovel.id,r.gastosPorCategoria,(cat)=>yearTxns.filter(t=>t.imovel_id===r.imovel.id && t.data.startsWith(String(ano)) && t.subcategoria===cat))}
+                  <div style={{height:1,background:T.textTer,opacity:0.5,margin:'4px 0'}}/>
+                  <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0'}}><span style={{fontSize:12.5,color:T.text,fontWeight:700}}>EBITDA</span><span style={{fontSize:13.5,fontFamily:T.mono,color:T.text,fontWeight:700}}>{dec(r.rendimentoLiquido)}</span></div>
+
+                  {r.prejuizoAplicado>0&&(
+                    <>
+                      <div onClick={()=>setPrejuizoOpen({...prejuizoOpen,[r.imovel.id]:!prejuizoIsOpen})} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',cursor:'pointer'}}>
+                        <span style={{display:'flex',alignItems:'center',gap:5,fontSize:11,color:'#FBBF24'}}><ChevronRight size={11} color="#FBBF24" style={{transform:prejuizoIsOpen?'rotate(90deg)':'none'}}/>Prejuízo reportado aplicado</span>
+                        <span style={{fontSize:12.5,fontFamily:T.mono,color:'#FBBF24',fontWeight:600}}>− {dec(r.prejuizoAplicado)}</span>
+                      </div>
+                      {prejuizoIsOpen&&(
+                        <div style={{background:T.surface,borderRadius:8,padding:'6px 10px',marginBottom:6}}>
+                          {r.prejuizoDetalhe.map(d=>{
+                            const pct = showQuota ? r.imovel.ownership_pct/100 : 1
+                            const antes = (prejuizosDisponiveis[r.imovel.id]??[]).find(p=>p.ano_origem===d.ano_origem)
+                            const disponivelNaBase = antes ? antes.restante*pct : d.valor
+                            const usadoTudo = d.valor >= disponivelNaBase-0.005
+                            return (
+                              <div key={d.ano_origem} style={{fontSize:11,color:T.textSec,padding:'4px 0'}}>
+                                De {d.ano_origem} (restava {dec(disponivelNaBase)} — {usadoTudo?'usado por completo':`usado ${dec(d.valor)}, resta ${dec(disponivelNaBase-d.valor)}`})
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {geraPrejuizo&&<div style={{fontSize:10,color:'#FBBF24',padding:'4px 0',lineHeight:1.5}}>Prejuízo reportável gerado: {dec(Math.abs(r.rendimentoLiquido))} (aplicável até {ano+6})</div>}
+
+                  <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0'}}><span style={{fontSize:12,color:T.textSec}}>Rendimento Coletável</span><span style={{fontSize:12.5,fontFamily:T.mono,color:T.text}}>{dec(r.materiaColectavel)}</span></div>
+                  <div style={{height:1,background:T.border}}/>
+                  <div onClick={()=>setImpostoOpen({...impostoOpen,[r.imovel.id]:!impostoIsOpen})} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',cursor:'pointer'}}>
+                    <span style={{display:'flex',alignItems:'center',gap:5,fontSize:11,color:T.textSec,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.03em'}}><ChevronRight size={11} color={T.textTer} style={{transform:impostoIsOpen?'rotate(90deg)':'none'}}/>Imposto</span>
+                    <span style={{fontSize:12.5,fontFamily:T.mono,color:T.red,fontWeight:600}}>− {dec(r.imposto)}</span>
+                  </div>
+                  {impostoIsOpen&&(
+                    <div style={{background:T.surface,borderRadius:8,padding:'8px 10px',marginBottom:6}}>
+                      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                        <span style={{fontSize:11,color:T.textSec}}>{r.regime.quadro==='4.1-moderada'?'Renda moderada':`Quadro ${r.regime.quadro}${r.regime.escalao?` · ${r.regime.escalao}`:''}`}</span>
+                        <div style={{display:'flex',alignItems:'center',gap:4}}>
+                          <input value={taxaVal} onChange={e=>setTaxaInputs({...taxaInputs,[r.imovel.id]:e.target.value})} onBlur={()=>{if(taxaInputs[r.imovel.id]!==undefined)saveTaxa(r.imovel,taxaInputs[r.imovel.id])}}
+                            style={{width:36,background:'none',border:'none',color:PAL.imoveis.accent,fontSize:12,fontWeight:700,fontFamily:T.mono,textAlign:'right'}}/>
+                          <span style={{fontSize:11,color:T.textSec}}>%</span>
+                        </div>
+                      </div>
+                      {mostraLimite&&(()=>{
+                        const rendaMediaMensal = bruto100/12
+                        const limiteMax = (limiteGeral as number)*1.5
+                        const dentro = rendaMediaMensal<=limiteMax
+                        const anoEmCurso = ano===new Date().getFullYear()
+                        return (
+                          <div style={{fontSize:10,color:T.textTer,marginTop:8,lineHeight:1.5}}>
+                            Renda média mensal{anoEmCurso?' (provisória)':''} ({dec(rendaMediaMensal)}) vs. limite legal de {dec(limiteMax)} (150% de {dec(limiteGeral as number)}, {r.imovel.irs_tipologia}) —{' '}
+                            <span style={{color:dentro?T.green:T.red,fontWeight:600}}>{dentro?'dentro do limite':'acima do limite'}</span>.
+                            {!dentro&&' Acima disto, o art. 72º nº23 CIRS diz que o Quadro 4.2 deixa de se aplicar — usa o Quadro 4.1.'}
+                          </div>
+                        )
+                      })()}
                     </div>
-                  )
-                })()}
+                  )}
 
-                {isOpen&&(
-                  <div style={{marginTop:10,borderTop:`1px solid ${T.border}`,paddingTop:8}}>
-                    {IRS_SUBCATEGORIAS.filter(c=>c!=='nao_dedutivel').map(c=>{
-                      if(r.gastosPorCategoria[c]===0) return null
-                      const catOpen = openCat===c
-                      const catTxns = yearTxns.filter(t=>t.imovel_id===r.imovel.id && t.data.startsWith(String(ano)) && t.subcategoria===c)
-                      return (
-                        <div key={c}>
-                          <div onClick={()=>setOpenCat(catOpen?null:c)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',cursor:'pointer'}}>
-                            <span style={{fontSize:12,color:T.text}}>{IRS_SUBCATEGORIA_LABELS[c]}</span>
-                            <span style={{fontSize:12,fontFamily:T.mono,color:T.textSec}}>{dec(r.gastosPorCategoria[c])}</span>
-                          </div>
-                          {catOpen&&(
-                            <div style={{background:T.surface,borderRadius:8,padding:'6px 10px',marginBottom:6}}>
-                              {catTxns.length===0?(
-                                <div style={{fontSize:11,color:T.textTer,padding:'6px 0'}}>Sem transações.</div>
-                              ):catTxns.map(t=>(
-                                <div key={t.id} onClick={()=>setEditTxn(t)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:`1px solid ${T.border}`,cursor:'pointer',gap:8}}>
-                                  <div style={{minWidth:0}}><div style={{fontSize:11.5,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div><div style={{fontSize:10,color:T.textTer}}>{t.data}</div></div>
-                                  <div style={{display:'flex',alignItems:'center',gap:5,flexShrink:0}}><span style={{fontSize:11.5,fontFamily:T.mono,color:T.textSec}}>{dec(Math.abs(Number(t.valor)))}</span><ChevronRight size={12} color={T.textTer}/></div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                    {r.gastosPorCategoria.nao_dedutivel>0&&(
-                      <div onClick={()=>setOpenCat(openCat==='nao_dedutivel'?null:'nao_dedutivel')} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',cursor:'pointer'}}>
-                        <span style={{fontSize:12,color:'#FBBF24'}}>{IRS_SUBCATEGORIA_LABELS.nao_dedutivel}</span>
-                        <span style={{fontSize:12,fontFamily:T.mono,color:'#FBBF24'}}>{dec(r.gastosPorCategoria.nao_dedutivel)}</span>
-                      </div>
-                    )}
-                    {openCat==='nao_dedutivel'&&(
-                      <div style={{background:T.surface,borderRadius:8,padding:'6px 10px',marginBottom:6}}>
-                        {yearTxns.filter(t=>t.imovel_id===r.imovel.id && t.data.startsWith(String(ano)) && t.subcategoria==='nao_dedutivel').map(t=>(
-                          <div key={t.id} onClick={()=>setEditTxn(t)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:`1px solid ${T.border}`,cursor:'pointer',gap:8}}>
-                            <div style={{minWidth:0}}><div style={{fontSize:11.5,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div><div style={{fontSize:10,color:T.textTer}}>{t.data}</div></div>
-                            <div style={{display:'flex',alignItems:'center',gap:5,flexShrink:0}}><span style={{fontSize:11.5,fontFamily:T.mono,color:T.textSec}}>{dec(Math.abs(Number(t.valor)))}</span><ChevronRight size={12} color={T.textTer}/></div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {r.prejuizoAplicado>0&&(
-                      <div style={{padding:'6px 0',borderTop:`1px solid ${T.border}`,marginTop:2}}>
-                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                          <span style={{fontSize:12,color:'#FBBF24'}}>Prejuízo reportado aplicado</span>
-                          <span style={{fontSize:12,fontFamily:T.mono,color:'#FBBF24'}}>− {dec(r.prejuizoAplicado)}</span>
-                        </div>
-                        <div style={{fontSize:9.5,color:T.textTer,marginTop:2}}>{r.prejuizoDetalhe.map(d=>`de ${d.ano_origem}: ${dec(d.valor)}`).join(' · ')}</div>
-                      </div>
-                    )}
-                    {naoClassificadas(r.imovel.id).length>0&&(
-                      <div onClick={()=>setOpenCat(openCat==='nao_classificadas'?null:'nao_classificadas')} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',cursor:'pointer'}}>
-                        <span style={{fontSize:12,color:PAL.imoveis.accent}}>Por classificar ({naoClassificadas(r.imovel.id).length})</span>
-                        <ChevronRight size={12} color={PAL.imoveis.accent} style={{transform:openCat==='nao_classificadas'?'rotate(90deg)':'none'}}/>
-                      </div>
-                    )}
-                    {openCat==='nao_classificadas'&&(
+                  <div style={{height:1,background:T.textTer,opacity:0.5,margin:'4px 0'}}/>
+                  <div style={{display:'flex',justifyContent:'space-between',padding:'6px 0'}}><span style={{fontSize:12.5,color:T.text,fontWeight:700}}>Resultado líquido</span><span style={{fontSize:14,fontFamily:T.mono,fontWeight:700,color:r.liquido>=0?T.green:T.red}}>{dec(r.liquido)}</span></div>
+                  {naoDedutivel>0&&<div style={{display:'flex',justifyContent:'space-between',padding:'6px 0'}}><span style={{fontSize:12,fontWeight:700,color:T.textSec}}>Resultado económico real</span><span style={{fontSize:13,fontFamily:T.mono,fontWeight:700,color:resultadoEconomicoReal>=0?T.green:T.red}}>{dec(resultadoEconomicoReal)}</span></div>}
+                </div>
+
+                <button onClick={()=>setConfigImovel(r.imovel)} style={{background:'none',border:'none',cursor:'pointer',color:T.textTer,fontSize:10.5,marginTop:8,padding:0}}>⚙ Configurar contrato / identificação</button>
+
+                {naoClassificadas(r.imovel.id).length>0&&(
+                  <div style={{marginTop:8,borderTop:`1px solid ${T.border}`,paddingTop:8}}>
+                    <div onClick={()=>setOpenCat(openCat===`${r.imovel.id}:nao_classificadas`?null:`${r.imovel.id}:nao_classificadas`)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',cursor:'pointer'}}>
+                      <span style={{fontSize:12,color:PAL.imoveis.accent}}>Por classificar ({naoClassificadas(r.imovel.id).length})</span>
+                      <ChevronRight size={12} color={PAL.imoveis.accent} style={{transform:openCat===`${r.imovel.id}:nao_classificadas`?'rotate(90deg)':'none'}}/>
+                    </div>
+                    {openCat===`${r.imovel.id}:nao_classificadas`&&(
                       <div style={{background:T.surface,borderRadius:8,padding:'6px 10px',marginBottom:6}}>
                         {naoClassificadas(r.imovel.id).map(t=>(
                           <div key={t.id} onClick={()=>setEditTxn(t)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderBottom:`1px solid ${T.border}`,cursor:'pointer',gap:8}}>
