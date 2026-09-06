@@ -110,8 +110,9 @@ export function sugerirRegimeIrs(im:Imovel, ano?:number, rendaMediaMensal100?:nu
   return { ...base, taxa: im.irs_taxa_override ?? base.taxa }
 }
 
-// Prejuízo reportável ainda disponível num dado ano — "restante" já reflecte o que
-// eventualmente já foi consumido em anos intermédios (ver simulação em page.tsx).
+// Prejuízo reportável ainda disponível num dado ano — sempre ao valor GLOBAL do imóvel (100%,
+// a mesma base em que é guardado e introduzido), não à quota de ninguém. "restante" já reflecte
+// o que eventualmente já foi consumido em anos intermédios (ver simulação em page.tsx).
 export type PrejuizoDisponivel = { ano_origem: number, restante: number }
 
 // Aplica prejuízos reportáveis (mais antigo primeiro — minimiza o que expira por usar, ao fim
@@ -161,7 +162,10 @@ export function computeIrsImovel(im:Imovel, transactions:Transaction[], ano:numb
     .forEach(t=>{ gastosPorCategoria[t.subcategoria as IrsSubcategoria] += Math.abs(Number(t.valor))*pct })
   const gastosDedutiveis = IRS_SUBCATEGORIAS.filter(c=>c!=='nao_dedutivel').reduce((s,c)=>s+gastosPorCategoria[c],0)
   const rendimentoLiquido = bruto-gastosDedutiveis
-  const {coletavel:materiaColectavel, aplicado:prejuizoAplicado, detalhe:prejuizoDetalhe} = aplicarPrejuizosReportaveis(rendimentoLiquido, prejuizosDisponiveis)
+  // prejuizosDisponiveis chega sempre ao valor global (100%) do imóvel — escala pela mesma pct
+  // do resto desta função, para bater certo com rendimentoLiquido (já na base pedida).
+  const prejuizosNaBase = prejuizosDisponiveis.map(p=>({...p, restante:p.restante*pct}))
+  const {coletavel:materiaColectavel, aplicado:prejuizoAplicado, detalhe:prejuizoDetalhe} = aplicarPrejuizosReportaveis(rendimentoLiquido, prejuizosNaBase)
   const regime = sugerirRegimeIrs(im, ano, bruto100/12)
   const imposto = materiaColectavel*(regime.taxa/100)
   return { imovel:im, bruto, gastosPorCategoria, gastosDedutiveis, rendimentoLiquido, materiaColectavel, prejuizoAplicado, prejuizoDetalhe, regime, imposto, liquido: rendimentoLiquido-imposto }

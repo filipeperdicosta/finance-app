@@ -117,8 +117,9 @@ export type ContaImovel = {
   imovel_id: string
 }
 
-// Prejuízo reportável (Categoria F) — guardado à quota de propriedade do dono (não a 100%),
-// porque é essa a base que entra no cálculo real do imposto (resumosQuota).
+// Prejuízo reportável (Categoria F) — guardado ao valor GLOBAL do imóvel (100%), tal como o
+// resto dos valores brutos/gastos; `computeIrsImovel` escala-o pela quota de cada dono, tal
+// como faz ao bruto e aos gastos.
 export type PrejuizoReportavel = {
   id: string
   imovel_id: string

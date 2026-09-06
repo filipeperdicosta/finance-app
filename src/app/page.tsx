@@ -3429,7 +3429,7 @@ const IrsConfigScreen = ({imovel,onClose,onSaved}:{imovel:Imovel,onClose:()=>voi
           </button>
           {prejuizosOpen&&(
             <div style={{background:T.surface2,borderRadius:8,padding:'10px 12px',marginBottom:20}}>
-              <div style={{fontSize:10,color:T.textTer,marginBottom:8,lineHeight:1.5}}>Prejuízo de Categoria F apurado à tua quota (não a 100%) num ano anterior, ainda por deduzir a rendimentos futuros deste imóvel (até 6 anos depois da origem).</div>
+              <div style={{fontSize:10,color:T.textTer,marginBottom:8,lineHeight:1.5}}>Prejuízo de Categoria F apurado ao valor global do imóvel (100%, tal como o resto dos valores acima) num ano anterior, ainda por deduzir a rendimentos futuros deste imóvel (até 6 anos depois da origem).</div>
               {prejuizos.map(p=>(
                 <div key={p.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'4px 0',borderBottom:`1px solid ${T.border}`}}>
                   <span style={{fontSize:11.5,color:T.text}}>Origem {p.ano_origem} <span style={{color:T.textTer}}>(válido até {p.ano_origem+6})</span></span>
@@ -3442,7 +3442,7 @@ const IrsConfigScreen = ({imovel,onClose,onSaved}:{imovel:Imovel,onClose:()=>voi
               {prejuizos.length===0&&<div style={{fontSize:11,color:T.textTer,padding:'2px 0 8px'}}>Sem prejuízos reportáveis registados.</div>}
               <div style={{display:'flex',gap:8,alignItems:'flex-end',marginTop:8}}>
                 <div style={{flex:1}}><Inp label="Ano de origem" value={novoAno} onChange={setNovoAno} type="number"/></div>
-                <div style={{flex:1}}><Inp label="Valor (€, à tua quota)" value={novoValor} onChange={setNovoValor} type="number"/></div>
+                <div style={{flex:1}}><Inp label="Valor (€, total do imóvel)" value={novoValor} onChange={setNovoValor} type="number"/></div>
                 <Btn onClick={addPrejuizo} variant="ghost" accent={PAL.imoveis.accent} style={{marginBottom:14}}>{prejuizoSaving?'…':'Adicionar'}</Btn>
               </div>
             </div>
@@ -3836,8 +3836,8 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
   useEffect(()=>{ reloadYearTxns() },[reloadYearTxns])
   const refreshAll = async () => { await onRefresh(); await reloadYearTxns(); await reloadPrejuizos() }
 
-  // Prejuízos reportáveis (Categoria F, até 6 anos) — registados à tua quota (é essa a base do
-  // imposto real), por isso só entram no cálculo de resumosQuota, nunca em resumos100.
+  // Prejuízos reportáveis (Categoria F, até 6 anos) — guardados ao valor GLOBAL do imóvel
+  // (100%), tal como o resto dos valores brutos/gastos; computeIrsImovel escala pela quota.
   const [prejuizos,setPrejuizos] = useState<PrejuizoReportavel[]>([])
   const reloadPrejuizos = useCallback(async()=>{
     setPrejuizos(await loadPrejuizosReportaveis(imovelIdsKey?imovelIdsKey.split(','):[]))
@@ -3859,10 +3859,13 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
         if(doImovel.length===0) continue
         let restantes: PrejuizoDisponivel[] = doImovel.map(p=>({ano_origem:p.ano_origem, restante:Number(p.valor)}))
         const primeiroAno = Math.min(...doImovel.map(p=>p.ano_origem))+1
+        const pct = im.ownership_pct/100
         for(let anoIntermedio=primeiroAno; anoIntermedio<ano; anoIntermedio++){
           const txnsIntermedio = await loadImovelTxnsForYear([im.id], anoIntermedio)
+          // computeIrsImovel devolve o consumo à quota (use100=false); convertemos de volta para
+          // global (÷ pct) para manter `restantes` sempre na mesma base em que foi guardado.
           const resumoIntermedio = computeIrsImovel(im, txnsIntermedio, anoIntermedio, false, restantes)
-          const usadoPorAno = new Map(resumoIntermedio.prejuizoDetalhe.map(d=>[d.ano_origem,d.valor]))
+          const usadoPorAno = new Map(resumoIntermedio.prejuizoDetalhe.map(d=>[d.ano_origem, pct>0?d.valor/pct:0]))
           restantes = restantes
             .map(p=>({...p, restante:p.restante-(usadoPorAno.get(p.ano_origem)??0)}))
             .filter(p=>p.restante>0 && anoIntermedio<p.ano_origem+6)
@@ -3875,15 +3878,10 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
     return ()=>{ cancelado=true }
   },[relevantes,prejuizos,ano])
 
-  // O prejuízo guardado é sempre à tua quota (é a base real do imposto). O toggle 100%/Minha
-  // quota é só uma lente de visualização — devia ser indiferente a qual delas o prejuízo
-  // aparece, por isso escalamos para 100% dividindo pela quota (ex: quota 50% → dobro), em vez
-  // de simplesmente escondê-lo nessa vista.
-  const resumos100 = useMemo(()=>relevantes.map(im=>{
-    const pct = im.ownership_pct/100
-    const disp100 = pct>0 ? (prejuizosDisponiveis[im.id]??[]).map(p=>({...p, restante:p.restante/pct})) : []
-    return computeIrsImovel(im,yearTxns,ano,true,disp100)
-  }),[relevantes,yearTxns,ano,prejuizosDisponiveis])
+  // prejuizosDisponiveis já vem ao valor global (100%) — computeIrsImovel escala-o pela quota
+  // de cada dono internamente, tal como faz ao bruto e aos gastos, por isso o toggle 100%/Minha
+  // quota é indiferente aqui: passa-se o mesmo array cru às duas chamadas.
+  const resumos100 = useMemo(()=>relevantes.map(im=>computeIrsImovel(im,yearTxns,ano,true,prejuizosDisponiveis[im.id]??[])),[relevantes,yearTxns,ano,prejuizosDisponiveis])
   const resumosQuota = useMemo(()=>relevantes.map(im=>computeIrsImovel(im,yearTxns,ano,false,prejuizosDisponiveis[im.id]??[])),[relevantes,yearTxns,ano,prejuizosDisponiveis])
   const resumos = showQuota ? resumosQuota : resumos100
   const totalBruto = resumos.reduce((s,r)=>s+r.bruto,0)
