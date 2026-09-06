@@ -3372,15 +3372,19 @@ const IrsConfigScreen = ({imovel,onClose,onSaved}:{imovel:Imovel,onClose:()=>voi
     if(lista.length>0) setPrejuizosOpen(true)
   },[imovel.id])
   useEffect(()=>{ reloadPrejuizosLocal() },[reloadPrejuizosLocal])
+  // Devolve false só em caso de erro real a gravar — usado tanto pelo botão "Adicionar" como
+  // pelo "Guardar" geral do ecrã (ver submit), para não depender de o utilizador reparar num
+  // botão secundário: se os campos estão preenchidos, gravar o ecrã grava também isto.
   const addPrejuizo = async () => {
     const valor = parseNum(novoValor)
     const ano_origem = Number(novoAno)
-    if(!valor || valor<=0 || !ano_origem) return
+    if(!valor || valor<=0 || !ano_origem) return true
     setPrejuizoSaving(true); setPrejuizoErro(null)
     const { error } = await savePrejuizoReportavel(imovel.id, ano_origem, valor)
-    if(error){ setPrejuizoErro(error.message); setPrejuizoSaving(false); return }
+    if(error){ setPrejuizoErro(error.message); setPrejuizoSaving(false); return false }
     await reloadPrejuizosLocal(); await onSaved()
     setNovoValor(''); setPrejuizoSaving(false)
+    return true
   }
   const removePrejuizo = async (id:string) => {
     setPrejuizoSaving(true); setPrejuizoErro(null)
@@ -3399,6 +3403,10 @@ const IrsConfigScreen = ({imovel,onClose,onSaved}:{imovel:Imovel,onClose:()=>voi
 
   const submit = async () => {
     setSaving(true)
+    // Grava também um prejuízo reportável por adicionar (campos preenchidos mas sem ter tocado
+    // no "Adicionar") — evita perder o valor por quem esperava que um único "Guardar" bastasse.
+    const prejuizoOk = await addPrejuizo()
+    if(!prejuizoOk){ setSaving(false); return }
     await updateImovel(imovel.id, {
       contrato_data_inicio: dataInicio||null,
       contrato_data_fim: dataFim||null,
