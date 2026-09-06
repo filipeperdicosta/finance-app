@@ -3891,6 +3891,19 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
   },[imovelIdsKey])
   useEffect(()=>{ reloadPrejuizos() },[reloadPrejuizos])
 
+  // Recomendação de registo — quando um ano JÁ FECHADO (não o corrente, ainda por confirmar)
+  // gerou prejuízo num imóvel e ainda não está registado, oferece um botão para o gravar de
+  // imediato em vez de obrigar a ir a "Configurar contrato" à procura da secção.
+  const [registandoPrejuizo,setRegistandoPrejuizo] = useState<string|null>(null)
+  const [registroErros,setRegistroErros] = useState<Record<string,string>>({})
+  const registarPrejuizo = async (imovelId:string, anoOrigem:number, valor:number) => {
+    setRegistandoPrejuizo(imovelId); setRegistroErros({...registroErros,[imovelId]:''})
+    const { error } = await savePrejuizoReportavel(imovelId, anoOrigem, valor)
+    if(error){ setRegistroErros({...registroErros,[imovelId]:error.message}); setRegistandoPrejuizo(null); return }
+    await reloadPrejuizos()
+    setRegistandoPrejuizo(null)
+  }
+
   // Para cada imóvel com prejuízos guardados, simula quanto ainda está disponível no ano em
   // vista — percorre os anos intermédios (entre a origem e este ano) a aplicar consumo
   // cronológico, exactamente como a lei manda (mais antigo primeiro). Sem prejuízos guardados
@@ -4125,6 +4138,11 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
             const naoDedutivel = r.gastosPorCategoria.nao_dedutivel
             const resultadoEconomicoReal = r.liquido-naoDedutivel
             const geraPrejuizo = r.rendimentoLiquido<0
+            const anoFechado = ano<new Date().getFullYear()
+            const prejuizoJaRegistado = prejuizos.some(p=>p.imovel_id===r.imovel.id && p.ano_origem===ano)
+            // Registar sempre ao valor global (100%), mesmo que a vista actual seja "Minha
+            // quota" — é a base em que o prejuízo é guardado, tal como bruto/gastos.
+            const rendimentoLiquido100 = resumos100.find(rr=>rr.imovel.id===r.imovel.id)?.rendimentoLiquido ?? r.rendimentoLiquido
             // Art. 72º nº23 CIRS — usa sempre o bruto a 100% (resumos100), independente do
             // toggle "Minha quota": a renda paga é sempre a totalidade, não a tua quota.
             const precisaTipologia = r.regime.quadro==='4.2' && !!r.imovel.contrato_data_inicio && r.imovel.contrato_data_inicio>='2024-01-01'
@@ -4172,7 +4190,15 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
                       )}
                     </>
                   )}
-                  {geraPrejuizo&&<div style={{fontSize:10,color:'#FBBF24',padding:'4px 0',lineHeight:1.5}}>Prejuízo reportável gerado: {dec(Math.abs(r.rendimentoLiquido))} (aplicável até {ano+6})</div>}
+                  {geraPrejuizo&&!anoFechado&&<div style={{fontSize:10,color:'#FBBF24',padding:'4px 0',lineHeight:1.5}}>Prejuízo reportável gerado (provisório): {dec(Math.abs(r.rendimentoLiquido))} — só fica definitivo no fecho de {ano}.</div>}
+                  {geraPrejuizo&&anoFechado&&prejuizoJaRegistado&&<div style={{fontSize:10,color:'#FBBF24',padding:'4px 0',lineHeight:1.5}}>✓ Prejuízo de {ano} já registado (aplicável até {ano+6}).</div>}
+                  {geraPrejuizo&&anoFechado&&!prejuizoJaRegistado&&(
+                    <div style={{background:'rgba(251,191,36,0.1)',border:'1px solid rgba(251,191,36,0.35)',borderRadius:8,padding:'8px 10px',margin:'4px 0'}}>
+                      <div style={{fontSize:10.5,color:'#FBBF24',lineHeight:1.5,marginBottom:6}}>{ano} gerou prejuízo reportável de {dec(Math.abs(rendimentoLiquido100))} (aplicável até {ano+6}) — ainda por registar.</div>
+                      <button onClick={()=>registarPrejuizo(r.imovel.id,ano,Math.abs(rendimentoLiquido100))} disabled={registandoPrejuizo===r.imovel.id} style={{background:'#FBBF24',color:'#14110F',border:'none',borderRadius:6,padding:'6px 12px',fontSize:11,fontWeight:700,cursor:'pointer'}}>{registandoPrejuizo===r.imovel.id?'A registar…':'Registar agora'}</button>
+                      {registroErros[r.imovel.id]&&<div style={{fontSize:10,color:T.red,marginTop:6}}>Erro ao gravar: {registroErros[r.imovel.id]}</div>}
+                    </div>
+                  )}
 
                   <PlRow label="Rendimento Coletável" value={dec(r.materiaColectavel)}/>
                   <div style={{height:1,background:T.border}}/>
