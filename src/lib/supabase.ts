@@ -117,6 +117,16 @@ export type ContaImovel = {
   imovel_id: string
 }
 
+// Prejuízo reportável (Categoria F) — guardado à quota de propriedade do dono (não a 100%),
+// porque é essa a base que entra no cálculo real do imposto (resumosQuota).
+export type PrejuizoReportavel = {
+  id: string
+  imovel_id: string
+  ano_origem: number
+  valor: number
+  created_at: string
+}
+
 
 // ── Data helpers ───────────────────────────────────────────────
 export async function loadAllData() {
@@ -211,6 +221,21 @@ export async function loadImovelTxnsForYear(imovelIds: string[], ano: number): P
     .lte('data', `${ano}-12-31`)
     .order('data', { ascending: false })
   return (data ?? []) as Transaction[]
+}
+
+// ── Prejuízos reportáveis (Categoria F — até 6 anos) ───────────
+export async function loadPrejuizosReportaveis(imovelIds: string[]): Promise<PrejuizoReportavel[]> {
+  if (imovelIds.length === 0) return []
+  const { data } = await supabase.from('irs_prejuizos_reportaveis').select('*')
+    .in('imovel_id', imovelIds)
+    .order('ano_origem', { ascending: true })
+  return (data ?? []) as PrejuizoReportavel[]
+}
+export async function savePrejuizoReportavel(imovel_id: string, ano_origem: number, valor: number) {
+  return supabase.from('irs_prejuizos_reportaveis').insert({ imovel_id, ano_origem, valor }).select().single()
+}
+export async function deletePrejuizoReportavel(id: string) {
+  return supabase.from('irs_prejuizos_reportaveis').delete().eq('id', id)
 }
 
 // ── Associar transação a imóvel ────────────────────────────────

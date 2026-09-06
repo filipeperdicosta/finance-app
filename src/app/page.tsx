@@ -38,14 +38,16 @@ import {
   countSuspiciousDuplicates, loadSuspiciousDuplicates, resolveDuplicate, keepBothTransactions,
   getLedgerAutoConfig, saveLedgerAutoConfig, syncLedgerAuto, getGoogleAccessToken,
   getCustosCasaConfig, saveCustosCasaConfig, syncCustosCasa,
+  loadPrejuizosReportaveis, savePrejuizoReportavel, deletePrejuizoReportavel,
   type Account, type Transaction, type Imovel, type ContaImovel, type CategoryRule, type SaudeRule,
   type DriveToken, type DriveFile, type AppNotification, type T212Config,
   type Profile, type AccountMember, type AccountInvite, type SuspiciousPair, type LedgerAutoConfig, type CustosCasaConfig,
+  type PrejuizoReportavel,
 } from '@/lib/supabase'
 import {
   IRS_SUBCATEGORIAS, IRS_SUBCATEGORIA_LABELS, limiteRendaAplicavel, contratoDuracaoAnos,
-  sugerirRegimeIrs, computeIrsImovel, buildIrsLinhas,
-  type IrsSubcategoria, type IrsImovelResumo, type IrsLinha,
+  sugerirRegimeIrs, computeIrsImovel, buildIrsLinhas, aplicarPrejuizosReportaveis,
+  type IrsSubcategoria, type IrsImovelResumo, type IrsLinha, type PrejuizoDisponivel,
 } from '@/lib/irs'
 
 // ─────────────────────────────────────────────────────────────────
@@ -3336,6 +3338,31 @@ const IrsConfigScreen = ({imovel,onClose,onSaved}:{imovel:Imovel,onClose:()=>voi
   const [tipologia,setTipologia] = useState<string>(imovel.irs_tipologia ?? '')
   const [saving,setSaving] = useState(false)
 
+  // Prejuízos reportáveis (Categoria F, até 6 anos) — caso excecional, por isso fica
+  // escondido por omissão, não misturado com os campos do contrato acima.
+  const [prejuizosOpen,setPrejuizosOpen] = useState(false)
+  const [prejuizos,setPrejuizos] = useState<PrejuizoReportavel[]>([])
+  const [novoAno,setNovoAno] = useState(String(new Date().getFullYear()-1))
+  const [novoValor,setNovoValor] = useState('')
+  const [prejuizoSaving,setPrejuizoSaving] = useState(false)
+  const reloadPrejuizosLocal = useCallback(async()=>{ setPrejuizos(await loadPrejuizosReportaveis([imovel.id])) },[imovel.id])
+  useEffect(()=>{ reloadPrejuizosLocal() },[reloadPrejuizosLocal])
+  const addPrejuizo = async () => {
+    const valor = Number(novoValor.replace(',','.'))
+    const ano_origem = Number(novoAno)
+    if(!valor || valor<=0 || !ano_origem) return
+    setPrejuizoSaving(true)
+    await savePrejuizoReportavel(imovel.id, ano_origem, valor)
+    await reloadPrejuizosLocal(); await onSaved()
+    setNovoValor(''); setPrejuizoSaving(false)
+  }
+  const removePrejuizo = async (id:string) => {
+    setPrejuizoSaving(true)
+    await deletePrejuizoReportavel(id)
+    await reloadPrejuizosLocal(); await onSaved()
+    setPrejuizoSaving(false)
+  }
+
   const regime = sugerirRegimeIrs({...imovel, contrato_data_inicio:dataInicio||null, contrato_data_fim:dataFim||null})
   const anos = contratoDuracaoAnos(dataInicio||null, dataFim||null)
   const anoComunicacao = dataInicio ? Number(dataInicio.slice(0,4))+1 : null
@@ -3396,6 +3423,30 @@ const IrsConfigScreen = ({imovel,onClose,onSaved}:{imovel:Imovel,onClose:()=>voi
             <div style={{flex:1}}><Inp label="Fração/Secção" value={fraccao} onChange={setFraccao}/></div>
           </div>
           <div style={{fontSize:11,color:T.textSec,marginTop:-8,marginBottom:14,lineHeight:1.5}}>Está na caderneta predial / documento de cobrança do IMI.</div>
+
+          <button onClick={()=>setPrejuizosOpen(v=>!v)} style={{background:'none',border:'none',cursor:'pointer',color:T.textTer,fontSize:10.5,padding:0,marginBottom:prejuizosOpen?10:20}}>
+            {prejuizosOpen?'▾':'▸'} Prejuízos reportáveis de anos anteriores (caso excecional)
+          </button>
+          {prejuizosOpen&&(
+            <div style={{background:T.surface2,borderRadius:8,padding:'10px 12px',marginBottom:20}}>
+              <div style={{fontSize:10,color:T.textTer,marginBottom:8,lineHeight:1.5}}>Prejuízo de Categoria F apurado à tua quota (não a 100%) num ano anterior, ainda por deduzir a rendimentos futuros deste imóvel (até 6 anos depois da origem).</div>
+              {prejuizos.map(p=>(
+                <div key={p.id} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'4px 0',borderBottom:`1px solid ${T.border}`}}>
+                  <span style={{fontSize:11.5,color:T.text}}>Origem {p.ano_origem} <span style={{color:T.textTer}}>(válido até {p.ano_origem+6})</span></span>
+                  <div style={{display:'flex',alignItems:'center',gap:8}}>
+                    <span style={{fontSize:11.5,fontFamily:T.mono,color:T.text}}>{dec(Number(p.valor))}</span>
+                    <button onClick={()=>removePrejuizo(p.id)} disabled={prejuizoSaving} style={{background:'none',border:'none',cursor:'pointer',color:T.red,fontSize:11,padding:0}}>Remover</button>
+                  </div>
+                </div>
+              ))}
+              {prejuizos.length===0&&<div style={{fontSize:11,color:T.textTer,padding:'2px 0 8px'}}>Sem prejuízos reportáveis registados.</div>}
+              <div style={{display:'flex',gap:8,alignItems:'flex-end',marginTop:8}}>
+                <div style={{flex:1}}><Inp label="Ano de origem" value={novoAno} onChange={setNovoAno} type="number"/></div>
+                <div style={{flex:1}}><Inp label="Valor (€, à tua quota)" value={novoValor} onChange={setNovoValor} type="number"/></div>
+                <Btn onClick={addPrejuizo} variant="ghost" accent={PAL.imoveis.accent} style={{marginBottom:14}}>{prejuizoSaving?'…':'Adicionar'}</Btn>
+              </div>
+            </div>
+          )}
 
           <Btn onClick={submit} variant="primary" accent={PAL.imoveis.accent} style={{width:'100%'}}>{saving?'A guardar…':'Guardar'}</Btn>
         </div>
@@ -3766,7 +3817,10 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
     setLedgerBusy(false)
   }
 
-  const relevantes = imoveis.filter(im=>im.ativo)
+  // Memoizado por referência de `imoveis` — a simulação de prejuízos reportáveis (mais abaixo)
+  // faz pedidos à BD sempre que `relevantes` muda; sem isto, uma nova array idêntica a cada
+  // render (imoveis.filter(...) recalcula sempre) disparava a simulação em loop.
+  const relevantes = useMemo(()=>imoveis.filter(im=>im.ativo),[imoveis])
   // O IRS precisa do ano fiscal completo (Jan–Dez); a lista de transações carregada
   // globalmente (loadAllData) só cobre os últimos ~6 meses, o que sub-reportava totais e
   // escondia despesas por classificar de meses mais antigos do ano — por isso este ecrã vai
@@ -3780,15 +3834,55 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
     setLoadingYear(false)
   },[imovelIdsKey,ano])
   useEffect(()=>{ reloadYearTxns() },[reloadYearTxns])
-  const refreshAll = async () => { await onRefresh(); await reloadYearTxns() }
+  const refreshAll = async () => { await onRefresh(); await reloadYearTxns(); await reloadPrejuizos() }
+
+  // Prejuízos reportáveis (Categoria F, até 6 anos) — registados à tua quota (é essa a base do
+  // imposto real), por isso só entram no cálculo de resumosQuota, nunca em resumos100.
+  const [prejuizos,setPrejuizos] = useState<PrejuizoReportavel[]>([])
+  const reloadPrejuizos = useCallback(async()=>{
+    setPrejuizos(await loadPrejuizosReportaveis(imovelIdsKey?imovelIdsKey.split(','):[]))
+  },[imovelIdsKey])
+  useEffect(()=>{ reloadPrejuizos() },[reloadPrejuizos])
+
+  // Para cada imóvel com prejuízos guardados, simula quanto ainda está disponível no ano em
+  // vista — percorre os anos intermédios (entre a origem e este ano) a aplicar consumo
+  // cronológico, exactamente como a lei manda (mais antigo primeiro). Sem prejuízos guardados
+  // para um imóvel, ou no primeiro ano possível de uso (sem intermédios a simular), isto é
+  // barato — só há trabalho a sério quando há mesmo histórico por percorrer.
+  const [prejuizosDisponiveis,setPrejuizosDisponiveis] = useState<Record<string,PrejuizoDisponivel[]>>({})
+  useEffect(()=>{
+    let cancelado = false
+    const calcular = async () => {
+      const porImovel: Record<string,PrejuizoDisponivel[]> = {}
+      for(const im of relevantes){
+        const doImovel = prejuizos.filter(p=>p.imovel_id===im.id && ano<=p.ano_origem+6)
+        if(doImovel.length===0) continue
+        let restantes: PrejuizoDisponivel[] = doImovel.map(p=>({ano_origem:p.ano_origem, restante:Number(p.valor)}))
+        const primeiroAno = Math.min(...doImovel.map(p=>p.ano_origem))+1
+        for(let anoIntermedio=primeiroAno; anoIntermedio<ano; anoIntermedio++){
+          const txnsIntermedio = await loadImovelTxnsForYear([im.id], anoIntermedio)
+          const resumoIntermedio = computeIrsImovel(im, txnsIntermedio, anoIntermedio, false, restantes)
+          const usadoPorAno = new Map(resumoIntermedio.prejuizoDetalhe.map(d=>[d.ano_origem,d.valor]))
+          restantes = restantes
+            .map(p=>({...p, restante:p.restante-(usadoPorAno.get(p.ano_origem)??0)}))
+            .filter(p=>p.restante>0 && anoIntermedio<p.ano_origem+6)
+        }
+        porImovel[im.id] = restantes
+      }
+      if(!cancelado) setPrejuizosDisponiveis(porImovel)
+    }
+    calcular()
+    return ()=>{ cancelado=true }
+  },[relevantes,prejuizos,ano])
 
   const resumos100 = useMemo(()=>relevantes.map(im=>computeIrsImovel(im,yearTxns,ano,true)),[relevantes,yearTxns,ano])
-  const resumosQuota = useMemo(()=>relevantes.map(im=>computeIrsImovel(im,yearTxns,ano,false)),[relevantes,yearTxns,ano])
+  const resumosQuota = useMemo(()=>relevantes.map(im=>computeIrsImovel(im,yearTxns,ano,false,prejuizosDisponiveis[im.id]??[])),[relevantes,yearTxns,ano,prejuizosDisponiveis])
   const resumos = showQuota ? resumosQuota : resumos100
   const totalBruto = resumos.reduce((s,r)=>s+r.bruto,0)
   const totalGastos = resumos.reduce((s,r)=>s+r.gastosDedutiveis,0)
   const totalImposto = resumos.reduce((s,r)=>s+r.imposto,0)
   const totalLiquido = resumos.reduce((s,r)=>s+r.liquido,0)
+  const totalPrejuizoAplicado = resumos.reduce((s,r)=>s+r.prejuizoAplicado,0)
   const ratio = totalBruto>0 ? (totalLiquido/totalBruto*100) : 0
   // Despesas de imóveis sem Balde IRS atribuído — ficam FORA dos totais acima até serem
   // classificadas, por isso têm de aparecer sempre visíveis, nunca silenciosamente omitidas.
@@ -3828,6 +3922,7 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
             <div style={{padding:16}}>
             <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0'}}><span style={{fontSize:11.5,color:T.textSec}}>Rendimento bruto total</span><span style={{fontSize:13,fontWeight:700,fontFamily:T.mono,color:T.text}}>{dec(totalBruto)}</span></div>
             <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0'}}><span style={{fontSize:11.5,color:T.textSec}}>Gastos dedutíveis</span><span style={{fontSize:13,fontWeight:700,fontFamily:T.mono,color:T.textSec}}>− {dec(totalGastos)}</span></div>
+            {totalPrejuizoAplicado>0&&<div style={{display:'flex',justifyContent:'space-between',padding:'4px 0'}}><span style={{fontSize:11.5,color:T.textSec}}>Prejuízo reportado aplicado</span><span style={{fontSize:13,fontWeight:700,fontFamily:T.mono,color:'#FBBF24'}}>− {dec(totalPrejuizoAplicado)}</span></div>}
             <div style={{height:1,background:T.border,margin:'6px 0'}}/>
             <div style={{display:'flex',justifyContent:'space-between',padding:'4px 0'}}><span style={{fontSize:11.5,color:T.textSec}}>Imposto estimado (IRS)</span><span style={{fontSize:13,fontWeight:700,fontFamily:T.mono,color:T.red}}>− {dec(totalImposto)}</span></div>
             <div style={{height:1,background:T.border,margin:'6px 0'}}/>
@@ -3862,7 +3957,7 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
                       <div style={{fontSize:9,color:T.textTer,marginTop:1}}>líquido</div>
                     </div>
                   </div>
-                  <div style={{fontSize:10.5,color:T.textTer,marginTop:2}}>Bruto {dec(r.bruto)} · Gastos {dec(r.gastosDedutiveis)} · matéria colectável {dec(r.materiaColectavel)}</div>
+                  <div style={{fontSize:10.5,color:T.textTer,marginTop:2}}>Bruto {dec(r.bruto)} · Gastos {dec(r.gastosDedutiveis)} · matéria colectável {dec(r.materiaColectavel)}{r.prejuizoAplicado>0&&<span style={{color:'#FBBF24'}}> · prejuízo aplicado {dec(r.prejuizoAplicado)}</span>}</div>
                 </div>
                 <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',background:T.surface2,borderRadius:8,padding:'6px 10px',marginTop:6}}>
                   <span style={{fontSize:10.5,color:T.textSec}}>{r.regime.quadro==='4.1-moderada'?'Renda moderada':`Q${r.regime.quadro}${r.regime.escalao?` · ${r.regime.escalao}`:''}`} · taxa</span>
@@ -3940,6 +4035,15 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
                             <div style={{display:'flex',alignItems:'center',gap:5,flexShrink:0}}><span style={{fontSize:11.5,fontFamily:T.mono,color:T.textSec}}>{dec(Math.abs(Number(t.valor)))}</span><ChevronRight size={12} color={T.textTer}/></div>
                           </div>
                         ))}
+                      </div>
+                    )}
+                    {r.prejuizoAplicado>0&&(
+                      <div style={{padding:'6px 0',borderTop:`1px solid ${T.border}`,marginTop:2}}>
+                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                          <span style={{fontSize:12,color:'#FBBF24'}}>Prejuízo reportado aplicado</span>
+                          <span style={{fontSize:12,fontFamily:T.mono,color:'#FBBF24'}}>− {dec(r.prejuizoAplicado)}</span>
+                        </div>
+                        <div style={{fontSize:9.5,color:T.textTer,marginTop:2}}>{r.prejuizoDetalhe.map(d=>`de ${d.ano_origem}: ${dec(d.valor)}`).join(' · ')}</div>
                       </div>
                     )}
                     {naoClassificadas(r.imovel.id).length>0&&(

@@ -110,17 +110,41 @@ export function sugerirRegimeIrs(im:Imovel, ano?:number, rendaMediaMensal100?:nu
   return { ...base, taxa: im.irs_taxa_override ?? base.taxa }
 }
 
+// Prejuízo reportável ainda disponível num dado ano — "restante" já reflecte o que
+// eventualmente já foi consumido em anos intermédios (ver simulação em page.tsx).
+export type PrejuizoDisponivel = { ano_origem: number, restante: number }
+
+// Aplica prejuízos reportáveis (mais antigo primeiro — minimiza o que expira por usar, ao fim
+// de 6 anos) a um rendimento líquido positivo de um imóvel. Nunca deixa o coletável negativo,
+// nunca gasta mais do que existe em cada prejuízo. Sem prejuízos disponíveis (ou com rendimento
+// líquido já ≤0), o comportamento é idêntico ao antigo Math.max(0, rendimentoLiquido).
+export function aplicarPrejuizosReportaveis(rendimentoLiquido:number, disponiveis:PrejuizoDisponivel[]): {coletavel:number, aplicado:number, detalhe:{ano_origem:number,valor:number}[]} {
+  if(rendimentoLiquido<=0) return { coletavel:0, aplicado:0, detalhe:[] }
+  let restante = rendimentoLiquido
+  const detalhe: {ano_origem:number,valor:number}[] = []
+  const ordenados = [...disponiveis].sort((a,b)=>a.ano_origem-b.ano_origem)
+  for(const p of ordenados){
+    if(restante<=0) break
+    const usado = Math.min(restante, p.restante)
+    if(usado>0){ restante -= usado; detalhe.push({ano_origem:p.ano_origem, valor:usado}) }
+  }
+  return { coletavel:restante, aplicado:rendimentoLiquido-restante, detalhe }
+}
+
 export type IrsImovelResumo = {
   imovel: Imovel
   bruto: number
   gastosPorCategoria: Record<IrsSubcategoria,number> // já ponderado pela % de propriedade
   gastosDedutiveis: number
-  materiaColectavel: number
+  rendimentoLiquido: number // bruto - gastosDedutiveis, pode ser negativo (nunca cortado a 0)
+  materiaColectavel: number // = rendimentoLiquido depois de prejuízos aplicados, nunca <0
+  prejuizoAplicado: number
+  prejuizoDetalhe: {ano_origem:number,valor:number}[]
   regime: IrsRegime
   imposto: number
   liquido: number
 }
-export function computeIrsImovel(im:Imovel, transactions:Transaction[], ano:number, use100=false): IrsImovelResumo {
+export function computeIrsImovel(im:Imovel, transactions:Transaction[], ano:number, use100=false, prejuizosDisponiveis:PrejuizoDisponivel[]=[]): IrsImovelResumo {
   const pct = use100 ? 1 : im.ownership_pct/100
   const anoTxns = transactions.filter(t=>t.imovel_id===im.id && t.data.startsWith(String(ano)))
   // Todo o rendimento do imóvel conta como renda por defeito — só fica de fora quando marcado
@@ -136,10 +160,11 @@ export function computeIrsImovel(im:Imovel, transactions:Transaction[], ano:numb
   anoTxns.filter(t=>Number(t.valor)<0 && t.subcategoria && (IRS_SUBCATEGORIAS as readonly string[]).includes(t.subcategoria))
     .forEach(t=>{ gastosPorCategoria[t.subcategoria as IrsSubcategoria] += Math.abs(Number(t.valor))*pct })
   const gastosDedutiveis = IRS_SUBCATEGORIAS.filter(c=>c!=='nao_dedutivel').reduce((s,c)=>s+gastosPorCategoria[c],0)
-  const materiaColectavel = Math.max(0, bruto-gastosDedutiveis)
+  const rendimentoLiquido = bruto-gastosDedutiveis
+  const {coletavel:materiaColectavel, aplicado:prejuizoAplicado, detalhe:prejuizoDetalhe} = aplicarPrejuizosReportaveis(rendimentoLiquido, prejuizosDisponiveis)
   const regime = sugerirRegimeIrs(im, ano, bruto100/12)
   const imposto = materiaColectavel*(regime.taxa/100)
-  return { imovel:im, bruto, gastosPorCategoria, gastosDedutiveis, materiaColectavel, regime, imposto, liquido: bruto-gastosDedutiveis-imposto }
+  return { imovel:im, bruto, gastosPorCategoria, gastosDedutiveis, rendimentoLiquido, materiaColectavel, prejuizoAplicado, prejuizoDetalhe, regime, imposto, liquido: rendimentoLiquido-imposto }
 }
 
 // Divide um resumo pelo nº de arrendatários — uma linha por arrendatário, como o formulário exige
