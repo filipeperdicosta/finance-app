@@ -744,7 +744,7 @@ const TrendTile = ({data,accent,catFilter}:{data:{m:string,rec:number,desp:numbe
 // ─────────────────────────────────────────────────────────────────
 // HERO
 // ─────────────────────────────────────────────────────────────────
-const Hero = ({pal,title,mainValue,mainColor,kpis,trend,period,mainSuffix,sparkMode,onPrev,onNext,canNext,onSaudeFinanceira}:{pal:{grad:string,accent:string,soft:string},title:string,mainValue:string,mainColor?:string,kpis:{l:string,v:string,c:string}[],trend:{m:string,rec:number,desp:number,net:number}[],period:string,mainSuffix?:string,sparkMode?:'budget'|'patrimonio',onPrev?:()=>void,onNext?:()=>void,canNext?:boolean,onSaudeFinanceira?:()=>void}) => (
+const Hero = ({pal,title,mainValue,mainColor,kpis,trend,period,mainSuffix,sparkMode,onPrev,onNext,canNext,onSaudeFinanceira,onIrs}:{pal:{grad:string,accent:string,soft:string},title:string,mainValue:string,mainColor?:string,kpis:{l:string,v:string,c:string}[],trend:{m:string,rec:number,desp:number,net:number}[],period:string,mainSuffix?:string,sparkMode?:'budget'|'patrimonio',onPrev?:()=>void,onNext?:()=>void,canNext?:boolean,onSaudeFinanceira?:()=>void,onIrs?:()=>void}) => (
   <div style={{background:T.surface,borderRadius:18,marginBottom:16,border:`1px solid ${T.border}`,overflow:'hidden'}}>
     <div style={{height:3,background:pal.accent}}/>
     <div style={{padding:'17px 18px 16px'}}>
@@ -770,6 +770,13 @@ const Hero = ({pal,title,mainValue,mainColor,kpis,trend,period,mainSuffix,sparkM
           <ChevronRight size={10} color={pal.accent}/>
         </button>
       )}
+      {onIrs&&(
+        <button onClick={onIrs} style={{gridColumn:2,gridRow:2,alignSelf:'end',justifySelf:'end',display:'flex',alignItems:'center',gap:4,background:T.surface2,border:'none',borderRadius:7,padding:'4px 8px',cursor:'pointer',whiteSpace:'nowrap'}}>
+          <FileText size={11} color={pal.accent}/>
+          <span style={{fontSize:10,fontWeight:600,color:pal.accent}}>IRS</span>
+          <ChevronRight size={10} color={pal.accent}/>
+        </button>
+      )}
     </div>
     <div style={{display:'grid',gridTemplateColumns:`repeat(${kpis.length},1fr)`,gap:6,marginBottom:14}}>
       {kpis.map((k,i)=>(<div key={i} style={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,padding:'9px 10px'}}><div style={{fontSize:9,color:T.textTer,textTransform:'uppercase',letterSpacing:'0.07em',fontWeight:600,marginBottom:3}}>{k.l}</div><div style={{fontSize:kpis.length===4?11:12,fontWeight:700,color:k.c,fontFamily:T.mono}}>{k.v}</div></div>))}
@@ -782,7 +789,7 @@ const Hero = ({pal,title,mainValue,mainColor,kpis,trend,period,mainSuffix,sparkM
 // ─────────────────────────────────────────────────────────────────
 // ACCOUNTS LIST
 // ─────────────────────────────────────────────────────────────────
-const AccountList = ({accounts,sel,onSel,pal}:{accounts:Account[],sel:string|null,onSel:(id:string|null)=>void,pal:{accent:string,soft:string}}) => (
+const AccountList = ({accounts,sel,onSel,pal,onMove}:{accounts:Account[],sel:string|null,onSel:(id:string|null)=>void,pal:{accent:string,soft:string},onMove?:(idx:number,dir:-1|1)=>void}) => (
   <div style={{marginBottom:20}}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'0 2px',minHeight:26}}>
       <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase'}}>Contas</span>
@@ -799,7 +806,15 @@ const AccountList = ({accounts,sel,onSel,pal}:{accounts:Account[],sel:string|nul
                 {isCard&&<CreditCard size={15} color={T.textSec}/>}
                 <div><div style={{fontSize:13,fontWeight:active?700:500,color:active?pal.accent:T.text}}>{c.nome}</div><div style={{fontSize:11,color:T.textSec,marginTop:1}}>{c.titular} · {c.banco}{isCard?' · cartão':''}</div></div>
               </div>
-              <div style={{fontSize:15,fontWeight:700,color:saldo<0?T.red:(active?pal.accent:T.text),fontFamily:T.mono}}>{saldo<0?'− ':''}{dec(saldo)}</div>
+              <div style={{display:'flex',alignItems:'center',gap:8}}>
+                <div style={{fontSize:15,fontWeight:700,color:saldo<0?T.red:(active?pal.accent:T.text),fontFamily:T.mono}}>{saldo<0?'− ':''}{dec(saldo)}</div>
+                {onMove&&accounts.length>1&&(
+                  <div style={{display:'flex',flexDirection:'column',gap:3}} onClick={e=>e.stopPropagation()}>
+                    <button onClick={()=>onMove(i,-1)} disabled={i===0} style={{background:T.surface2,border:'none',borderRadius:6,padding:2,cursor:i===0?'default':'pointer',opacity:i===0?0.3:1}}><ChevronUp size={12} color={T.textSec}/></button>
+                    <button onClick={()=>onMove(i,1)} disabled={i===accounts.length-1} style={{background:T.surface2,border:'none',borderRadius:6,padding:2,cursor:i===accounts.length-1?'default':'pointer',opacity:i===accounts.length-1?0.3:1}}><ChevronDown size={12} color={T.textSec}/></button>
+                  </div>
+                )}
+              </div>
             </div>
           )
         })}
@@ -3192,7 +3207,15 @@ const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAllTxns,onRefre
   const [editTxn,setEditTxn] = useState<Transaction|null>(null)
   const [showAllCats,setShowAllCats] = useState(false)
   const [monthOffset,setMonthOffset] = useState(0)
-  const tagAccs = accounts.filter(a=>a.budget_tag===tag)
+  const tagAccs = accounts.filter(a=>a.budget_tag===tag).sort((a,b)=>(a.ordem-b.ordem)||a.nome.localeCompare(b.nome))
+  const moveConta = async (idx:number, dir:-1|1) => {
+    const target = idx+dir
+    if(target<0 || target>=tagAccs.length) return
+    const reordered = [...tagAccs]
+    ;[reordered[idx],reordered[target]] = [reordered[target],reordered[idx]]
+    await Promise.all(reordered.map((a,i)=>updateAccount(a.id,{ordem:i})))
+    await onRefresh()
+  }
   const view = computeView(accounts,transactions,tag,sel,monthOffset)
   const period = monthYearLabel(view.refMonth)
   const selName = tagAccs.find(a=>a.id===sel)?.nome.split(' ').slice(-1)[0]
@@ -3227,7 +3250,7 @@ const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAllTxns,onRefre
   return (
     <div>
       <Hero pal={pal} title={title} period={period} mainValue={big(view.saldo)} mainColor={view.saldo<0?'#FCA5A5':'#FFF'} trend={view.trend} kpis={[{l:'Receitas',v:dec(view.rec),c:'#4ADE80'},{l:'Despesas',v:dec(view.desp),c:'#F87171'},{l:'Saldo mês',v:sgn(view.net),c:view.net>=0?'#4ADE80':'#F87171'}]} onPrev={()=>{setMonthOffset(o=>o-1);setCatSel(null)}} onNext={()=>{if(canGoForward){setMonthOffset(o=>o+1);setCatSel(null)}}} canNext={canGoForward} onSaudeFinanceira={onSaudeFinanceira}/>
-      <AccountList accounts={tagAccs} sel={sel} onSel={setSel} pal={pal}/>
+      <AccountList accounts={tagAccs} sel={sel} onSel={setSel} pal={pal} onMove={moveConta}/>
       <div style={{marginBottom:20}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'0 2px',minHeight:26}}>
           <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase'}}>{sel?`Despesas — ${selName}`:'Despesas'}</span>
@@ -4346,8 +4369,16 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
   useEffect(()=>{ reloadPorAssociar() },[reloadPorAssociar])
   const refreshComQueue = async () => { await onRefresh(); await reloadPorAssociar() }
 
-  const investAccounts = accounts.filter(a=>a.budget_tag==='investimento')
+  const investAccounts = accounts.filter(a=>a.budget_tag==='investimento').sort((a,b)=>(a.ordem-b.ordem)||a.nome.localeCompare(b.nome))
   const investAccountIds = new Set(investAccounts.map(a=>a.id))
+  const moveConta = async (idx:number, dir:-1|1) => {
+    const target = idx+dir
+    if(target<0 || target>=investAccounts.length) return
+    const reordered = [...investAccounts]
+    ;[reordered[idx],reordered[target]] = [reordered[target],reordered[idx]]
+    await Promise.all(reordered.map((a,i)=>updateAccount(a.id,{ordem:i})))
+    await onRefresh()
+  }
 
   const matchAcc = (t:Transaction) => selAcc ? t.account_id===selAcc : true
   // Filtra por imóvel seleccionado se houver
@@ -4430,7 +4461,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
 
   return (
     <div>
-      <Hero pal={pal} title={selImovel ? `Imóvel — ${imoveis.find(i=>i.id===selImovel)?.nome??''}` : 'Conta Corrente Imóveis'} period={monthYearLabel(ym)} mainValue={big(saldoContas)} mainColor={saldoContas<0?'#FCA5A5':'#FFF'} trend={trend} kpis={imoveisKpis} onPrev={()=>setMonthOffset(o=>o-1)} onNext={()=>{if(canGoForward)setMonthOffset(o=>o+1)}} canNext={canGoForward}/>
+      <Hero pal={pal} title={selImovel ? `Imóvel — ${imoveis.find(i=>i.id===selImovel)?.nome??''}` : 'Conta Corrente Imóveis'} period={monthYearLabel(ym)} mainValue={big(saldoContas)} mainColor={saldoContas<0?'#FCA5A5':'#FFF'} trend={trend} kpis={imoveisKpis} onPrev={()=>setMonthOffset(o=>o-1)} onNext={()=>{if(canGoForward)setMonthOffset(o=>o+1)}} canNext={canGoForward} onIrs={()=>setShowIrs(true)}/>
       {/* Toggle valorização */}
       <div onClick={()=>setShowValoriz(v=>!v)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 16px',background:showValoriz?pal.soft:T.surface,borderRadius:12,border:`1px solid ${showValoriz?pal.accent:T.border}`,marginBottom:16,cursor:'pointer',transition:'all 0.15s'}}>
         <div style={{flex:1}}>
@@ -4468,15 +4499,6 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
           </div>
         </Card>
       )}
-
-      {/* IRS — Anexo F */}
-      <Card style={{marginBottom:16,padding:'13px 16px',cursor:'pointer'}}>
-        <div onClick={()=>setShowIrs(true)} style={{display:'flex',alignItems:'center',gap:12}}>
-          <FileText size={20} color={pal.accent}/>
-          <div style={{flex:1}}><div style={{fontSize:13,fontWeight:700,color:T.text}}>IRS — Rendimentos Prediais</div><div style={{fontSize:11,color:T.textSec,marginTop:1}}>Resumo de custos e mapeamento para o Anexo F</div></div>
-          <div style={{fontSize:12,color:pal.accent,fontWeight:600}}>Abrir →</div>
-        </div>
-      </Card>
 
       {/* ── POR IMÓVEL ── */}
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'0 2px',minHeight:26}}>
@@ -4544,7 +4566,15 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
               return (
                 <div key={c.id} onClick={()=>setSelAcc(active?null:c.id)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 16px',borderBottom:i<investAccounts.length-1?`1px solid ${T.border}`:'none',borderLeft:active?`3px solid ${pal.accent}`:'3px solid transparent',background:active?pal.soft:'transparent',cursor:'pointer',transition:'all 0.12s'}}>
                   <div style={{display:'flex',alignItems:'center',gap:10}}>{isCard&&<CreditCard size={15} color={T.textSec}/>}<div><div style={{fontSize:13,fontWeight:active?700:500,color:active?pal.accent:T.text}}>{c.nome}</div><div style={{fontSize:11,color:T.textSec,marginTop:1}}>{c.titular} · {c.banco}</div></div></div>
-                  <div style={{fontSize:15,fontWeight:700,color:saldo<0?T.red:(active?pal.accent:T.text),fontFamily:T.mono}}>{saldo<0?'− ':''}{dec(saldo)}</div>
+                  <div style={{display:'flex',alignItems:'center',gap:8}}>
+                    <div style={{fontSize:15,fontWeight:700,color:saldo<0?T.red:(active?pal.accent:T.text),fontFamily:T.mono}}>{saldo<0?'− ':''}{dec(saldo)}</div>
+                    {investAccounts.length>1&&(
+                      <div style={{display:'flex',flexDirection:'column',gap:3}} onClick={e=>e.stopPropagation()}>
+                        <button onClick={()=>moveConta(i,-1)} disabled={i===0} style={{background:T.surface2,border:'none',borderRadius:6,padding:2,cursor:i===0?'default':'pointer',opacity:i===0?0.3:1}}><ChevronUp size={12} color={T.textSec}/></button>
+                        <button onClick={()=>moveConta(i,1)} disabled={i===investAccounts.length-1} style={{background:T.surface2,border:'none',borderRadius:6,padding:2,cursor:i===investAccounts.length-1?'default':'pointer',opacity:i===investAccounts.length-1?0.3:1}}><ChevronDown size={12} color={T.textSec}/></button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )
             })}
