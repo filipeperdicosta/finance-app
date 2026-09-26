@@ -384,15 +384,55 @@ function bucketSeverity(actualPct:number, target:{min?:number,max?:number}): 'ok
 }
 const SEVERITY_COLOR = { ok:'#4ADE80', atencao:'#FBBF24', fora:'#F87171' }
 
-function computeView(accounts:Account[], transactions:Transaction[], tag:string, selId:string|null, monthOffset=0) {
-  const accs = accounts.filter(a=>a.budget_tag===tag && (selId?a.id===selId:true))
+// Selecção de contas/imóveis: toque normal continua a substituir a selecção (0 ou 1),
+// tal como sempre foi. Premir e segurar uma 2ª entrada (com 1 já seleccionada) acrescenta-a
+// e liga o modo múltiplo — a partir daí, toques normais somam/tiram da selecção até
+// esvaziar de novo. Long-press na única já seleccionada não faz nada.
+function nextSelection(sel:Set<string>, multi:boolean, id:string, longPress:boolean): {sel:Set<string>,multi:boolean} {
+  if(multi){
+    const n = new Set(sel); n.has(id) ? n.delete(id) : n.add(id)
+    return {sel:n, multi:n.size>0}
+  }
+  if(longPress){
+    if(sel.size===0) return {sel:new Set([id]), multi:false}
+    if(sel.size===1 && !sel.has(id)) return {sel:new Set(Array.from(sel).concat(id)), multi:true}
+    return {sel, multi} // long-press na única já seleccionada: sem acção
+  }
+  return {sel: sel.has(id) ? new Set() : new Set([id]), multi:false}
+}
+
+// Toque normal (onTap) vs. premir-e-segurar (onLongPress, ~500ms), com feedback visual
+// (`pressing`) e sem deixar o menu de contexto do browser interromper o gesto a meio.
+function useLongPress(onTap:()=>void, onLongPress:()=>void, ms=500){
+  const [pressing,setPressing] = useState(false)
+  const timerRef = useRef<ReturnType<typeof setTimeout>|null>(null)
+  const firedRef = useRef(false)
+  const cancel = () => { if(timerRef.current){clearTimeout(timerRef.current);timerRef.current=null}; setPressing(false) }
+  const start = () => {
+    firedRef.current = false
+    setPressing(true)
+    timerRef.current = setTimeout(()=>{ firedRef.current=true; setPressing(false); onLongPress() }, ms)
+  }
+  const handleClick = () => { if(firedRef.current){ firedRef.current=false; return }; onTap() }
+  return {
+    pressing,
+    handlers: {
+      onPointerDown: start, onPointerUp: cancel, onPointerLeave: cancel, onPointerCancel: cancel,
+      onContextMenu: (e:React.MouseEvent) => e.preventDefault(),
+      onClick: handleClick,
+    },
+  }
+}
+
+function computeView(accounts:Account[], transactions:Transaction[], tag:string, selIds:Set<string>, monthOffset=0) {
+  const accs = accounts.filter(a=>a.budget_tag===tag && (selIds.size?selIds.has(a.id):true))
   if (!accs.length) return {saldo:0,rec:0,desp:0,net:0,cats:[],trend:[],txns:[],refMonth:null as string|null}
   const ids = new Set(accs.map(a=>a.id))
   const txns = transactions.filter(t=>ids.has(t.account_id))
   // Vista agregada ("Ver tudo"): exclui cartões da soma para não distorcer o total.
-  // Conta específica seleccionada: mostra o valor real dessa conta, mesmo se for cartão
-  // — aqui já não há risco de duplicação, é só a informação daquela conta.
-  const saldo = selId
+  // 1+ contas seleccionadas: mostra o valor real de cada uma, mesmo sendo cartão
+  // — aqui já não há risco de duplicação, é só a informação dessas contas.
+  const saldo = selIds.size
     ? accs.reduce((s,a)=>s+accountSaldo(a),0)
     : accs.reduce((s,a)=>s+accountSaldoTotal(a),0)
 
@@ -789,35 +829,42 @@ const Hero = ({pal,title,mainValue,mainColor,kpis,trend,period,mainSuffix,sparkM
 // ─────────────────────────────────────────────────────────────────
 // ACCOUNTS LIST
 // ─────────────────────────────────────────────────────────────────
-const AccountList = ({accounts,sel,onSel,pal,onMove}:{accounts:Account[],sel:string|null,onSel:(id:string|null)=>void,pal:{accent:string,soft:string},onMove?:(idx:number,dir:-1|1)=>void}) => (
+// Linha de conta reutilizada por AccountList (Pessoal/Familiar) e pela lista de contas
+// de investimento em Imóveis — toque normal selecciona/substitui/desliga; premir e
+// segurar acrescenta uma 2ª (liga o modo múltiplo, ver `nextSelection`).
+const AccountRow = ({account,i,total,selected,multi,onPress,pal,onMove}:{account:Account,i:number,total:number,selected:boolean,multi:boolean,onPress:(id:string,longPress:boolean)=>void,pal:{accent:string,soft:string},onMove?:(idx:number,dir:-1|1)=>void}) => {
+  const {pressing,handlers} = useLongPress(()=>onPress(account.id,false), ()=>onPress(account.id,true))
+  const saldo = selected?accountSaldo(account):accountSaldoTotal(account), isCard = account.tipo==='cartão'
+  return (
+    <div {...handlers} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 16px',borderBottom:i<total-1?`1px solid ${T.border}`:'none',borderLeft:selected?`3px solid ${pal.accent}`:'3px solid transparent',background:pressing?T.surface3:(selected?pal.soft:'transparent'),cursor:'pointer',transition:'background 0.15s,border-color 0.12s',WebkitUserSelect:'none',userSelect:'none',WebkitTouchCallout:'none',touchAction:'manipulation'} as React.CSSProperties}>
+      <div style={{display:'flex',alignItems:'center',gap:10}}>
+        {multi&&(selected?<CheckSquare size={16} color={pal.accent}/>:<Square size={16} color={T.textTer}/>)}
+        {isCard&&<CreditCard size={15} color={T.textSec}/>}
+        <div><div style={{fontSize:13,fontWeight:selected?700:500,color:selected?pal.accent:T.text}}>{account.nome}</div><div style={{fontSize:11,color:T.textSec,marginTop:1}}>{account.titular} · {account.banco}{isCard?' · cartão':''}</div></div>
+      </div>
+      <div style={{display:'flex',alignItems:'center',gap:8}}>
+        <div style={{fontSize:15,fontWeight:700,color:saldo<0?T.red:(selected?pal.accent:T.text),fontFamily:T.mono}}>{saldo<0?'− ':''}{dec(saldo)}</div>
+        {!multi&&onMove&&total>1&&(
+          <div style={{display:'flex',flexDirection:'column',gap:3}} onPointerDown={e=>e.stopPropagation()} onClick={e=>e.stopPropagation()}>
+            <button onClick={()=>onMove(i,-1)} disabled={i===0} style={{background:T.surface2,border:'none',borderRadius:6,padding:2,cursor:i===0?'default':'pointer',opacity:i===0?0.3:1}}><ChevronUp size={12} color={T.textSec}/></button>
+            <button onClick={()=>onMove(i,1)} disabled={i===total-1} style={{background:T.surface2,border:'none',borderRadius:6,padding:2,cursor:i===total-1?'default':'pointer',opacity:i===total-1?0.3:1}}><ChevronDown size={12} color={T.textSec}/></button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+const AccountList = ({accounts,selected,multi,onPress,onClearAll,pal,onMove}:{accounts:Account[],selected:Set<string>,multi:boolean,onPress:(id:string,longPress:boolean)=>void,onClearAll:()=>void,pal:{accent:string,soft:string},onMove?:(idx:number,dir:-1|1)=>void}) => (
   <div style={{marginBottom:20}}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'0 2px',minHeight:26}}>
       <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase'}}>Contas</span>
-      {sel&&<button onClick={()=>onSel(null)} style={{display:'flex',alignItems:'center',gap:4,background:pal.soft,border:'none',borderRadius:8,padding:'3px 8px',cursor:'pointer'}}><span style={{fontSize:11,color:pal.accent,fontWeight:600}}>Ver tudo</span><X size={11} color={pal.accent}/></button>}
+      {selected.size>0&&<button onClick={onClearAll} style={{display:'flex',alignItems:'center',gap:4,background:pal.soft,border:'none',borderRadius:8,padding:'3px 8px',cursor:'pointer'}}><span style={{fontSize:11,color:pal.accent,fontWeight:600}}>Ver tudo</span><X size={11} color={pal.accent}/></button>}
     </div>
     {accounts.length===0&&<Card><div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem contas. Adiciona nas Definições.</div></Card>}
     {accounts.length>0&&(
       <Card>
-        {accounts.map((c,i)=>{
-          const active=sel===c.id, saldo=active?accountSaldo(c):accountSaldoTotal(c), isCard=c.tipo==='cartão'
-          return (
-            <div key={c.id} onClick={()=>onSel(active?null:c.id)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 16px',borderBottom:i<accounts.length-1?`1px solid ${T.border}`:'none',borderLeft:active?`3px solid ${pal.accent}`:'3px solid transparent',background:active?pal.soft:'transparent',cursor:'pointer',transition:'all 0.12s'}}>
-              <div style={{display:'flex',alignItems:'center',gap:10}}>
-                {isCard&&<CreditCard size={15} color={T.textSec}/>}
-                <div><div style={{fontSize:13,fontWeight:active?700:500,color:active?pal.accent:T.text}}>{c.nome}</div><div style={{fontSize:11,color:T.textSec,marginTop:1}}>{c.titular} · {c.banco}{isCard?' · cartão':''}</div></div>
-              </div>
-              <div style={{display:'flex',alignItems:'center',gap:8}}>
-                <div style={{fontSize:15,fontWeight:700,color:saldo<0?T.red:(active?pal.accent:T.text),fontFamily:T.mono}}>{saldo<0?'− ':''}{dec(saldo)}</div>
-                {onMove&&accounts.length>1&&(
-                  <div style={{display:'flex',flexDirection:'column',gap:3}} onClick={e=>e.stopPropagation()}>
-                    <button onClick={()=>onMove(i,-1)} disabled={i===0} style={{background:T.surface2,border:'none',borderRadius:6,padding:2,cursor:i===0?'default':'pointer',opacity:i===0?0.3:1}}><ChevronUp size={12} color={T.textSec}/></button>
-                    <button onClick={()=>onMove(i,1)} disabled={i===accounts.length-1} style={{background:T.surface2,border:'none',borderRadius:6,padding:2,cursor:i===accounts.length-1?'default':'pointer',opacity:i===accounts.length-1?0.3:1}}><ChevronDown size={12} color={T.textSec}/></button>
-                  </div>
-                )}
-              </div>
-            </div>
-          )
-        })}
+        {accounts.map((c,i)=><AccountRow key={c.id} account={c} i={i} total={accounts.length} selected={selected.has(c.id)} multi={multi} onPress={onPress} pal={pal} onMove={onMove}/>)}
       </Card>
     )}
   </div>
@@ -3202,7 +3249,8 @@ const ImportWizard = ({onClose,accounts,pal,onDone,onRefreshAccounts}:{onClose:(
 // SCREENS
 // ─────────────────────────────────────────────────────────────────
 const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAllTxns,onRefresh,onSaudeFinanceira}:{accounts:Account[],transactions:Transaction[],tag:string,pal:{grad:string,accent:string,soft:string},title:string,onViewAllTxns:(categoria?:string,contaId?:string)=>void,onRefresh:()=>void,onSaudeFinanceira?:()=>void}) => {
-  const [sel,setSel] = useState<string|null>(null)
+  const [sel,setSel] = useState<Set<string>>(new Set())
+  const [multi,setMulti] = useState(false)
   const [catSel,setCatSel] = useState<string|null>(null)
   const [editTxn,setEditTxn] = useState<Transaction|null>(null)
   const [showAllCats,setShowAllCats] = useState(false)
@@ -3216,9 +3264,14 @@ const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAllTxns,onRefre
     await Promise.all(reordered.map((a,i)=>updateAccount(a.id,{ordem:i})))
     await onRefresh()
   }
+  const pressConta = (id:string, longPress:boolean) => { const n = nextSelection(sel,multi,id,longPress); setSel(n.sel); setMulti(n.multi) }
+  const clearSel = () => { setSel(new Set()); setMulti(false) }
   const view = computeView(accounts,transactions,tag,sel,monthOffset)
   const period = monthYearLabel(view.refMonth)
-  const selName = tagAccs.find(a=>a.id===sel)?.nome.split(' ').slice(-1)[0]
+  // Um único id quando faz sentido passá-lo a ecrãs que só suportam filtro por 1 conta
+  // (Ver todas as transações, Ver todas as categorias) — com 2+ seleccionadas, sem filtro.
+  const soloSelId = sel.size===1 ? Array.from(sel)[0] : undefined
+  const selLabel = sel.size===0 ? null : (sel.size===1 ? tagAccs.find(a=>a.id===soloSelId)?.nome.split(' ').slice(-1)[0] : `${sel.size} contas`)
   const topCats = view.cats.slice(0,9)
   // Can't go forward past the latest month with data
   const canGoForward = monthOffset < 0
@@ -3226,7 +3279,7 @@ const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAllTxns,onRefre
   // Quando uma categoria está seleccionada, filtra gráfico + lista de transações abaixo
   const catTrend = useMemo(()=>{
     if(!catSel || !view.refMonth) return view.trend
-    const accIds = new Set((sel?tagAccs.filter(a=>a.id===sel):tagAccs).map(a=>a.id))
+    const accIds = new Set((sel.size?tagAccs.filter(a=>sel.has(a.id)):tagAccs).map(a=>a.id))
     return Array.from({length:5},(_,i)=>{
       const offset=i-4
       const [ry,rm] = view.refMonth!.split('-').map(Number)
@@ -3240,7 +3293,7 @@ const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAllTxns,onRefre
   const catTxns = useMemo(()=>{
     if(!catSel) return view.txns
     if(!view.refMonth) return []
-    const accIds = new Set((sel?tagAccs.filter(a=>a.id===sel):tagAccs).map(a=>a.id))
+    const accIds = new Set((sel.size?tagAccs.filter(a=>sel.has(a.id)):tagAccs).map(a=>a.id))
     // 'transactions' já vem ordenado de forma estável pela query (data desc, created_at asc);
     // .filter() preserva essa ordem, não é preciso reordenar aqui.
     return transactions
@@ -3250,10 +3303,10 @@ const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAllTxns,onRefre
   return (
     <div>
       <Hero pal={pal} title={title} period={period} mainValue={big(view.saldo)} mainColor={view.saldo<0?'#FCA5A5':'#FFF'} trend={view.trend} kpis={[{l:'Receitas',v:dec(view.rec),c:'#4ADE80'},{l:'Despesas',v:dec(view.desp),c:'#F87171'},{l:'Saldo mês',v:sgn(view.net),c:view.net>=0?'#4ADE80':'#F87171'}]} onPrev={()=>{setMonthOffset(o=>o-1);setCatSel(null)}} onNext={()=>{if(canGoForward){setMonthOffset(o=>o+1);setCatSel(null)}}} canNext={canGoForward} onSaudeFinanceira={onSaudeFinanceira}/>
-      <AccountList accounts={tagAccs} sel={sel} onSel={setSel} pal={pal} onMove={moveConta}/>
+      <AccountList accounts={tagAccs} selected={sel} multi={multi} onPress={pressConta} onClearAll={clearSel} pal={pal} onMove={moveConta}/>
       <div style={{marginBottom:20}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'0 2px',minHeight:26}}>
-          <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase'}}>{sel?`Despesas — ${selName}`:'Despesas'}</span>
+          <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase'}}>{selLabel?`Despesas — ${selLabel}`:'Despesas'}</span>
           <div style={{display:'flex',gap:8}}>
             {catSel&&<button onClick={()=>setCatSel(null)} style={{display:'flex',alignItems:'center',gap:4,background:pal.soft,border:'none',borderRadius:8,padding:'3px 8px',cursor:'pointer'}}><span style={{fontSize:12,color:pal.accent,fontWeight:600}}>×</span><span style={{fontSize:11,color:pal.accent,fontWeight:600}}>Ver tudo</span></button>}
             {!catSel&&<span onClick={()=>setShowAllCats(true)} style={{fontSize:12,color:pal.accent,fontWeight:600,cursor:'pointer'}}>Ver todas →</span>}
@@ -3270,11 +3323,11 @@ const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAllTxns,onRefre
       </div>
       <TrendTile data={catTrend} accent={pal.accent} catFilter={catSel}/>
       <div style={{marginBottom:20}}>
-        <Lbl title={catSel?`Transações — ${catSel}`:'Últimas transações'} action="Ver todas →" accent={pal.accent} onAction={()=>onViewAllTxns(catSel??undefined, sel??undefined)}/>
+        <Lbl title={catSel?`Transações — ${catSel}`:'Últimas transações'} action="Ver todas →" accent={pal.accent} onAction={()=>onViewAllTxns(catSel??undefined, soloSelId)}/>
         <Card>{catTxns.length?catTxns.map((t,i)=><TxnRow key={t.id} t={t} last={i===catTxns.length-1} onClick={()=>setEditTxn(t)} accounts={tagAccs}/>):<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem transações. Importa o teu primeiro extracto.</div>}</Card>
       </div>
       {editTxn&&<TxnEditForm txn={editTxn} onClose={()=>setEditTxn(null)} onSaved={onRefresh} pal={pal} accounts={accounts}/>}
-      {showAllCats&&<AllCategoriesScreen transactions={transactions} accounts={accounts} tag={tag} sel={sel} initialMonth={view.refMonth} subtitle={title.replace('Conta Corrente ','')} onClose={()=>setShowAllCats(false)} onSelectCategoria={(cat,month)=>{setShowAllCats(false);onViewAllTxns(cat, sel??undefined)}} pal={pal}/>}
+      {showAllCats&&<AllCategoriesScreen transactions={transactions} accounts={accounts} tag={tag} sel={soloSelId??null} initialMonth={view.refMonth} subtitle={title.replace('Conta Corrente ','')} onClose={()=>setShowAllCats(false)} onSelectCategoria={(cat,month)=>{setShowAllCats(false);onViewAllTxns(cat, soloSelId)}} pal={pal}/>}
     </div>
   )
 }
@@ -4334,6 +4387,54 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
   )
 }
 
+// Cartão de imóvel (ecrã Imóveis) — toque normal selecciona/substitui/desliga; premir e
+// segurar acrescenta uma 2ª (liga o modo múltiplo). Em modo múltiplo, esconde as setas de
+// reordenar e os botões de membros/editar (para não misturar gestos na mesma linha).
+const ImovelCard = ({im,idx,total,renda,custo,nLinks,selected,multi,onPress,pal,showQuota,showValoriz,temValoriz,onMove,onMembers,onEdit}:{im:Imovel,idx:number,total:number,renda:number,custo:number,nLinks:number,selected:boolean,multi:boolean,onPress:(id:string,longPress:boolean)=>void,pal:{accent:string,soft:string},showQuota:boolean,showValoriz:boolean,temValoriz:boolean,onMove:(idx:number,dir:-1|1)=>void,onMembers:(id:string)=>void,onEdit:(im:Imovel)=>void}) => {
+  const {pressing,handlers} = useLongPress(()=>onPress(im.id,false), ()=>onPress(im.id,true))
+  const res=renda-custo, pos=res>=0
+  return (
+    <div {...handlers} style={{background:pressing?T.surface3:T.surface,borderRadius:14,marginBottom:10,border:`1px solid ${T.border}`,borderLeft:selected?`3px solid ${pal.accent}`:`1px solid ${T.border}`,overflow:'hidden',cursor:'pointer',transition:'background 0.15s,border-left 0.15s',WebkitUserSelect:'none',userSelect:'none',WebkitTouchCallout:'none',touchAction:'manipulation'} as React.CSSProperties}>
+      <div style={{height:3,background:pos?T.green:T.red}}/>
+      <div style={{padding:'13px 16px 15px'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12}}>
+        <div style={{display:'flex',alignItems:'flex-start',gap:8,flex:1,minWidth:0}}>
+          {multi&&<span style={{marginTop:2,flexShrink:0}}>{selected?<CheckSquare size={16} color={pal.accent}/>:<Square size={16} color={T.textTer}/>}</span>}
+          <div style={{minWidth:0}}>
+            <div style={{fontSize:14,fontWeight:700,color:T.text}}>{im.nome}</div>
+            <div style={{fontSize:11,color:T.textTer,marginTop:2}}>{im.local}{nLinks>0?` · ${nLinks} conta${nLinks>1?'s':''}`:' · sem conta'}</div>
+          </div>
+        </div>
+        <div style={{display:'flex',alignItems:'center',gap:8}}>
+          <div style={{textAlign:'right'}}>
+            <div style={{fontSize:19,fontWeight:700,color:pos?T.green:T.red,fontFamily:T.mono}}>{pos?'+ ':'− '}{dec(Math.abs(res))}</div>
+            <div style={{fontSize:9,color:T.textTer,marginTop:1}}>resultado/mês{showQuota?` · ${im.my_ownership_pct??im.ownership_pct}%`:''}</div>
+          </div>
+          {!multi&&(<>
+            <div style={{display:'flex',flexDirection:'column',gap:3}} onPointerDown={e=>e.stopPropagation()} onClick={e=>e.stopPropagation()}>
+              <button onClick={()=>onMove(idx,-1)} disabled={idx===0} style={{background:T.surface2,border:'none',borderRadius:6,padding:2,cursor:idx===0?'default':'pointer',opacity:idx===0?0.3:1}}><ChevronUp size={12} color={T.textSec}/></button>
+              <button onClick={()=>onMove(idx,1)} disabled={idx===total-1} style={{background:T.surface2,border:'none',borderRadius:6,padding:2,cursor:idx===total-1?'default':'pointer',opacity:idx===total-1?0.3:1}}><ChevronDown size={12} color={T.textSec}/></button>
+            </div>
+            <button onPointerDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();onMembers(im.id)}} title="Partilhar/gerir membros" style={{background:T.surface2,border:'none',borderRadius:8,padding:6,cursor:'pointer'}}><Users size={13} color={T.textSec}/></button>
+            <button onPointerDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();onEdit(im)}} style={{background:T.surface2,border:'none',borderRadius:8,padding:6,cursor:'pointer'}}><Edit2 size={13} color={T.textSec}/></button>
+          </>)}
+        </div>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6,marginBottom:(showValoriz&&temValoriz)?10:0}}>
+        {[{l:'Renda',v:dec(renda),c:T.green},{l:'Custos',v:dec(custo),c:T.red},{l:'Estado',v:im.ativo?'Arrendado':'Não arrend.',c:im.ativo?T.green:T.textTer}].map((k,i)=>(<div key={i} style={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:8,padding:'8px 10px'}}><div style={{fontSize:9,color:T.textTer,textTransform:'uppercase',letterSpacing:'0.06em',fontWeight:600,marginBottom:2}}>{k.l}</div><div style={{fontSize:11,fontWeight:700,color:k.c,fontFamily:T.mono}}>{k.v}</div></div>))}
+      </div>
+      {/* Valorização informativa (só quando toggle ON e há valor definido) */}
+      {showValoriz&&temValoriz&&(
+        <div style={{background:T.surface2,borderRadius:8,padding:'9px 11px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <div><div style={{fontSize:11,color:T.textSec,fontWeight:600}}>Valorização estimada</div>{im.valorizacao_data&&<div style={{fontSize:9,color:T.textTer,marginTop:1}}>actualizado {fmtDate(im.valorizacao_data)}</div>}</div>
+          <div style={{fontSize:14,fontWeight:700,color:T.text,fontFamily:T.mono}}>{big(im.valorizacao)}</div>
+        </div>
+      )}
+      </div>
+    </div>
+  )
+}
+
 // ─────────────────────────────────────────────────────────────────
 // IMÓVEIS SCREEN — full management
 // ─────────────────────────────────────────────────────────────────
@@ -4342,8 +4443,10 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
   const [editing,setEditing] = useState<Imovel|null>(null)
   const [showQueue,setShowQueue] = useState(false)
   const [editTxn,setEditTxn] = useState<Transaction|null>(null)
-  const [selAcc,setSelAcc] = useState<string|null>(null)
-  const [selImovel,setSelImovel] = useState<string|null>(null)
+  const [selAcc,setSelAcc] = useState<Set<string>>(new Set())
+  const [accMulti,setAccMulti] = useState(false)
+  const [selImovel,setSelImovel] = useState<Set<string>>(new Set())
+  const [imovelMulti,setImovelMulti] = useState(false)
   const [monthOffset,setMonthOffset] = useState(0)
   const [showIrs,setShowIrs] = useState(false)
   const [showQuota,setShowQuota] = useState(false)
@@ -4380,9 +4483,13 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
     await onRefresh()
   }
 
-  const matchAcc = (t:Transaction) => selAcc ? t.account_id===selAcc : true
-  // Filtra por imóvel seleccionado se houver
-  const matchImovel = (t:Transaction) => selImovel ? t.imovel_id===selImovel : true
+  const pressAcc = (id:string, longPress:boolean) => { const n = nextSelection(selAcc,accMulti,id,longPress); setSelAcc(n.sel); setAccMulti(n.multi) }
+  const pressImovel = (id:string, longPress:boolean) => { const n = nextSelection(selImovel,imovelMulti,id,longPress); setSelImovel(n.sel); setImovelMulti(n.multi) }
+  const soloSelImovel = selImovel.size===1 ? Array.from(selImovel)[0] : undefined
+
+  const matchAcc = (t:Transaction) => selAcc.size ? selAcc.has(t.account_id) : true
+  // Filtra pelos imóveis seleccionados se houver
+  const matchImovel = (t:Transaction) => selImovel.size ? (t.imovel_id!==null && selImovel.has(t.imovel_id)) : true
   const imovelTxnsScope = transactions.filter(t=>investAccountIds.has(t.account_id)&&matchAcc(t)&&matchImovel(t))
   const latestMonth = latestMonthWithData(imovelTxnsScope) ?? `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}`
 
@@ -4399,15 +4506,15 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
   const getImCusto = (id:string) => transactions.filter(t=>t.imovel_id===id&&matchAcc(t)&&t.data.startsWith(ym)&&t.valor<0).reduce((s,t)=>s+Math.abs(t.valor),0)
   const linkedAccounts = (imovelId:string) => new Set(contaImovel.filter(ci=>ci.imovel_id===imovelId).map(ci=>ci.account_id))
 
-  // KPIs: quando há imóvel seleccionado, mostra só esse; caso contrário, todos
-  const imovelList = selImovel ? imoveis.filter(im=>im.id===selImovel) : imoveis
+  // KPIs: quando há imóveis seleccionados, mostra só esses; caso contrário, todos
+  const imovelList = selImovel.size ? imoveis.filter(im=>selImovel.has(im.id)) : imoveis
   const totRendaImoveis=imovelList.reduce((s,im)=>s+getImRenda(im.id),0)
   const totCustoImoveis=imovelList.reduce((s,im)=>s+getImCusto(im.id),0)
   // "Geral" = despesas/receitas classificadas (imovel_classificado=true) mas sem imóvel
   // específico (imovel_id=null) — ex: custos partilhados entre imóveis. Só entram no
   // total agregado (nenhum imóvel seleccionado); ao filtrar por 1 imóvel, ficam de fora
   // — tal como o gráfico de tendência (matchImovel) já faz.
-  const geralTxns = !selImovel ? transactions.filter(t=>investAccountIds.has(t.account_id)&&matchAcc(t)&&t.imovel_id===null&&t.imovel_classificado===true&&t.data.startsWith(ym)) : []
+  const geralTxns = !selImovel.size ? transactions.filter(t=>investAccountIds.has(t.account_id)&&matchAcc(t)&&t.imovel_id===null&&t.imovel_classificado===true&&t.data.startsWith(ym)) : []
   const geralRenda = geralTxns.filter(t=>t.valor>0).reduce((s,t)=>s+t.valor,0)
   const geralCusto = geralTxns.filter(t=>t.valor<0).reduce((s,t)=>s+Math.abs(t.valor),0)
   const totRenda = totRendaImoveis + geralRenda
@@ -4416,8 +4523,8 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
   const ativos=imoveis.filter(im=>im.ativo).length
 
   // Saldo da(s) conta(s) de investimento
-  const saldoContas = selAcc
-    ? investAccounts.filter(a=>a.id===selAcc).reduce((s,a)=>s+accountSaldo(a),0)
+  const saldoContas = selAcc.size
+    ? investAccounts.filter(a=>selAcc.has(a.id)).reduce((s,a)=>s+accountSaldo(a),0)
     : investAccounts.reduce((s,a)=>s+accountSaldoTotal(a),0)
 
   // Valorização total (100%) e toggle
@@ -4461,7 +4568,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
 
   return (
     <div>
-      <Hero pal={pal} title={selImovel ? `Imóvel — ${imoveis.find(i=>i.id===selImovel)?.nome??''}` : 'Conta Corrente Imóveis'} period={monthYearLabel(ym)} mainValue={big(saldoContas)} mainColor={saldoContas<0?'#FCA5A5':'#FFF'} trend={trend} kpis={imoveisKpis} onPrev={()=>setMonthOffset(o=>o-1)} onNext={()=>{if(canGoForward)setMonthOffset(o=>o+1)}} canNext={canGoForward} onIrs={()=>setShowIrs(true)}/>
+      <Hero pal={pal} title={selImovel.size ? (selImovel.size===1?`Imóvel — ${imoveis.find(i=>i.id===soloSelImovel)?.nome??''}`:`${selImovel.size} imóveis seleccionados`) : 'Conta Corrente Imóveis'} period={monthYearLabel(ym)} mainValue={big(saldoContas)} mainColor={saldoContas<0?'#FCA5A5':'#FFF'} trend={trend} kpis={imoveisKpis} onPrev={()=>setMonthOffset(o=>o-1)} onNext={()=>{if(canGoForward)setMonthOffset(o=>o+1)}} canNext={canGoForward} onIrs={()=>setShowIrs(true)}/>
       {/* Toggle valorização */}
       <div onClick={()=>setShowValoriz(v=>!v)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 16px',background:showValoriz?pal.soft:T.surface,borderRadius:12,border:`1px solid ${showValoriz?pal.accent:T.border}`,marginBottom:16,cursor:'pointer',transition:'all 0.15s'}}>
         <div style={{flex:1}}>
@@ -4505,50 +4612,21 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
         <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase'}}>Por imóvel</span>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
           <button onClick={()=>setShowQuota(v=>!v)} title="100% do imóvel vs. a tua quota de propriedade" style={{background:showQuota?pal.accent:pal.soft,border:'none',borderRadius:8,padding:'4px 10px',cursor:'pointer'}}><span style={{fontSize:11,color:showQuota?'#14110F':pal.accent,fontWeight:600}}>{showQuota?'Minha quota':'100%'}</span></button>
-          {selImovel&&<button onClick={()=>setSelImovel(null)} style={{display:'flex',alignItems:'center',gap:4,background:pal.soft,border:'none',borderRadius:8,padding:'3px 8px',cursor:'pointer'}}><span style={{fontSize:12,color:pal.accent,fontWeight:600}}>×</span><span style={{fontSize:11,color:pal.accent,fontWeight:600}}>Ver todos</span></button>}
+          {selImovel.size>0&&<button onClick={()=>{setSelImovel(new Set());setImovelMulti(false)}} style={{display:'flex',alignItems:'center',gap:4,background:pal.soft,border:'none',borderRadius:8,padding:'3px 8px',cursor:'pointer'}}><span style={{fontSize:12,color:pal.accent,fontWeight:600}}>×</span><span style={{fontSize:11,color:pal.accent,fontWeight:600}}>Ver todos</span></button>}
           <button onClick={()=>{setEditing(null);setFormOpen(true)}} style={{display:'flex',alignItems:'center',gap:4,background:pal.soft,border:'none',borderRadius:8,padding:'4px 10px',cursor:'pointer'}}><Plus size={12} color={pal.accent}/><span style={{fontSize:11,color:pal.accent,fontWeight:600}}>Adicionar</span></button>
         </div>
       </div>
       {imoveis.length===0&&<Card style={{marginBottom:20}}><div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem imóveis ainda. Toca em "Adicionar" para criar o primeiro.</div></Card>}
       {imoveis.map((im,idx)=>{
         const quotaFactor = showQuota ? (im.my_ownership_pct??im.ownership_pct??100)/100 : 1
-        const renda=getImRenda(im.id)*quotaFactor, custo=getImCusto(im.id)*quotaFactor, res=renda-custo, pos=res>=0
+        const renda=getImRenda(im.id)*quotaFactor, custo=getImCusto(im.id)*quotaFactor
         const nLinks=contaImovel.filter(ci=>ci.imovel_id===im.id).length
         const temValoriz=(im.valorizacao||0)>0
         return (
-          <div key={im.id} onClick={()=>setSelImovel(s=>s===im.id?null:im.id)} style={{background:T.surface,borderRadius:14,marginBottom:10,border:`1px solid ${T.border}`,borderLeft:selImovel===im.id?`3px solid ${pal.accent}`:`1px solid ${T.border}`,overflow:'hidden',cursor:'pointer',transition:'border-left 0.15s'}}>
-            <div style={{height:3,background:pos?T.green:T.red}}/>
-            <div style={{padding:'13px 16px 15px'}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12}}>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:14,fontWeight:700,color:T.text}}>{im.nome}</div>
-                <div style={{fontSize:11,color:T.textTer,marginTop:2}}>{im.local}{nLinks>0?` · ${nLinks} conta${nLinks>1?'s':''}`:' · sem conta'}</div>
-              </div>
-              <div style={{display:'flex',alignItems:'center',gap:8}}>
-                <div style={{textAlign:'right'}}>
-                  <div style={{fontSize:19,fontWeight:700,color:pos?T.green:T.red,fontFamily:T.mono}}>{pos?'+ ':'− '}{dec(Math.abs(res))}</div>
-                  <div style={{fontSize:9,color:T.textTer,marginTop:1}}>resultado/mês{showQuota?` · ${im.my_ownership_pct??im.ownership_pct}%`:''}</div>
-                </div>
-                <div style={{display:'flex',flexDirection:'column',gap:3}}>
-                  <button onClick={e=>{e.stopPropagation();moveImovel(idx,-1)}} disabled={idx===0} style={{background:T.surface2,border:'none',borderRadius:6,padding:2,cursor:idx===0?'default':'pointer',opacity:idx===0?0.3:1}}><ChevronUp size={12} color={T.textSec}/></button>
-                  <button onClick={e=>{e.stopPropagation();moveImovel(idx,1)}} disabled={idx===imoveis.length-1} style={{background:T.surface2,border:'none',borderRadius:6,padding:2,cursor:idx===imoveis.length-1?'default':'pointer',opacity:idx===imoveis.length-1?0.3:1}}><ChevronDown size={12} color={T.textSec}/></button>
-                </div>
-                <button onClick={e=>{e.stopPropagation();onMembers(im.id)}} title="Partilhar/gerir membros" style={{background:T.surface2,border:'none',borderRadius:8,padding:6,cursor:'pointer'}}><Users size={13} color={T.textSec}/></button>
-                <button onClick={e=>{e.stopPropagation();setEditing(im);setFormOpen(true)}} style={{background:T.surface2,border:'none',borderRadius:8,padding:6,cursor:'pointer'}}><Edit2 size={13} color={T.textSec}/></button>
-              </div>
-            </div>
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6,marginBottom:(showValoriz&&temValoriz)?10:0}}>
-              {[{l:'Renda',v:dec(renda),c:T.green},{l:'Custos',v:dec(custo),c:T.red},{l:'Estado',v:im.ativo?'Arrendado':'Não arrend.',c:im.ativo?T.green:T.textTer}].map((k,i)=>(<div key={i} style={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:8,padding:'8px 10px'}}><div style={{fontSize:9,color:T.textTer,textTransform:'uppercase',letterSpacing:'0.06em',fontWeight:600,marginBottom:2}}>{k.l}</div><div style={{fontSize:11,fontWeight:700,color:k.c,fontFamily:T.mono}}>{k.v}</div></div>))}
-            </div>
-            {/* Valorização informativa (só quando toggle ON e há valor definido) */}
-            {showValoriz&&temValoriz&&(
-              <div style={{background:T.surface2,borderRadius:8,padding:'9px 11px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                <div><div style={{fontSize:11,color:T.textSec,fontWeight:600}}>Valorização estimada</div>{im.valorizacao_data&&<div style={{fontSize:9,color:T.textTer,marginTop:1}}>actualizado {fmtDate(im.valorizacao_data)}</div>}</div>
-                <div style={{fontSize:14,fontWeight:700,color:T.text,fontFamily:T.mono}}>{big(im.valorizacao)}</div>
-              </div>
-            )}
-            </div>
-          </div>
+          <ImovelCard key={im.id} im={im} idx={idx} total={imoveis.length} renda={renda} custo={custo} nLinks={nLinks}
+            selected={selImovel.has(im.id)} multi={imovelMulti} onPress={pressImovel} pal={pal}
+            showQuota={showQuota} showValoriz={showValoriz} temValoriz={temValoriz}
+            onMove={moveImovel} onMembers={onMembers} onEdit={(im)=>{setEditing(im);setFormOpen(true)}}/>
         )
       })}
 
@@ -4556,37 +4634,21 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
       <div style={{marginTop:20,marginBottom:20}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'0 2px',minHeight:26}}>
           <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase'}}>Contas</span>
-          {selAcc&&<button onClick={()=>setSelAcc(null)} style={{display:'flex',alignItems:'center',gap:4,background:pal.soft,border:'none',borderRadius:8,padding:'3px 8px',cursor:'pointer'}}><span style={{fontSize:11,color:pal.accent,fontWeight:600}}>Ver tudo</span><X size={11} color={pal.accent}/></button>}
+          {selAcc.size>0&&<button onClick={()=>{setSelAcc(new Set());setAccMulti(false)}} style={{display:'flex',alignItems:'center',gap:4,background:pal.soft,border:'none',borderRadius:8,padding:'3px 8px',cursor:'pointer'}}><span style={{fontSize:11,color:pal.accent,fontWeight:600}}>Ver tudo</span><X size={11} color={pal.accent}/></button>}
         </div>
         {investAccounts.length===0&&<Card><div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem contas de investimento. Cria uma nas Definições com budget "🔵 Investimento".</div></Card>}
         {investAccounts.length>0&&(
           <Card>
-            {investAccounts.map((c,i)=>{
-              const active=selAcc===c.id, saldo=active?accountSaldo(c):accountSaldoTotal(c), isCard=c.tipo==='cartão'
-              return (
-                <div key={c.id} onClick={()=>setSelAcc(active?null:c.id)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 16px',borderBottom:i<investAccounts.length-1?`1px solid ${T.border}`:'none',borderLeft:active?`3px solid ${pal.accent}`:'3px solid transparent',background:active?pal.soft:'transparent',cursor:'pointer',transition:'all 0.12s'}}>
-                  <div style={{display:'flex',alignItems:'center',gap:10}}>{isCard&&<CreditCard size={15} color={T.textSec}/>}<div><div style={{fontSize:13,fontWeight:active?700:500,color:active?pal.accent:T.text}}>{c.nome}</div><div style={{fontSize:11,color:T.textSec,marginTop:1}}>{c.titular} · {c.banco}</div></div></div>
-                  <div style={{display:'flex',alignItems:'center',gap:8}}>
-                    <div style={{fontSize:15,fontWeight:700,color:saldo<0?T.red:(active?pal.accent:T.text),fontFamily:T.mono}}>{saldo<0?'− ':''}{dec(saldo)}</div>
-                    {investAccounts.length>1&&(
-                      <div style={{display:'flex',flexDirection:'column',gap:3}} onClick={e=>e.stopPropagation()}>
-                        <button onClick={()=>moveConta(i,-1)} disabled={i===0} style={{background:T.surface2,border:'none',borderRadius:6,padding:2,cursor:i===0?'default':'pointer',opacity:i===0?0.3:1}}><ChevronUp size={12} color={T.textSec}/></button>
-                        <button onClick={()=>moveConta(i,1)} disabled={i===investAccounts.length-1} style={{background:T.surface2,border:'none',borderRadius:6,padding:2,cursor:i===investAccounts.length-1?'default':'pointer',opacity:i===investAccounts.length-1?0.3:1}}><ChevronDown size={12} color={T.textSec}/></button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
+            {investAccounts.map((c,i)=><AccountRow key={c.id} account={c} i={i} total={investAccounts.length} selected={selAcc.has(c.id)} multi={accMulti} onPress={pressAcc} pal={pal} onMove={moveConta}/>)}
           </Card>
         )}
       </div>
 
       {/* ── TRANSAÇÕES ── */}
       <div style={{marginBottom:20}}>
-        <Lbl title={selImovel?`Transações — ${imoveis.find(i=>i.id===selImovel)?.nome??''}`:(selAcc?`Transações — ${investAccounts.find(a=>a.id===selAcc)?.nome.split(' ').slice(-1)[0]}`:'Últimas transações')} action="Ver todas →" accent={pal.accent} onAction={()=>onViewAll(selImovel??undefined)}/>
+        <Lbl title={selImovel.size?`Transações — ${selImovel.size===1?(imoveis.find(i=>i.id===soloSelImovel)?.nome??''):`${selImovel.size} imóveis`}`:(selAcc.size?`Transações — ${selAcc.size===1?investAccounts.find(a=>selAcc.has(a.id))?.nome.split(' ').slice(-1)[0]:`${selAcc.size} contas`}`:'Últimas transações')} action="Ver todas →" accent={pal.accent} onAction={()=>onViewAll(soloSelImovel)}/>
         <Card>
-          {recentTxns.length===0&&<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>{selImovel?'Sem transações para este imóvel neste mês.':'Sem transações. Importa um extracto de uma conta de investimento.'}</div>}
+          {recentTxns.length===0&&<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>{selImovel.size?'Sem transações para este imóvel neste mês.':'Sem transações. Importa um extracto de uma conta de investimento.'}</div>}
           {recentTxns.map((t,i)=>{
             const imN = imovelNome(t.imovel_id)
             return (
