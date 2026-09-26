@@ -22,6 +22,41 @@ linha activa). RPCs `SECURITY DEFINER` para evitar recursão de RLS:
   autenticado) — usado em todo o lado onde se precisa da "minha quota"
 - Trigger `on_auth_user_created` cria profile automaticamente para novos users
 
+### Partilha de imóveis entre utilizadores (2026-09-06)
+Mesmo modelo de `account_users`/`account_invites` estendido a imóveis, para
+convidar alguém (ex: um irmão) a partilhar por completo a gestão de um
+imóvel (editar, categorizar, configurar IRS, prejuízos reportáveis), não só
+ver.
+
+- Novas tabelas `imovel_users`/`imovel_invites`, mesmo padrão de RPCs
+  `SECURITY DEFINER`. Cada imóvel ganha `my_ownership_pct` (de
+  `imovel_users`, a % real do utilizador actual) — `ownership_pct` fica como
+  semente/legado, tal como já acontecia em `Account`. IRS (`irs.ts`) e
+  património (`page.tsx`) passam a preferir `my_ownership_pct ??
+  ownership_pct`
+- `MembersScreen`/`InvitesScreen` generalizados para uma só implementação
+  que serve contas E imóveis (bag de funções `api` + listas fundidas), em
+  vez de duplicar ~150 linhas de JSX quase idênticas
+- Botão 👥 por imóvel em Património/Imóveis (ao lado do lápis de editar);
+  caixa de convites pendentes em Definições passa a mostrar convites de
+  contas e de imóveis juntos, com distintivo próprio para cada tipo
+- Migração SQL corre manualmente no Supabase (sem tooling de migração
+  local neste projecto, mesmo padrão de sempre); sem ela o código novo
+  degrada de forma segura (queries falham graciosamente, volta ao
+  `ownership_pct` antigo), mas a partilha em si só funciona depois de
+  a correr
+
+### Auth — criar conta (self-signup, 2026-09-06)
+`LoginScreen` ganhou alternância Entrar/Criar conta (`supabase.auth.signUp`)
+— antes só existia `signInWithPassword`, e uma conta nova só podia ser
+criada manualmente no painel do Supabase pelo Filipe. Uma conta criada
+assim arranca com o seu próprio espaço em branco (imóveis, contas
+bancárias, etc.); juntar-se aos dados de outra pessoa continua a ser um
+passo à parte, pelo convite de membros de uma conta financeira específica
+(`MembersScreen`). Se as confirmações de email estiverem activas no painel
+do Supabase, o `signUp` não autentica de imediato — o ecrã trata os dois
+casos (confirmação pendente vs. sessão imediata).
+
 ### Enable Banking (PSD2)
 Bancos ligados: Revolut, Abanca, MBCP (`Millennium BCP`), Santander
 (`Santander Totta` — nome exacto exigido pela API), CGD
@@ -384,6 +419,88 @@ imóvel:
   de que os valores já vêm ponderados pela quota de propriedade de cada
   imóvel, e rodapé com carimbo de data/hora de exportação + aviso de que
   não substitui o Portal das Finanças
+
+### Prejuízos reportáveis de Categoria F, até 6 anos (2026-09-06)
+Sob taxa autónoma, o prejuízo de um imóvel não abate o ganho de outro no
+mesmo ano — só se reporta para anos seguintes do **mesmo** imóvel, até 6
+anos (art. 55º CIRS). Faltava suporte para isto: um imóvel com histórico de
+prejuízo (ex: JFB) via sempre o coletável cortado a 0, perdendo o direito
+ao reporte.
+
+- Nova tabela `irs_prejuizos_reportaveis` (`imovel_id`, `ano_origem`,
+  `valor`), RLS por `owner_user_id` via join a `imoveis`. Guarda-se ao
+  **valor global (100%)** do imóvel, mesmo padrão de bruto/gastos — uma
+  primeira versão guardava à quota do dono, o que desalinhava com o resto
+  do cálculo e escondia o prejuízo na vista 100%; corrigido no mesmo dia
+- `irs.ts`: `aplicarPrejuizosReportaveis()` consome os prejuízos
+  disponíveis (mais antigo primeiro) sobre um rendimento líquido positivo,
+  sem nunca deixar o coletável negativo. `computeIrsImovel` ganhou um 5º
+  argumento opcional `prejuizosDisponiveis` e passa a expor
+  `materiaColectavel` (coletável real, pós-prejuízo) separado de
+  `rendimentoLiquido` (nunca cortado a 0), mais `prejuizoAplicado`/
+  `prejuizoDetalhe`
+- `IrsResumoScreen` simula ano a ano, sem estado persistido, quanto de cada
+  prejuízo ainda está disponível no ano em vista — evita um campo "valor
+  usado" que possa dessincronizar, consistente com o resto da app
+  (recalcula sempre a partir das transacções)
+- `IrsConfigScreen`: secção "Prejuízos reportáveis" por imóvel, campos
+  Ano/Valor com botão "Adicionar" próprio (é preciso, porque cada prejuízo
+  tem o seu próprio prazo de 6 anos — o esquema é sempre uma lista, nunca
+  um valor único); abre-se sozinha quando já há algum registo para aquele
+  imóvel. O botão "Guardar" geral do ecrã passou a gravar também um
+  prejuízo pendente por adicionar (preencher os campos e só carregar em
+  "Guardar" não gravava nada, sem aviso nenhum, até este fix)
+- `IrsResumoScreen` recomenda registar com um toque: para qualquer ano já
+  **fechado** (não o corrente, ainda provisório) com prejuízo ainda por
+  registar, aparece um cartão "Registar agora" já com ano e valor global
+  certos, grava directamente sem sair do ecrã. Ano fechado e já registado
+  mostra nota "✓ já registado"; ano corrente mantém só a nota provisória
+- `IrsMappingScreen` ganhou uma nota informativa quando algum imóvel tem
+  prejuízo aplicado no ano: o Anexo F não tem campo próprio para reporte de
+  perdas de anos anteriores (confirmado nas instruções oficiais do Modelo
+  3 — a AT aplica-o automaticamente com base no que já foi declarado nos
+  anos de origem; o Quadro 8 é outra coisa, rendimentos atrasados do art.
+  74º CIRS) — a nota lembra que a liquidação final da AT deve reflectir
+  essa dedução mesmo sem campo próprio no formulário
+
+### Card P&L a sério — Receitas/Custos/EBITDA/Coletável/Imposto/Resultado (2026-09-06)
+Substituiu o card antigo (Bruto/Gastos/matéria colectável numa única linha,
+tudo por baixo de um único toggle) pelo redesign aprovado em mockup,
+aplicado ao consolidado e a cada imóvel:
+
+Receitas → Custos (Dedutíveis/Não Dedutíveis quando há não-dedutível) →
+EBITDA → Prejuízo reportado aplicado (com detalhe por ano de origem, se
+houver) → Rendimento Coletável → Imposto (com o quadro/regime, taxa
+editável e o aviso de limite de renda do Q4.2) → Resultado líquido →
+Resultado económico real (só aparece quando há custos não dedutíveis —
+desconta-os também, ao contrário do Resultado líquido, que é a base
+fiscal).
+
+- Custos/Imposto/Prejuízo abrem de forma independente por card (antes só
+  um imóvel de cada vez podia estar expandido) — a chave de drill-down de
+  transações por categoria passou a incluir o imóvel, para não colidir
+  entre cards abertos ao mesmo tempo
+- Aviso "prejuízo reportável gerado este ano" quando o EBITDA de um imóvel
+  é negativo (informativo — o registo em si é o cartão "Registar agora"
+  acima, não automático)
+- Consolidado ganhou lista "Por imóvel" (líquido de cada um) + o mesmo
+  aviso agregado de prejuízos gerados
+- Corrigido o líquido do cabeçalho (por imóvel e agregado): ficava sempre
+  verde, mesmo negativo
+- `PlRow` nova centraliza todas as linhas do card — nível 0 sempre
+  alinhado (reserva sempre o espaço do chevron, com ou sem um, para não
+  desalinhar o texto), nível 1 indentado com guia vertical
+- Campo "Valor" de prejuízo reportável (e os campos Mínimo/Máximo do
+  filtro de transacções, apanhados na mesma ronda) passaram de
+  `<input type="number">` (força ponto, não vírgula, no browser) para o
+  `MoneyInp` já usado no resto da app
+- `loadPrejuizosReportaveis`/`addPrejuizo`/`removePrejuizo` passaram a
+  registar/mostrar o `error` do Supabase em vez de o ignorar — uma falha
+  de RLS ficava indistinguível de "sem prejuízos" (mesmo `[]` devolvido),
+  totalmente silenciosa
+- Listas de transacções dentro do P&L (por categoria, "Custos Não
+  Dedutíveis", "Por classificar") passaram a vir ordenadas por data
+  decrescente — antes vinham na ordem da query, sem ordenação própria
 
 ### Bugs resolvidos (IRS/Imóveis, 2026-08-09/10)
 - **Janela de 6 meses escondia dados**: `loadAllData()` só carrega
@@ -789,6 +906,18 @@ Aprendizagens, entrada Recharts, já corrigida.
   `valueRenderOption=UNFORMATTED_VALUE` (devolve o serial numérico do
   Sheets, epoch `Date.UTC(1899,11,30)`, `serial*86400000` ms) e converter
   para ISO antes de comparar.
+- **`<input type="number">` força ponto decimal no browser**, mesmo com
+  `lang="pt"` — qualquer campo de valor em euros deve usar o `MoneyInp` já
+  existente na app (aceita vírgula, teclado decimal), nunca o input nativo
+  de número. Já apanhado 2x em ecrãs diferentes (prejuízo reportável,
+  filtro de transacções).
+- **Um botão de submissão secundário (ex: "Adicionar" num formulário) não
+  deve ser a única forma de gravar esse valor** se o ecrã também tem um
+  "Guardar" geral — o utilizador naturalmente preenche campos e carrega no
+  botão principal, sem reparar que há um botão próprio ao lado. Se a
+  gravação exige o botão secundário (ex: porque o valor é uma lista, não
+  um campo único), o "Guardar" geral deve gravar também qualquer entrada
+  pendente por adicionar.
 - **Reconciliação em sheets geridas em conjunto com um humano**: reescrita
   completa (clear+rewrite) é simples mas apaga anotações manuais em células
   que a app não é dona (ex: coluna Comentário) a cada corrida. Delta por ID

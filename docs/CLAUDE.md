@@ -53,7 +53,9 @@ roadmap acordado, decisões técnicas e aprendizagens/armadilhas conhecidas.
 **Sem bug activo de momento.** Último resolvido: religar um banco no Enable
 Banking criava uma conta duplicada "sem conta associada" porque o
 `account_uid` muda a cada religação — agora casa por IBAN (2026-08-26).
-Trabalho mais recente (2026-08-30): refresh visual "Opção A" (tipografia
-Fraunces/Hanken/JetBrains Mono, paleta grafite quente, Hero sem gradiente,
-ícones `lucide-react`) e exportação do mapeamento IRS Anexo F para
-PDF/imagem/texto. Ver PROJECT_STATE.md.
+Trabalho mais recente (2026-09-06): prejuízos reportáveis de Categoria F
+(até 6 anos, art. 55º CIRS) com card P&L a sério
+(Receitas/Custos/EBITDA/Coletável/Imposto/Resultado), partilha de imóveis
+entre utilizadores (`imovel_users`/`imovel_invites`, mesmo modelo das
+contas bancárias) e botão de criar conta (self-signup) no ecrã de login.
+Ver PROJECT_STATE.md.
