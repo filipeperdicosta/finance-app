@@ -53,9 +53,7 @@ roadmap acordado, decisões técnicas e aprendizagens/armadilhas conhecidas.
 **Sem bug activo de momento.** Último resolvido: religar um banco no Enable
 Banking criava uma conta duplicada "sem conta associada" porque o
 `account_uid` muda a cada religação — agora casa por IBAN (2026-08-26).
-Trabalho mais recente (2026-09-06): prejuízos reportáveis de Categoria F
-(até 6 anos, art. 55º CIRS) com card P&L a sério
-(Receitas/Custos/EBITDA/Coletável/Imposto/Resultado), partilha de imóveis
-entre utilizadores (`imovel_users`/`imovel_invites`, mesmo modelo das
-contas bancárias) e botão de criar conta (self-signup) no ecrã de login.
-Ver PROJECT_STATE.md.
+Trabalho mais recente (2026-09-26): reordenar contas (Pessoal/Familiar/
+investimento em Imóveis, mesmo padrão de setas ▲▼ já usado nos imóveis) +
+botão IRS movido para o Hero de Imóveis (era um card solto), e selecção
+múltipla de contas/imóveis por premir-e-segurar. Ver PROJECT_STATE.md.

@@ -181,6 +181,42 @@ pessoal/familiar/investimento, cartões sempre excluídos — mesma regra do
 tal como os outros gráficos de tendência já fazem para receitas/despesas.
 `PatrimonioScreen` — page.tsx.
 
+### Reordenar contas + botão IRS no Hero de Imóveis (2026-09-26)
+PRD em `docs/prds/reordenar-contas-e-botao-irs.md`.
+
+- Estende às listas de contas (Pessoal, Familiar, investimento em Imóveis) o
+  mesmo padrão de reordenar já usado nos imóveis (setas ▲▼, renumera
+  sequencialmente só o subconjunto movido). `accounts.ordem` já existia na
+  BD mas nunca era lido — passa a ordenar-se client-side por `ordem`
+  (fallback `nome`), sem tocar na query global partilhada com Definições
+  (não afecta a lista de Contas em Definições, fora de âmbito)
+- Card solto "IRS — Rendimentos Prediais" no ecrã Imóveis removido; acesso
+  passa a um botão no Hero de Imóveis, no mesmo slot/estilo do botão Saúde
+  Financeira (livre nesse Hero — só Pessoal/Familiar usam o slot para Saúde
+  Financeira), ícone `FileText`. Mesmo comportamento de sempre ao abrir
+  (`IrsResumoScreen`), só muda a localização
+
+### Selecção múltipla de contas/imóveis por premir-e-segurar (2026-09-26)
+Estende a selecção de contas (Pessoal/Familiar/investimento em Imóveis) e de
+imóveis a mais do que 1 de cada vez, sem novo botão no cabeçalho — decidido
+depois de comparar num protótipo interactivo com a alternativa (botão
+"seleccionar várias").
+
+- Toque normal continua a substituir a selecção (0 ou 1); premir e segurar
+  uma 2ª entrada com 1 já seleccionada acrescenta-a e liga o modo múltiplo
+  (mostra checkboxes, esconde setas de reordenar e, nos imóveis, os botões
+  de membros/editar); a partir daí, toques normais somam/tiram da selecção
+  até esvaziar de novo
+- `nextSelection()` (lógica pura, partilhada pelas 3 listas) + `useLongPress()`
+  (toque vs. ~500ms de premir, com feedback visual, sem deixar o menu de
+  contexto do browser interromper o gesto); `computeView` passa a receber um
+  Set de contas em vez de 1 id só
+- `AccountRow`/`ImovelCard` extraídos como componentes próprios (eram JSX
+  inline duplicado em 2-3 sítios)
+- Ecrãs que só suportam filtro por 1 conta/imóvel (Ver todas as
+  transações/categorias) recebem o id só quando a selecção tem exactamente
+  1 — com 2+, ficam sem filtro em vez de partir
+
 ### Tabs Familiar/Pessoal/Imóveis/Património perdiam estado ao navegar — bug corrigido (2026-08-14)
 Trocar o componente de ecrã numa única posição da árvore (`{screens[tab]}`)
 fazia o React desmontar o que lá estava ao sair da tab, perdendo filtro/mês/
