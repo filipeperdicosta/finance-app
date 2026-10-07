@@ -1902,6 +1902,16 @@ const T212Screen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accounts:
 }
 
 // ─────────────────────────────────────────────────────────────────
+// Ícone de folha de cálculo (Excel/Google Sheets) para as notificações de sincronização dos
+// ficheiros Excel — quadrado verde com tabela a branco, em vez do ✅ genérico.
+const SheetIcon = ({color,size=22}:{color:string,size?:number}) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" style={{display:'block'}} aria-hidden="true">
+    <rect x="3" y="2" width="18" height="20" rx="3" fill={color}/>
+    <rect x="6.5" y="8" width="11" height="10" rx="0.8" fill="none" stroke="#fff" strokeWidth="1.4"/>
+    <path d="M6.5 11.3h11M6.5 14.7h11M12 8v10" stroke="#fff" strokeWidth="1.4"/>
+  </svg>
+)
+
 const NotificationsScreen = ({onClose,pal}:{onClose:()=>void,pal:{accent:string,soft:string}}) => {
   const [notifs,setNotifs] = useState<AppNotification[]>([])
   const [loading,setLoading] = useState(true)
@@ -1978,7 +1988,7 @@ const NotificationsScreen = ({onClose,pal}:{onClose:()=>void,pal:{accent:string,
             return (
               <div key={n.id} style={{background:T.surface,borderRadius:12,marginBottom:10,overflow:'hidden',border:`1px solid ${T.border}`}}>
                 <div onClick={()=>setExpanded(isExp?null:n.id)} style={{display:'flex',alignItems:'flex-start',gap:12,padding:'12px 14px',cursor:'pointer'}}>
-                  <div style={{fontSize:20,lineHeight:1,flexShrink:0,marginTop:2}}>{typeIcon(n.type)}</div>
+                  <div style={{fontSize:20,lineHeight:1,flexShrink:0,marginTop:2}}>{meta.source==='sheet'?<SheetIcon color={n.type==='import_error'?T.red:'#34A853'}/>:typeIcon(n.type)}</div>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontSize:13,fontWeight:600,color:typeColor(n.type,pal),marginBottom:2}}>{n.title}</div>
                     {n.body&&<div style={{fontSize:11,color:T.textSec,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{n.body.split(' | ')[0]}{n.body.includes(' | ')&&' …'}</div>}

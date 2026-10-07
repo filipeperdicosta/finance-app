@@ -200,9 +200,10 @@ async function notifyResult(userId: string, result: SyncResult) {
   await createNotification({
     userId,
     type: result.ok ? 'import_success' : 'import_error',
-    title: result.ok ? 'LedgerAuto sincronizado' : 'LedgerAuto — falha na sincronização',
+    title: result.ok ? 'Excel Ledger Herança sincronizado' : 'Excel Ledger Herança — falha na sincronização',
     body: result.message,
-    meta: { rows: result.rows ?? null },
+    // `source: 'sheet'` dá-lhe o ícone de folha de cálculo no ecrã de Notificações.
+    meta: { rows: result.rows ?? null, source: 'sheet' },
   }).catch(() => {})
 }
 

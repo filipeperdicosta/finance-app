@@ -124,6 +124,8 @@ async function colorCellsBlue(spreadsheetId: string, sheetTitle: string, cells: 
 
 const BUCKET_COL: Record<Bucket, number> = { F: 5, G: 6, H: 7, J: 9, K: 10, L: 11, M: 12, N: 13 }
 const BUCKETS: Bucket[] = ['F', 'G', 'H', 'J', 'K', 'L', 'M', 'N']
+// Cabeçalhos das colunas na sheet — só para as notificações dizerem "Empregada 202610" em vez de "N".
+const BUCKET_LABEL: Record<Bucket, string> = { F: 'Renda', G: 'Seguros', H: 'Condomínio', J: 'Água', K: 'Luz', L: 'Gás', M: 'TV', N: 'Empregada' }
 
 // Compara o valor computado agora com o que já está na célula — tolerante a arredondamento de
 // vírgula flutuante em números simples, mas exacto para fórmulas/vazio (não há "quase igual"
@@ -135,7 +137,35 @@ function cellsEqual(a: string, b: string): boolean {
   return false
 }
 
-type SyncResult = { ok: boolean; message: string }
+// Esta célula é do Filipe (mexida à mão desde que a app lá escreveu)? Compara o valor actual
+// com o ÚLTIMO VALOR ESCRITO PELA APP (`written`), nunca com o que a app calcularia agora — só
+// assim se distingue "ninguém mexeu, recalcula" de "o Filipe corrigiu isto, não tocar". Sem
+// registo anterior (1ª vez que a célula passa por aqui) não há como saber se o conteúdo é
+// automático ou manual: assume-se manual sempre que já tem conteúdo, mais seguro do que arriscar
+// apagar uma correcção só por ainda não a termos visto. Se o valor actual já bate com o que a app
+// escreveria agora não há nada a proteger — a célula volta a ser automática.
+function isManualCell(current: string, written: string | undefined, computedStr: string): boolean {
+  if (cellsEqual(current, computedStr)) return false
+  return written === undefined ? current !== '' : !cellsEqual(current, written)
+}
+
+// Como mostrar o conteúdo de uma célula numa notificação: números com vírgula e 2 casas,
+// fórmulas tal e qual, vazio por extenso.
+function showCell(v: string): string {
+  if (v === '') return 'vazio'
+  const n = Number(v)
+  return isNaN(n) ? v : n.toFixed(2).replace('.', ',')
+}
+
+// Versão do formato de `cell_snapshot`. Até à v1 a "base" de uma célula passava a ser o valor do
+// Filipe assim que ele lhe mexia — na sincronização seguinte a célula "batia certo" com a base e
+// era sobrescrita (apanhado pelo Filipe, 2026-10-07: custos extraordinários da Empregada
+// apagados). Registos sem `__v: 2` foram gravados por essa lógica, já têm células "armadas" para
+// serem sobrescritas, e não são de confiança → descartam-se uma vez e a corrida volta ao
+// bootstrap seguro (tudo o que já tem conteúdo diferente do calculado fica protegido).
+const SNAPSHOT_VERSION = 2
+
+type SyncResult = { ok: boolean; message: string; details?: string[] }
 
 // Sincroniza o mês corrente + 2 anteriores (janela pequena, para apanhar facturas com atraso —
 // ex: Água é bimestral — e pagamentos de Empregada/SS, que só chegam no mês seguinte ao de
@@ -174,9 +204,12 @@ async function notifyResult(userId: string, result: SyncResult) {
   await createNotification({
     userId,
     type: result.ok ? 'import_success' : 'import_error',
-    title: result.ok ? 'Custos Casa sincronizado' : 'Custos Casa — falha na sincronização',
-    body: result.message,
-    meta: {},
+    title: result.ok ? 'Excel Custos Casa sincronizado' : 'Excel Custos Casa — falha na sincronização',
+    // " | " separa o resumo das linhas de detalhe — formato que o ecrã de Notificações já sabe
+    // mostrar (resumo na lista, uma linha por detalhe ao expandir). `source: 'sheet'` é o que lhe
+    // dá o ícone de folha de cálculo.
+    body: [result.message, ...(result.details ?? [])].join(' | '),
+    meta: { source: 'sheet' },
   }).catch(() => {})
 }
 
@@ -237,11 +270,13 @@ async function runSync(userId: string, config: any, accessToken: string): Promis
     const valueRanges: { values?: any[][] }[] = currentRaw.valueRanges ?? []
     rowsList.forEach((x, i) => { currentByMonth.set(x.mes, (valueRanges[i]?.values?.[0] ?? []).map((v: any) => String(v ?? ''))) })
   }
-  const snapshot: Record<string, Record<string, string>> = config.cell_snapshot ?? {}
-  const newSnapshot: Record<string, Record<string, string>> = { ...snapshot }
+  const stored = config.cell_snapshot ?? {}
+  const snapshot: Record<string, Record<string, string>> = stored.__v === SNAPSHOT_VERSION ? stored : {}
+  const newSnapshot: Record<string, any> = { ...snapshot, __v: SNAPSHOT_VERSION }
 
   const updates: { range: string, values: (string | number)[][] }[] = []
   const filledCells: { row: number, col: number }[] = []
+  const manualDetails: string[] = []
   let touchedRows = 0
   let skippedCells = 0
   for (const { mes, row } of rowsList) {
@@ -255,21 +290,18 @@ async function runSync(userId: string, config: any, accessToken: string): Promis
       const computed = toCell(monthMap.get(b) ?? [])
       const computedStr = String(computed)
       const current = currentRow[BUCKET_COL[b] - 5] ?? ''
-      // Sem registo anterior (1ª vez que esta célula passa por aqui, ex: logo a seguir a este
-      // deploy) não há como saber se o valor já lá presente é automático ou manual — assume-se
-      // manual sempre que já tem conteúdo e não bate com o que calculamos agora (mais seguro do
-      // que arriscar apagar uma correcção só porque ainda não a tínhamos visto); célula vazia ou
-      // já correcta não levanta dúvida nenhuma.
-      const hasBaseline = Object.prototype.hasOwnProperty.call(lastWritten, b)
-      const manuallyChanged = hasBaseline
-        ? !cellsEqual(current, lastWritten[b])
-        : (current !== '' && !cellsEqual(current, computedStr))
+      const written: string | undefined = lastWritten[b]
 
-      if (manuallyChanged) {
-        // O Filipe mexeu nesta célula desde a última sincronização — respeita para sempre,
-        // não escreve por cima. Actualiza a base para continuar a reconhecer o valor dele.
-        monthSnapshot[b] = current
+      if (isManualCell(current, written, computedStr)) {
+        // O Filipe mexeu nesta célula — respeita, não escreve por cima. A base fica no último
+        // valor ESCRITO PELA APP e nunca passa a ser o valor dele: é a diferença para esse
+        // registo que denuncia a edição manual em TODAS as sincronizações seguintes (se a base
+        // passasse a ser o valor dele, na corrida seguinte "bateria certo" e a célula era
+        // reescrita — o bug que apagava os custos extraordinários da Empregada, 2026-10-07). Só
+        // volta a ser automática se ele a repuser igual ao que lá estava, ou ao que a app calcula.
+        if (written !== undefined) monthSnapshot[b] = written
         skippedCells++
+        manualDetails.push(`${BUCKET_LABEL[b]} ${mes}: mantive o teu valor (${showCell(current)}) · automático seria ${showCell(computedStr)}`)
         continue
       }
       monthSnapshot[b] = computedStr
@@ -297,6 +329,7 @@ async function runSync(userId: string, config: any, accessToken: string): Promis
   return {
     ok: true,
     message: `${touchedRows} mês(es) actualizados, ${skippedCells} célula(s) manual(is) respeitada(s) (${targetMonths[0]} a ${oldestMonth})`,
+    details: manualDetails,
   }
 }
 
