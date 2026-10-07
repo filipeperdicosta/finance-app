@@ -21,7 +21,7 @@ import {
   Lightning, Rss, Vault, Bank, ArrowsLeftRight, Package, CurrencyEur,
 } from '@phosphor-icons/react'
 import {
-  supabase, loadAllData, loadAllTransactions, saveAccount, deleteAccount, updateAccount,
+  supabase, loadAllData, loadAllTransactions, saveAccount, deleteAccount, updateAccount, getDriveFileInfo,
   saveTransactions, updateTransaction, deleteTransaction, deleteTransactions, recategorizeTransactions,
   saveImovel, updateImovel, deleteImovel, linkContaImovel, unlinkContaImovel,
   assignTransactionToImovel, assignTransactionsToImovel, loadUnclassifiedImovelTxns, loadImovelTxnsForYear,
@@ -1902,6 +1902,20 @@ const T212Screen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,accounts:
 }
 
 // ─────────────────────────────────────────────────────────────────
+// Ficheiro actualmente ligado (nome + pasta), para saber se é preciso "Trocar ficheiro".
+const LinkedFile = ({fileId}:{fileId:string}) => {
+  const [info,setInfo] = useState<{name:string,path:string}|null|undefined>(undefined)
+  useEffect(()=>{ let alive=true; setInfo(undefined); getDriveFileInfo(fileId).then(i=>{ if(alive) setInfo(i) }); return ()=>{alive=false} },[fileId])
+  if(info===undefined) return <div style={{fontSize:11,color:T.textTer,marginBottom:8}}>A ler o nome do ficheiro…</div>
+  if(info===null) return <div style={{fontSize:11,color:T.textTer,marginBottom:8}}>Ficheiro: não consegui ler o nome (id {fileId.slice(0,8)}…)</div>
+  return (
+    <div style={{marginBottom:8}}>
+      <div style={{fontSize:12,fontWeight:600,color:T.text,display:'flex',alignItems:'center',gap:6}}><SheetIcon color="#34A853" size={14}/>{info.name}</div>
+      {info.path&&<div style={{fontSize:10.5,color:T.textTer,marginTop:2,wordBreak:'break-word'}}>{info.path}</div>}
+    </div>
+  )
+}
+
 // Ícone de folha de cálculo (Excel/Google Sheets) para as notificações de sincronização dos
 // ficheiros Excel — quadrado verde com tabela a branco, em vez do ✅ genérico.
 const SheetIcon = ({color,size=22}:{color:string,size?:number}) => (
@@ -2773,6 +2787,7 @@ const DriveSettingsScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
                 <div style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:8}}>Custos Casa</div>
                 {custosCasaConfig ? (
                   <>
+                    <LinkedFile fileId={custosCasaConfig.spreadsheet_id}/>
                     <div style={{fontSize:11,color:T.textSec,marginBottom:8}}>Ligado{custosCasaConfig.last_synced_at?` · última sincronização ${new Date(custosCasaConfig.last_synced_at).toLocaleString('pt-PT')}`:' · ainda sem sincronizar'}</div>
                     <Btn onClick={sincronizarCustosCasa} variant="ghost" accent={pal.accent} style={{width:'100%'}}>{custosCasaBusy?'A sincronizar…':'Sincronizar agora'}</Btn>
                     <button onClick={ligarCustosCasa} disabled={custosCasaBusy} style={{background:'none',border:'none',cursor:'pointer',color:T.textTer,fontSize:10.5,marginTop:8,padding:0}}>Trocar ficheiro</button>
@@ -4375,6 +4390,7 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
             <div style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.08em',textTransform:'uppercase',marginBottom:8}}>Sincronização com o Excel</div>
             {ledgerConfig ? (
               <>
+                <LinkedFile fileId={ledgerConfig.spreadsheet_id}/>
                 <div style={{fontSize:11,color:T.textSec,marginBottom:8}}>Ligado{ledgerConfig.last_synced_at?` · última sincronização ${new Date(ledgerConfig.last_synced_at).toLocaleString('pt-PT')}`:' · ainda sem sincronizar'}</div>
                 <Btn onClick={sincronizarLedger} variant="ghost" accent={PAL.imoveis.accent} style={{width:'100%'}}>{ledgerBusy?'A sincronizar…':'Sincronizar agora'}</Btn>
                 <button onClick={ligarLedger} disabled={ledgerBusy} style={{background:'none',border:'none',cursor:'pointer',color:T.textTer,fontSize:10.5,marginTop:8,padding:0}}>Trocar ficheiro</button>

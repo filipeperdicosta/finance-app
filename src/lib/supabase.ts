@@ -751,6 +751,16 @@ export async function getGoogleAccessToken(): Promise<string | null> {
   return data.access_token ?? null
 }
 
+// Nome + caminho do ficheiro ligado (LedgerAuto/Custos Casa), buscados à Drive em vez de
+// guardados — assim funciona também para ligações antigas, sem migração.
+export async function getDriveFileInfo(fileId: string): Promise<{ name: string, path: string } | null> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
+  const res = await fetch(`/api/drive/file-info?user_id=${user.id}&file_id=${encodeURIComponent(fileId)}`)
+  if (!res.ok) return null
+  return res.json()
+}
+
 export async function syncLedgerAuto() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Não autenticado' }
