@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getT212Configs, getT212Portfolio } from '@/lib/t212'
+import { requireUser } from '@/lib/requireUser'
 
 // Devolve snapshot do portfolio T212 em tempo real (sem gravar nada)
 // GET /api/t212/status
-export async function GET(_req: NextRequest) {
+export async function GET(req: NextRequest) {
+  const auth = await requireUser(req)
+  if (auth instanceof NextResponse) return auth
+
   const configs = getT212Configs()
   if (!configs.length) {
     return NextResponse.json({ connected: false, accounts: [] })

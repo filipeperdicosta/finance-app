@@ -741,11 +741,17 @@ export async function saveLedgerAutoConfig(spreadsheetId: string) {
     .upsert({ user_id: user.id, spreadsheet_id: spreadsheetId, sheet_title: 'LedgerAuto' }, { onConflict: 'user_id' })
 }
 
+// Cabeçalho com o token da sessão — as rotas /api validam-no em servidor (src/lib/requireUser.ts).
+async function authHeaders(): Promise<Record<string, string>> {
+  const { data: { session } } = await supabase.auth.getSession()
+  return session ? { Authorization: `Bearer ${session.access_token}` } : {}
+}
+
 // Access token Drive só para inicializar o Google Picker client-side (nunca persistido).
 export async function getGoogleAccessToken(): Promise<string | null> {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
-  const res = await fetch(`/api/auth/google/token?user_id=${user.id}`)
+  const res = await fetch('/api/auth/google/token', { headers: await authHeaders() })
   if (!res.ok) return null
   const data = await res.json()
   return data.access_token ?? null
@@ -846,7 +852,7 @@ export async function syncT212(accountId: string, label = 'Invest') {
 }
 
 export async function getT212Status() {
-  const res = await fetch('/api/t212/status')
+  const res = await fetch('/api/t212/status', { headers: await authHeaders() })
   return res.json()
 }
 
