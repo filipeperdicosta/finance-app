@@ -1,0 +1,37 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          { "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/protect-files.js\"" }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git push*)",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre-push-check.js\"",
+            "timeout": 180,
+            "statusMessage": "A verificar tipos antes do push..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/tsc-check.js\"",
+            "timeout": 120,
+            "statusMessage": "tsc --noEmit..."
+          }
+        ]
+      }
+    ]
+  }
+}
