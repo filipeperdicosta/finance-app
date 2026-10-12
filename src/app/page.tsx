@@ -38,7 +38,7 @@ import {
   loadImovelMembers, updateImovelMemberOwnership, removeImovelMember, loadImovelPendingInvites,
   inviteUserToImovel, cancelImovelInvite, loadPendingImovelInvites, acceptImovelInvite, rejectImovelInvite,
   countSuspiciousDuplicates, loadSuspiciousDuplicates, resolveDuplicate, keepBothTransactions,
-  getLedgerAutoConfig, saveLedgerAutoConfig, syncLedgerAuto, getGoogleAccessToken,
+  getLedgerAutoConfig, saveLedgerAutoConfig, syncLedgerAuto, getGoogleAccessToken, authHeaders,
   getCustosCasaConfig, saveCustosCasaConfig, syncCustosCasa,
   loadPrejuizosReportaveis, savePrejuizoReportavel, deletePrejuizoReportavel,
   type Account, type Transaction, type Imovel, type ContaImovel, type CategoryRule, type SaudeRule,
@@ -2157,7 +2157,7 @@ const DriveFolderPicker = ({account,onClose,onSaved,pal}:{account:Account,onClos
     setLoading(true)
     const { data:{user} } = await supabase.auth.getUser()
     if(!user) return
-    const res = await fetch(`/api/drive/folders?user_id=${user.id}&parent=${parentId}`)
+    const res = await fetch(`/api/drive/folders?user_id=${user.id}&parent=${parentId}`, { headers: await authHeaders() })
     const data = await res.json()
     setFolders(data.folders ?? [])
     setLoading(false)
@@ -2166,7 +2166,7 @@ const DriveFolderPicker = ({account,onClose,onSaved,pal}:{account:Account,onClos
   const checkFileCount = useCallback(async(folderId:string)=>{
     const { data:{user} } = await supabase.auth.getUser()
     if(!user) return
-    const res = await fetch(`/api/drive/files?user_id=${user.id}&folder_id=${folderId}`)
+    const res = await fetch(`/api/drive/files?user_id=${user.id}&folder_id=${folderId}`, { headers: await authHeaders() })
     const data = await res.json()
     setFileCount((data.files ?? []).length)
   },[])
@@ -2984,7 +2984,7 @@ const ImportWizard = ({onClose,accounts,pal,onDone,onRefreshAccounts}:{onClose:(
       const form = new FormData()
       form.append('file', file)
       try {
-        const res = await fetch('/api/parse', {method:'POST', body:form})
+        const res = await fetch('/api/parse', {method:'POST', headers: await authHeaders(), body:form})
         const data = await res.json()
         if(!res.ok || data.error) throw new Error(data.error || `Erro ${res.status}`)
         const txns = (data.transactions ?? []).map((t:any)=>{

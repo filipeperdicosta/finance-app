@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireUser } from '@/lib/requireUser'
 import { getSupabaseAdmin } from '@/lib/googleDrive'
 
 // Devolve o estado das sessões Enable Banking do utilizador
 // GET /api/enablebanking/status?user_id=...
 export async function GET(req: NextRequest) {
-  const userId = req.nextUrl.searchParams.get('user_id')
-  if (!userId) return NextResponse.json({ error: 'user_id em falta' }, { status: 400 })
+  const auth = await requireUser(req)
+  if (auth instanceof NextResponse) return auth
+  const userId = auth.userId
 
   const supabaseAdmin = getSupabaseAdmin()
   const { data: sessions } = await supabaseAdmin

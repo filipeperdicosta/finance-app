@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireUser } from '@/lib/requireUser'
 import { getValidAccessToken } from '@/lib/googleDrive'
 import { parseStatementWithGemini, detectMimeType } from '@/lib/geminiParse'
 
@@ -8,8 +9,11 @@ import { parseStatementWithGemini, detectMimeType } from '@/lib/geminiParse'
 // poder rever e confirmar antes de qualquer escrita, tal como no upload directo.
 // POST /api/drive/preview  body: { user_id, google_file_id, filename }
 export async function POST(req: NextRequest) {
+  const auth = await requireUser(req)
+  if (auth instanceof NextResponse) return auth
   try {
     const body = await req.json()
+    body.user_id = auth.userId
     const { user_id, google_file_id, filename } = body
 
     if (!user_id || !google_file_id || !filename) {

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireUser, userOwnsAccount, forbidden } from '@/lib/requireUser'
 import { getT212Configs, getT212Portfolio } from '@/lib/t212'
 import { getSupabaseAdmin, createNotification } from '@/lib/googleDrive'
 
@@ -6,13 +7,18 @@ import { getSupabaseAdmin, createNotification } from '@/lib/googleDrive'
 // Apenas actualiza o saldo — não importa transacções (não requer permissão History).
 // POST /api/t212/sync  body: { user_id, account_id, label? }
 export async function POST(req: NextRequest) {
+  const auth = await requireUser(req)
+  if (auth instanceof NextResponse) return auth
   let body: any = {}
   try {
     body = await req.json()
+    body.user_id = auth.userId
     const { user_id, account_id, label } = body
     if (!user_id || !account_id) {
       return NextResponse.json({ error: 'user_id e account_id são obrigatórios' }, { status: 400 })
     }
+
+    if (!(await userOwnsAccount(auth.userId, account_id))) return forbidden()
 
     const allConfigs = getT212Configs()
     if (!allConfigs.length) {

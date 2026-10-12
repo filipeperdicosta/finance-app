@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireUser } from '@/lib/requireUser'
 import { getEnableBankingBalance, getEnableBankingTransactions, getMccCategory, getKeywordCategory } from '@/lib/enableBanking'
 import { getSupabaseAdmin, createNotification } from '@/lib/googleDrive'
 import { categorizeSingleTransaction } from '@/lib/geminiParse'
 
 export async function POST(req: NextRequest) {
+  const auth = await requireUser(req)
+  if (auth instanceof NextResponse) return auth
   let body: any = {}
   try {
     body = await req.json()
+    body.user_id = auth.userId
     const { user_id, account_uid: filterUid, date_from: forcedDateFrom } = body
     if (!user_id) return NextResponse.json({ error: 'user_id em falta' }, { status: 400 })
 

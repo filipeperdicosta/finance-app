@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireUser } from '@/lib/requireUser'
 import { getValidAccessToken } from '@/lib/googleDrive'
 
 // Nome e caminho (pastas) de um ficheiro da Drive — para o ecrã de Definições mostrar qual é o
@@ -13,10 +14,12 @@ async function driveGet(id: string, token: string) {
 }
 
 export async function GET(req: NextRequest) {
+  const auth = await requireUser(req)
+  if (auth instanceof NextResponse) return auth
   try {
-    const userId = req.nextUrl.searchParams.get('user_id')
+    const userId = auth.userId
     const fileId = req.nextUrl.searchParams.get('file_id')
-    if (!userId || !fileId) return NextResponse.json({ error: 'user_id/file_id em falta' }, { status: 400 })
+    if (!fileId) return NextResponse.json({ error: 'file_id em falta' }, { status: 400 })
 
     const token = await getValidAccessToken(userId)
     if (!token) return NextResponse.json({ error: 'Drive não ligada' }, { status: 401 })

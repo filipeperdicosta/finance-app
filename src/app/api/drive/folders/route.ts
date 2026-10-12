@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireUser } from '@/lib/requireUser'
 import { getValidAccessToken } from '@/lib/googleDrive'
 
 // Lista subpastas dentro de uma pasta da Drive (ou da raiz, se parentId não for dado).
@@ -6,10 +7,10 @@ import { getValidAccessToken } from '@/lib/googleDrive'
 // partilha uma pasta contigo e a adicionas à tua Drive como atalho em vez de cópia.
 // GET /api/drive/folders?user_id=...&parent=root
 export async function GET(req: NextRequest) {
-  const userId = req.nextUrl.searchParams.get('user_id')
+  const auth = await requireUser(req)
+  if (auth instanceof NextResponse) return auth
+  const userId = auth.userId
   const parent = req.nextUrl.searchParams.get('parent') || 'root'
-
-  if (!userId) return NextResponse.json({ error: 'user_id em falta' }, { status: 400 })
 
   const accessToken = await getValidAccessToken(userId)
   if (!accessToken) return NextResponse.json({ error: 'Drive não ligada ou token inválido' }, { status: 401 })

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireUser, userOwnsAccount, forbidden } from '@/lib/requireUser'
 import { getValidAccessToken, getSupabaseAdmin, createNotification } from '@/lib/googleDrive'
 import { parseStatementWithGemini, detectMimeType, txnHash } from '@/lib/geminiParse'
 
@@ -19,9 +20,12 @@ type ConfirmedTxn = { data: string; descritivo: string; valor: number; categoria
 // POST /api/drive/import
 //   body: { user_id, account_id, google_file_id, filename, trigger_type?, transactions?, meta? }
 export async function POST(req: NextRequest) {
+  const auth = await requireUser(req)
+  if (auth instanceof NextResponse) return auth
   let body: any = {}
   try {
     body = await req.json()
+    body.user_id = auth.userId
     const { user_id, account_id, google_file_id, filename, trigger_type } = body
     const confirmedTxns: ConfirmedTxn[] | undefined = body.transactions
     const confirmedMeta = body.meta
@@ -29,6 +33,8 @@ export async function POST(req: NextRequest) {
     if (!user_id || !account_id || !google_file_id || !filename) {
       return NextResponse.json({ error: 'Parâmetros em falta' }, { status: 400 })
     }
+
+    if (!(await userOwnsAccount(auth.userId, account_id))) return forbidden()
 
     const supabaseAdmin = getSupabaseAdmin()
 

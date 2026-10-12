@@ -1,14 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { requireUser } from '@/lib/requireUser'
 import { getValidAccessToken } from '@/lib/googleDrive'
 
 // Lista ficheiros (PDF/Excel/CSV) dentro de uma pasta específica da Drive.
 // Pagina automaticamente para devolver TODOS os ficheiros (a API limita a 100 por página).
 // GET /api/drive/files?user_id=...&folder_id=...
 export async function GET(req: NextRequest) {
-  const userId = req.nextUrl.searchParams.get('user_id')
+  const auth = await requireUser(req)
+  if (auth instanceof NextResponse) return auth
+  const userId = auth.userId
   const folderId = req.nextUrl.searchParams.get('folder_id')
 
-  if (!userId || !folderId) return NextResponse.json({ error: 'user_id ou folder_id em falta' }, { status: 400 })
+  if (!folderId) return NextResponse.json({ error: 'folder_id em falta' }, { status: 400 })
 
   const accessToken = await getValidAccessToken(userId)
   if (!accessToken) return NextResponse.json({ error: 'Drive não ligada ou token inválido' }, { status: 401 })

@@ -598,7 +598,7 @@ export async function loadDriveFiles(accountId: string) {
 
 // Lista ficheiros reais da pasta da Drive da conta, cruzados com o que já foi importado
 export async function listDriveFolderFiles(userId: string, folderId: string) {
-  const res = await fetch(`/api/drive/files?user_id=${userId}&folder_id=${folderId}`)
+  const res = await fetch(`/api/drive/files?user_id=${userId}&folder_id=${folderId}`, { headers: await authHeaders() })
   const data = await res.json()
   return (data.files ?? []) as { id: string; name: string; mimeType: string; modifiedTime: string }[]
 }
@@ -607,7 +607,7 @@ export async function listDriveFolderFiles(userId: string, folderId: string) {
 export async function previewDriveFile(params: { userId: string; googleFileId: string; filename: string }) {
   const res = await fetch('/api/drive/preview', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
     body: JSON.stringify({ user_id: params.userId, google_file_id: params.googleFileId, filename: params.filename }),
   })
   return res.json()
@@ -624,7 +624,7 @@ export async function importDriveFile(params: {
 }) {
   const res = await fetch('/api/drive/import', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
     body: JSON.stringify({
       user_id: params.userId, account_id: params.accountId,
       google_file_id: params.googleFileId, filename: params.filename,
@@ -695,7 +695,7 @@ export async function deleteNotification(id: string) {
 export async function getEnableBankingStatus() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { connected: false, sessions: [] }
-  const res = await fetch(`/api/enablebanking/status?user_id=${user.id}`)
+  const res = await fetch(`/api/enablebanking/status?user_id=${user.id}`, { headers: await authHeaders() })
   return res.json()
 }
 
@@ -710,7 +710,7 @@ export async function syncEnableBanking(accountUid?: string) {
   if (!user) return { error: 'Não autenticado' }
   const res = await fetch('/api/enablebanking/sync', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
     body: JSON.stringify({ user_id: user.id, ...(accountUid ? { account_uid: accountUid } : {}) }),
   })
   return res.json()
@@ -742,7 +742,7 @@ export async function saveLedgerAutoConfig(spreadsheetId: string) {
 }
 
 // Cabeçalho com o token da sessão — as rotas /api validam-no em servidor (src/lib/requireUser.ts).
-async function authHeaders(): Promise<Record<string, string>> {
+export async function authHeaders(): Promise<Record<string, string>> {
   const { data: { session } } = await supabase.auth.getSession()
   return session ? { Authorization: `Bearer ${session.access_token}` } : {}
 }
@@ -762,7 +762,7 @@ export async function getGoogleAccessToken(): Promise<string | null> {
 export async function getDriveFileInfo(fileId: string): Promise<{ name: string, path: string } | null> {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
-  const res = await fetch(`/api/drive/file-info?user_id=${user.id}&file_id=${encodeURIComponent(fileId)}`)
+  const res = await fetch(`/api/drive/file-info?user_id=${user.id}&file_id=${encodeURIComponent(fileId)}`, { headers: await authHeaders() })
   if (!res.ok) return null
   return res.json()
 }
@@ -772,7 +772,7 @@ export async function syncLedgerAuto() {
   if (!user) return { error: 'Não autenticado' }
   const res = await fetch('/api/drive/ledger-sync', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
     body: JSON.stringify({ user_id: user.id }),
   })
   return res.json()
@@ -808,7 +808,7 @@ export async function syncCustosCasa() {
   if (!user) return { error: 'Não autenticado' }
   const res = await fetch('/api/drive/custos-casa-sync', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
     body: JSON.stringify({ user_id: user.id }),
   })
   return res.json()
@@ -845,7 +845,7 @@ export async function syncT212(accountId: string, label = 'Invest') {
   if (!user) return { error: 'Não autenticado' }
   const res = await fetch('/api/t212/sync', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
     body: JSON.stringify({ user_id: user.id, account_id: accountId, label }),
   })
   return res.json()
