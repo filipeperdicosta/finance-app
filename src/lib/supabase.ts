@@ -580,11 +580,11 @@ export async function disconnectDrive() {
   return supabase.from('google_drive_tokens').delete().eq('user_id', user.id)
 }
 
-// URL para iniciar o fluxo OAuth (usado num <a href> ou window.location)
-export async function getDriveAuthUrl() {
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-  return `/api/auth/google?user_id=${user.id}`
+// URL para iniciar o fluxo OAuth (usado em window.location). Pedida ao servidor com a sessão, que devolve o state assinado.
+export async function getDriveAuthUrl(): Promise<string | null> {
+  const res = await fetch('/api/auth/google', { headers: await authHeaders() })
+  if (!res.ok) return null
+  return (await res.json()).url ?? null
 }
 
 export async function updateAccountDriveFolder(accountId: string, folderId: string | null, folderName: string | null) {
@@ -699,10 +699,10 @@ export async function getEnableBankingStatus() {
   return res.json()
 }
 
-export async function startEnableBankingConnect(bank: string, country: string) {
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-  return `/api/auth/enablebanking?user_id=${user.id}&bank=${encodeURIComponent(bank)}&country=${country}`
+export async function startEnableBankingConnect(bank: string, country: string): Promise<string | null> {
+  const res = await fetch(`/api/auth/enablebanking?bank=${encodeURIComponent(bank)}&country=${country}`, { headers: await authHeaders() })
+  if (!res.ok) return null
+  return (await res.json()).url ?? null
 }
 
 export async function syncEnableBanking(accountUid?: string) {

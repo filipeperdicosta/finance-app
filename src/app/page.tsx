@@ -2624,6 +2624,7 @@ const DriveSettingsScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
     setConnecting(true)
     const url = await getDriveAuthUrl()
     if(url) window.location.href = url
+    else setConnecting(false)
   }
   const disconnect = async () => {
     if(!confirm('Desligar o Google Drive? As pastas associadas às contas mantêm-se guardadas.')) return

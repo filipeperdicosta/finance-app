@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { verifyState } from '@/lib/oauthState'
 
 // Recebe o utilizador de volta da Google com um "code" temporário,
 // troca-o por access_token + refresh_token, e guarda na base de dados.
 export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get('code')
-  const userId = req.nextUrl.searchParams.get('state') // veio do passo anterior
+  const userId = verifyState(req.nextUrl.searchParams.get('state'), 'google') // state assinado do passo anterior
   const error = req.nextUrl.searchParams.get('error')
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://biofinance-alpha.vercel.app'

@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createEnableBankingSession } from '@/lib/enableBanking'
 import { getSupabaseAdmin } from '@/lib/googleDrive'
+import { verifyState } from '@/lib/oauthState'
 
 // Recebe o utilizador de volta do banco após autorização.
 // Troca o code por uma sessão, guarda os account UIDs na BD.
-// GET /api/auth/enablebanking/callback?code=...&state=user_id
+// GET /api/auth/enablebanking/callback?code=...&state=<assinado>
 export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get('code')
-  const userId = req.nextUrl.searchParams.get('state')
+  const userId = verifyState(req.nextUrl.searchParams.get('state'), 'eb')
   const error = req.nextUrl.searchParams.get('error')
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://biofinance-alpha.vercel.app'
