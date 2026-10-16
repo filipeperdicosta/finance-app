@@ -3630,7 +3630,7 @@ const IrsMappingScreen = ({resumos,ano,onClose}:{resumos:IrsImovelResumo[],ano:n
   const captureRef = useRef<HTMLDivElement>(null)
   const linhas41 = resumos.filter(r=>r.regime.quadro==='4.1').flatMap(buildIrsLinhas)
   const linhas42 = resumos.filter(r=>r.regime.quadro==='4.2').flatMap(buildIrsLinhas)
-  // Renda moderada (Lei 73-A/2025) — quadro novo, sem posição confirmada no formulário oficial
+  // Renda moderada (art. 45.º-C do EBF, DL 97/2026) — quadro novo, sem posição confirmada no formulário oficial
   // ainda; por agora fica com a mesma forma do 4.1, destacado à parte para não se confundir
   // com "sem redução de taxa" (aqui HÁ redução, só que por preço da renda, não por duração).
   const linhasModerada = resumos.filter(r=>r.regime.quadro==='4.1-moderada').flatMap(buildIrsLinhas)
@@ -3682,7 +3682,7 @@ const IrsMappingScreen = ({resumos,ano,onClose}:{resumos:IrsImovelResumo[],ano:n
       ``,
       tableText('QUADRO 4.1 — SEM REDUÇÃO DE TAXA', linhas41, cols41),
       ``,
-      tableText('RENDA MODERADA — TAXA 10% (Lei 73-A/2025, confirmar oficialmente)', linhasModerada, cols41),
+      tableText('RENDA MODERADA — TAXA 10% (art. 45.º-C EBF, DL 97/2026)', linhasModerada, cols41),
       ``,
       tableText('QUADRO 4.2 — LONGA DURAÇÃO (TAXA REDUZIDA)', linhas42, cols42),
       ``,
@@ -3834,7 +3834,7 @@ const IrsMappingScreen = ({resumos,ano,onClose}:{resumos:IrsImovelResumo[],ano:n
           <Table title="QUADRO 4.1 — SEM REDUÇÃO DE TAXA" linhas={linhas41} cols={cols41}/>
           {linhasModerada.length>0&&<Table title="RENDA MODERADA — TAXA 10%" linhas={linhasModerada} cols={cols41}/>}
           <Table title="QUADRO 4.2 — LONGA DURAÇÃO (TAXA REDUZIDA)" linhas={linhas42} cols={cols42}/>
-          {linhasModerada.length>0&&<div style={{background:'#fff3cd',border:'1px solid #d4a017',borderRadius:6,padding:'8px 12px',fontSize:10.5,color:'#664d03',marginTop:8}}>⚠ "Renda moderada" (10%, Lei 73-A/2025) ainda não tem posição confirmada no formulário oficial — a app junta estas linhas ao Quadro 4.1 por agora. Confirma com o Portal das Finanças ou contabilista antes de submeter.</div>}
+          {linhasModerada.length>0&&<div style={{background:'#fff3cd',border:'1px solid #d4a017',borderRadius:6,padding:'8px 12px',fontSize:10.5,color:'#664d03',marginTop:8}}>⚠ "Renda moderada" (10%, art. 45.º-C do EBF) ainda não tem posição confirmada no formulário oficial — a app junta estas linhas ao Quadro 4.1 por agora. Confirma com o Portal das Finanças ou contabilista antes de submeter.</div>}
           <div style={{fontSize:9.5,color:'#666',marginTop:6,lineHeight:1.5}}>"Outros" agrega Seguro, Certificado Energético, Honorários e Comissão de Mediação — sem coluna própria no formulário oficial. "Valorização" nunca soma (não dedutível).</div>
           <div style={{background:'#fff3cd',border:'1px solid #d4a017',borderRadius:6,padding:'8px 12px',fontSize:10.5,color:'#664d03',marginTop:14}}>⚠ Cada imóvel com mais de 1 arrendatário aparece dividido em várias linhas (renda e gastos a dividir em partes iguais). Confirma o NIF de cada arrendatário directamente no Portal das Finanças.</div>
           {resumos.some(r=>r.prejuizoAplicado>0)&&(
