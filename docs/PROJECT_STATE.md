@@ -584,14 +584,43 @@ Tabela usada (por regime): não habitacional 28%, habitacional Quadro 4.1
 artigo 72º do CIRS foram **confirmados por research** (2026-08-10, via
 informador.pt): "redução de 10/15/20 pontos percentuais" sobre a taxa de
 25% — dá exactamente 15%/10%/5%, bate certo com a tabela usada.
-**Continua por confirmar** se o OE2026 alterou isto: a análise oficial da
-Ordem dos Contabilistas Certificados ao OE2026 não mostra nenhuma
-alteração ao artigo 72.º do CIRS além de uma cláusula sobre bombeiros, mas
-várias fontes secundárias (blogs) dizem que sim — nova taxa de 10% para
-"rendas moderadas" a partir de 2026, contradição ainda não resolvida entre
-fontes. Ficou combinado avançar com a tabela acima e o Filipe confirma à
-parte — avisa se for diferente. Taxa fica sempre editável por imóvel no
-ecrã de resumo, com aviso visível.
+
+**Dúvida resolvida (2026-10-14) — rendas moderadas a 10%.** Não vem do OE2026
+nem do art. 72.º do CIRS (era essa a contradição entre fontes). Vem do
+**Decreto-Lei n.º 97/2026, de 20 de maio** (autorização: Lei 9-A/2026, de 6
+de março), que cria o **art. 45.º-C do EBF**. Texto primário lido em
+files.diariodarepublica.pt (1s/2026/05/09700). Regras:
+- Taxa autónoma de **10%** sobre rendas de arrendamento **exclusivamente
+  para habitação**, com renda mensal **≤ 2,5 × RMMG de 2026 = 2 300 €**
+  (art. 2.º n.º 2 a); só alterável por portaria, n.º 3), rendimentos obtidos
+  até **31/12/2029**, "salvo taxa mais favorável" (daí o 5% do Quadro 4.2
+  continuar a ganhar quando aplicável).
+- Efeitos desde **1 jan 2026** (art. 18.º n.º 2). Não distingue contratos
+  novos de existentes e **não exige duração mínima** (a alegação de "3 anos"
+  de uma fonte comercial não tem suporte no texto).
+- Art. 101.º n.º 1 al. f) CIRS: retenção a 10% quando o inquilino é entidade
+  obrigada a reter. Para inquilino pessoa singular mantém-se "Sem retenção —
+  art. 101.º n.º 1"; os 10% aplicam-se no **Modelo 3, Anexo F**, não na
+  escolha de retenção do recibo da AT.
+- Não encontrei nada no DL sobre perda do benefício ao englobar. Não
+  consegui consultar o sistema da Assembleia para confirmar se houve pedido
+  de apreciação parlamentar. A reforma do NRAU (Proposta de Lei 103/XVII) é
+  separada e não contém esta taxa. A proposta de OE2027 mantém os 10%.
+- No código (`src/lib/irs.ts`): `limiteRendaModerada(ano)` devolve 2300 para
+  2026–2029 (senão `null`); constante `IRS_LIMITE_RENDA_MODERADA`;
+  comentários e rótulos do `page.tsx` citam "art. 45.º-C do EBF, DL 97/2026"
+  (antes diziam, errado, "Lei 73-A/2025 / art. 72.º CIRS"). O aviso fixo
+  "Taxa por confirmar para 2026" foi removido. A taxa continua editável por
+  imóvel.
+- **Fix relacionado — duração do contrato**: `contratoDuracaoAnos` passou a
+  contar meses de calendário. A conta antiga (dias/365,25) dava 4,9993 num
+  contrato de 5 anos que atravesse um 29 de fevereiro e caía no Quadro 4.1
+  (25%) em vez do 4.2 (15%).
+- Caso Lourinhã (herança indivisa, 2 inquilinos pessoas singulares, 850 €/mês,
+  habitacional permanente): contrato de 5 anos com início **2026-03-01**,
+  termo **2031-02-28**, renovação automática anual. A comunicação do início
+  do contrato à AT (art. 60.º CIS) provavelmente já passou o prazo; comunicar
+  de imediato e perguntar ao contabilista por eventual coima.
 
 ---
 
@@ -876,6 +905,54 @@ Aprendizagens, entrada Recharts, já corrigida.
 
 ---
 
+## Segurança — auditoria e endurecimento (2026-10-13)
+
+Auditoria às rotas de API, ao `state` OAuth e ao Supabase (RLS/RPCs), com
+correcções aplicadas e verificadas. Registo SQL completo (para repetir/rever):
+`docs/sql/2026-10-13-seguranca-rls.sql`.
+
+### Rotas de API (commits a45a48b, e8a8a20)
+- `src/lib/requireUser.ts`: `requireUser` (valida o Bearer do Supabase),
+  `userOwnsAccount` e `forbidden`. Aplicado às 13 rotas `/api`. O cliente
+  envia `authHeaders()` (exportado de `src/lib/supabase.ts`).
+- Rotas de cron (`/api/cron/check-drive`, `/api/cron/trigger`) protegidas por
+  `CRON_SECRET` (401 sem ele). **Pendente: confirmar na Vercel que o valor é
+  longo e aleatório.**
+
+### `state` OAuth assinado (commit 2359571)
+- `src/lib/oauthState.ts`: `signState`/`verifyState`, HMAC-SHA256 com chave
+  derivada de `SUPABASE_SERVICE_ROLE_KEY`, validade 10 min, finalidade
+  `'google'|'eb'`.
+- `/api/auth/google` e `/api/auth/enablebanking` exigem sessão (Bearer) e
+  devolvem JSON `{url}`; os callbacks usam `verifyState`. O cliente faz fetch
+  com `authHeaders()` (`getDriveAuthUrl`, `startEnableBankingConnect`).
+  Um cliente em cache com o fluxo antigo vê "Não autenticado" até um hard
+  refresh — esperado.
+
+### Base de dados (corrido no SQL Editor, verificado)
+- `find_user_by_email` exige `auth.uid()`.
+- `revoke execute on all functions … from public, anon` + default privileges.
+- `fn_get_role` com `search_path=public`.
+- Políticas `au_insert` (account_users) e `accounts_insert` removidas (a
+  criação passa só pelas RPCs).
+- Trigger `trg_protect_profile_role` / `fn_protect_profile_role`: ninguém
+  com `authenticated`/`anon` altera `role` do perfil.
+- `google_drive_tokens`: grant de SELECT por coluna, só `id, user_id,
+  account_email, connected_at, expires_at` (tokens nunca legíveis pelo cliente).
+- `anon` sem grants em nenhuma tabela.
+- Vistas `v_category_breakdown`, `v_monthly_summary`, `v_pending_review`,
+  `v_imovel_por_associar` com `security_invoker = true`.
+- **Registos novos desactivados** (Supabase → "Allow new users to sign up"
+  desligado). Tem de continuar desligado; criar utilizadores só por convite.
+- Testes de aplicação passados: login/logout, dashboard/contas, criar e
+  apagar conta, estado e sync do Drive, nome do perfil, categorizar
+  transacção, sync T212/Enable Banking/LedgerAuto, import do Drive.
+- **Por testar**: parse directo de PDF (`/api/parse`) e o fluxo de convite de
+  membros (`find_user_by_email` / `accept_invite`) na próxima vez que se
+  convidar alguém.
+
+---
+
 ## Aprendizagens e armadilhas conhecidas
 
 - **RLS recursion**: política que consulta a própria tabela em `USING`
@@ -902,6 +979,15 @@ Aprendizagens, entrada Recharts, já corrigida.
   física (mesmo IBAN). Qualquer upsert/dedup de contas EB tem de casar por
   IBAN, não só por `account_uid`, senão cada religação cria uma conta
   fantasma "sem conta associada" ao lado da real.
+- **Funções SQL novas criadas no SQL Editor** ficam executáveis por
+  `public`/`anon` — cada função nova precisa do seu próprio `revoke execute
+  on function … from public, anon` (os default privileges não cobrem tudo).
+  Cada vista nova precisa de `security_invoker = true`, senão corre com os
+  direitos do dono e ignora a RLS.
+- **Dedup do import do Drive** usa `txnHash(account_id, data, valor,
+  descritivo normalizado, primeiros 40 caracteres)` — uma diferença no texto
+  (ex.: extracto vs. PSD2) gera uma linha nova. Ainda sem decisão sobre um
+  casamento mais tolerante (precisa de exemplos de duplicados reais).
 - **Ambiente de desenvolvimento anterior (Claude.ai chat)**: sandbox sem
   persistência entre mensagens — cada resposta tinha de restaurar checkpoint
   + reaplicar deltas. Não se aplica ao Claude Code (filesystem persistente).
