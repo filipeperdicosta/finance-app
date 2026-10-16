@@ -60,15 +60,18 @@ export function limiteRendaModerada(ano:number): number|null {
   return ano>=2026 && ano<=2029 ? IRS_LIMITE_RENDA_MODERADA : null
 }
 
-// Duração aproximada do contrato, em anos — a data de fim é inclusiva (um contrato "de 5
+// Duração do contrato, em anos, por calendário — a data de fim é inclusiva (um contrato "de 5
 // anos" com início 14/07/2025 escreve-se com fim 13/07/2030, não 14/07/2030), por isso soma-se
-// 1 dia ao fim antes de calcular; senão um contrato de 5 anos certos ficava sempre a dar
-// 1 dia a menos que 5 anos.
+// 1 dia ao fim antes de calcular. Conta meses de calendário (+ a fracção do mês pelos dias) em vez
+// de dividir dias por 365,25: com um único 29/fev pelo meio, 5 anos certos davam 4,9993 e eram
+// tratados como "menos de 5 anos" (Quadro 4.1 a 25% em vez de 4.2).
 export function contratoDuracaoAnos(inicio:string|null, fim:string|null): number|null {
   if(!inicio || !fim) return null
-  const ms = (new Date(fim).getTime()+86400000) - new Date(inicio).getTime()
-  if(!(ms>0)) return null
-  return ms/(365.25*86400000)
+  const a = new Date(inicio)
+  const b = new Date(new Date(fim).getTime()+86400000)
+  if(!(b.getTime()>a.getTime())) return null
+  const meses = (b.getUTCFullYear()-a.getUTCFullYear())*12 + (b.getUTCMonth()-a.getUTCMonth()) + (b.getUTCDate()-a.getUTCDate())/30
+  return meses/12
 }
 
 export type IrsRegime = { quadro:'4.1'|'4.2'|'4.1-moderada', taxa:number, escalao:string|null, habitacional:boolean }
