@@ -4241,7 +4241,6 @@ const IrsResumoScreen = ({imoveis,accounts,onClose,onRefresh}:{imoveis:Imovel[],
                 </div>
               )}
 
-              <div style={{fontSize:9.5,color:'#FBBF24',marginTop:8}}>⚠ Taxa por confirmar para 2026 — editável por imóvel abaixo.</div>
             </div>
           </Card>}
 
