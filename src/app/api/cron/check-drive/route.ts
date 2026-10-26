@@ -307,9 +307,15 @@ export async function GET(req: NextRequest) {
 
         try {
           // 1) Saldo actualizado
-          const balance = await getEnableBankingBalance(ebAcc.account_uid)
-          if (balance !== null) {
-            await supabaseEB.from('accounts').update({ saldo_atual: balance, saldo_data: today }).eq('id', ebAcc.account_id)
+          // Não fatal: se só os saldos falharem, as transacções entram na mesma.
+          let balance: number | null = null
+          try {
+            balance = await getEnableBankingBalance(ebAcc.account_uid)
+            if (balance !== null) {
+              await supabaseEB.from('accounts').update({ saldo_atual: balance, saldo_data: today }).eq('id', ebAcc.account_id)
+            }
+          } catch (balErr: any) {
+            console.warn(`EB cron balance (${session.bank_name}/${accountName}):`, balErr.message)
           }
 
           // 90 dias se conta vazia, 14 dias se já tem dados

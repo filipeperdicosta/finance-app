@@ -46,9 +46,18 @@ export async function POST(req: NextRequest) {
 
       try {
         // 1) Saldo
-        const balance = await getEnableBankingBalance(ebAcc.account_uid)
-        if (balance !== null) {
-          await supabaseAdmin.from('accounts').update({ saldo_atual: balance, saldo_data: today }).eq('id', ebAcc.account_id)
+        // Não fatal: o banco pode falhar só nos saldos (ex.: ASPSP_ERROR do Abanca) e as
+        // transacções devem entrar na mesma.
+        let balance: number | null = null
+        let balanceError: string | undefined
+        try {
+          balance = await getEnableBankingBalance(ebAcc.account_uid)
+          if (balance !== null) {
+            await supabaseAdmin.from('accounts').update({ saldo_atual: balance, saldo_data: today }).eq('id', ebAcc.account_id)
+          }
+        } catch (balErr: any) {
+          balanceError = balErr.message
+          console.warn(`EB sync balance (${accountName}):`, balErr.message)
         }
 
         // 2) Determinar janela de datas: 90 dias se conta vazia, 14 dias se já tem dados
@@ -128,7 +137,7 @@ export async function POST(req: NextRequest) {
           console.warn(`EB sync transactions (${accountName}):`, txnErr.message)
         }
 
-        results.push({ accountName, bank: session?.bank_name, balance, newTxns })
+        results.push({ accountName, bank: session?.bank_name, balance, newTxns, balanceError })
 
       } catch (err: any) {
         // Rate limit: mensagem amigável
@@ -145,7 +154,7 @@ export async function POST(req: NextRequest) {
     const lines = results.map(r =>
       r.error
         ? `✗ ${r.accountName}: ${r.error}`
-        : `${r.accountName}: €${r.balance?.toFixed(2)} · ${r.newTxns} nova${r.newTxns !== 1 ? 's' : ''}`
+        : `${r.accountName}: ${r.balance != null ? `€${r.balance.toFixed(2)}` : 'saldo indisponível'} · ${r.newTxns} nova${r.newTxns !== 1 ? 's' : ''}`
     )
     await createNotification({
       userId: user_id,
