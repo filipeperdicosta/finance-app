@@ -324,6 +324,7 @@ export async function GET(req: NextRequest) {
           const dateFrom = new Date(Date.now() - ebDays*24*60*60*1000).toISOString().split('T')[0]
 
           let newTxns = 0
+          let txnError: string | undefined
           try {
             const txns = await getEnableBankingTransactions(ebAcc.account_uid, dateFrom)
             const { data: existing } = await supabaseEB.from('transactions').select('hash, data, valor, descritivo').eq('account_id', ebAcc.account_id)
@@ -378,8 +379,17 @@ export async function GET(req: NextRequest) {
             }
           } catch (txnErr: any) {
             console.warn(`EB cron transactions (${session.bank_name}/${accountName}):`, txnErr.message)
+            txnError = txnErr.message
           }
 
+          // Falha nas transacções = erro (não "0 novas"), para o consentimento morto não parecer sincronizado.
+          if (txnError) {
+            ebResultsByUser[userId].push({
+              bankName: session.bank_name, accountName, balance, newTxns: 0,
+              error: `Banco não devolveu transacções (${txnError.includes('ASPSP_ERROR') ? 'erro do banco — re-liga o banco' : txnError})`,
+            })
+            continue
+          }
           ebResultsByUser[userId].push({ bankName: session.bank_name, accountName, balance, newTxns })
           console.log(`EB cron: ${accountName} → €${balance?.toFixed(2) ?? 'N/A'}, ${newTxns} txns novas`)
 

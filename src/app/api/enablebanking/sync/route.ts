@@ -69,6 +69,7 @@ export async function POST(req: NextRequest) {
         const dateFrom = (forcedDateFrom && filterUid) ? forcedDateFrom : new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
 
         let newTxns = 0
+        let txnError: string | undefined
         try {
           const txns = await getEnableBankingTransactions(ebAcc.account_uid, dateFrom)
           const { data: existing } = await supabaseAdmin
@@ -135,9 +136,22 @@ export async function POST(req: NextRequest) {
           }
         } catch (txnErr: any) {
           console.warn(`EB sync transactions (${accountName}):`, txnErr.message)
+          txnError = txnErr.message
         }
 
-        results.push({ accountName, bank: session?.bank_name, balance, newTxns, balanceError })
+        // Falha a obter transacções = sync falhado (não "0 novas"): senão um consentimento
+        // morto no banco parecia sincronizado.
+        if (txnError) {
+          const isRateLimit = txnError.includes('429') || txnError.includes('RATE_LIMIT')
+          results.push({
+            accountName, bank: session?.bank_name,
+            error: isRateLimit
+              ? 'Limite diário de chamadas atingido (PSD2: máx. 4/dia). Tenta amanhã.'
+              : `Banco não devolveu transacções (${txnError.includes('ASPSP_ERROR') ? 'erro do banco — re-liga o banco' : txnError})`,
+          })
+        } else {
+          results.push({ accountName, bank: session?.bank_name, balance, newTxns, balanceError })
+        }
 
       } catch (err: any) {
         // Rate limit: mensagem amigável
