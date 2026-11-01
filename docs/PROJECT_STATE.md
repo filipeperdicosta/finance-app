@@ -979,6 +979,27 @@ correcções aplicadas e verificadas. Registo SQL completo (para repetir/rever):
   física (mesmo IBAN). Qualquer upsert/dedup de contas EB tem de casar por
   IBAN, não só por `account_uid`, senão cada religação cria uma conta
   fantasma "sem conta associada" ao lado da real.
+- **Enable Banking — falhas do banco (Abanca, 2026-10-13 a 28)**: o `/balances`
+  e depois o `/transactions` do Abanca devolveram `400 ASPSP_ERROR "Unknown
+  error"`; o consentimento do Abanca só inclui *Accounts, Transactions* (sem
+  saldos, apesar de pedirmos `balances: true`), por isso o saldo pode nunca
+  vir por esta via. Re-ligar falhava com "Unable to authenticate"
+  (`server_error` no callback, também no Control Panel do EB; ticket aberto no
+  EB). O erro dos pedidos desapareceu sozinho (sync e cron voltaram a trazer
+  transacções) — o consentimento de 24/06 continua válido (expira ~21/12/2026).
+  Não fazer "Re-ligar"/"Remover" enquanto a sessão actual funcionar; rever o
+  estado do ticket por volta de 1/12.
+  Código (`7e8db25`, `e89e204`): o saldo é não fatal e uma falha em
+  `getEnableBankingTransactions` passa a ser **erro visível** no sync manual e
+  no cron (antes ficava num `console.warn` e a notificação dizia "0 novas",
+  parecendo sincronizado quando o banco não respondia). Janela do sync: 14 dias
+  se a conta já tem dados — se a ligação ficar morta mais que isso é preciso
+  backfill (`date_from` + `account_uid` no POST `/api/enablebanking/sync`,
+  sem botão na UI) ou import do extracto.
+- **Logs da Vercel**: `vercel logs --since 3h --query "enablebanking"
+  --environment production` (CLI já autenticado e ligado ao projecto). Só
+  guarda horas recentes — consultas a 24h+ devolvem "No logs found"; usar as
+  notificações da app para ver o que o cron fez de madrugada.
 - **Funções SQL novas criadas no SQL Editor** ficam executáveis por
   `public`/`anon` — cada função nova precisa do seu próprio `revoke execute
   on function … from public, anon` (os default privileges não cobrem tudo).
