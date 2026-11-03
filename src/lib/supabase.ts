@@ -366,6 +366,21 @@ export async function loadImovelRegras(): Promise<ImovelRegra[]> {
   const { data } = await supabase.from('imovel_regras').select('*').eq('ativa', true)
   return (data ?? []) as ImovelRegra[]
 }
+// Gestão das regras no ecrã Regras Aprendidas › Imóveis (inclui as desactivadas)
+export async function loadTodasImovelRegras(): Promise<ImovelRegra[]> {
+  const { data } = await supabase.from('imovel_regras').select('*').order('vezes_usada', { ascending: false })
+  return (data ?? []) as ImovelRegra[]
+}
+export async function updateImovelRegra(id: string, fields: Partial<Omit<ImovelRegra, 'id' | 'pattern' | 'vezes_usada'>>) {
+  return supabase.from('imovel_regras').update(fields).eq('id', id)
+}
+export async function deleteImovelRegras(ids: string[]) {
+  return supabase.from('imovel_regras').delete().in('id', ids)
+}
+export async function loadImovelNomes(): Promise<{ id: string, nome: string }[]> {
+  const { data } = await supabase.from('imoveis').select('id, nome').order('nome')
+  return (data ?? []) as { id: string, nome: string }[]
+}
 export async function assignTransactionsToImovel(txnIds: string[], imovelId: string | null) {
   return supabase.from('transactions').update({
     imovel_id: imovelId,

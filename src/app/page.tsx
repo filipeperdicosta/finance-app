@@ -26,6 +26,7 @@ import {
   saveImovel, updateImovel, deleteImovel, linkContaImovel, unlinkContaImovel,
   assignTransactionToImovel, assignTransactionsToImovel, loadUnclassifiedImovelTxns, loadImovelTxnsForYear,
   learnImovelRule, deactivateImovelRule, loadImovelRegras,
+  loadTodasImovelRegras, updateImovelRegra, deleteImovelRegras, loadImovelNomes,
   loadCategoryRules, learnFromCategorization, matchRule, deleteCategoryRule, deleteCategoryRules, updateCategoryRule,
   loadSaudeRules, learnSaudeOverride, matchSaudeRule,
   getDriveConnectionStatus, disconnectDrive, getDriveAuthUrl, updateAccountDriveFolder, loadDriveFiles,
@@ -1007,14 +1008,9 @@ const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis,accounts,isDetectedTransfe
     if(saudeTouched && finalSaudeOverride) await learnSaudeOverride(descritivo, finalSaudeOverride)
     await onSaved(); setSaving(false); onClose()
   }
-  // Desfaz uma associação automática: volta à fila "Por associar" e a regra que a fez desactiva-se.
-  const desfazerAuto = async () => {
-    if(!txn.imovel_id) return
-    setSaving(true)
-    await updateTransaction(txn.id, { imovel_id:null, imovel_classificado:false, imovel_auto:false })
-    await deactivateImovelRule(txn.imovel_id, txn.descritivo)
-    await onSaved(); setSaving(false); onClose()
-  }
+  // Origem da associação, actualizada em directo com o drop-down: só continua "automática" se o
+  // imóvel escolhido for o que a regra atribuiu; qualquer outra escolha passa a manual.
+  const origemImovel: 'auto'|'manual'|null = !imovelId ? null : (txn.imovel_auto && imovelId===txn.imovel_id ? 'auto' : 'manual')
   const del = async () => {
     if(!confirm('Apagar esta transação?')) return
     setSaving(true); await deleteTransaction(txn.id); await onSaved(); setSaving(false); onClose()
@@ -1042,13 +1038,13 @@ const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis,accounts,isDetectedTransfe
           ):(
             <CategoryPicker label="Categoria" value={categoria} onChange={setCategoria} categorias={CAT_LIST.filter(c=>c!=='Receita')}/>
           )}
-          {hasImoveis&&txn.imovel_auto&&txn.imovel_id&&(
-            <div style={{display:'flex',alignItems:'center',gap:10,justifyContent:'space-between',background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,padding:'9px 12px',marginBottom:12,fontSize:12,color:T.textSec,lineHeight:1.4}}>
-              <span>Associada a <b style={{color:T.text}}>{imoveis!.find(i=>i.id===txn.imovel_id)?.nome??'imóvel'}</b> automaticamente. Para mudar, escolhe outro imóvel abaixo.</span>
-              <button disabled={saving} onClick={desfazerAuto} style={{flexShrink:0,background:'none',border:`1px solid ${T.border}`,borderRadius:8,padding:'5px 10px',fontSize:12,fontWeight:600,color:pal.accent,cursor:'pointer'}}>Desfazer</button>
+          {hasImoveis&&<Sel label="Imóvel associado" value={imovelId} onChange={setImovelId} options={[{value:'',label:'Geral (nenhum imóvel)'},...imoveis!.map(im=>({value:im.id,label:`🏠 ${im.nome}`}))]}/>}
+          {hasImoveis&&origemImovel&&(
+            <div style={{display:'flex',alignItems:'center',gap:8,marginTop:-8,marginBottom:14,fontSize:10,color:T.textTer,lineHeight:1.4}}>
+              <span style={{flexShrink:0,fontSize:9,fontWeight:700,letterSpacing:'0.1em',color:origemImovel==='auto'?pal.accent:T.textSec,border:`1px solid ${origemImovel==='auto'?pal.accent:T.textTer}`,borderRadius:5,padding:'1px 5px'}}>{origemImovel==='auto'?'AUTO':'MANUAL'}</span>
+              <span>{origemImovel==='auto'?'Associada automaticamente pela regra deste pagador.':'Associada por ti.'}</span>
             </div>
           )}
-          {hasImoveis&&<Sel label="Imóvel associado" value={imovelId} onChange={setImovelId} options={[{value:'',label:'Geral (nenhum imóvel)'},...imoveis!.map(im=>({value:im.id,label:`🏠 ${im.nome}`}))]}/>}
           {imovelId&&tipo==='despesa'&&<Sel label="Balde IRS (Anexo F)" value={irsSubcategoria} onChange={setIrsSubcategoria} options={[{value:'',label:'Não classificado'},...IRS_SUBCATEGORIAS.map(c=>({value:c,label:IRS_SUBCATEGORIA_LABELS[c]}))]}/>}
           {imovelId&&tipo==='receita'&&<Sel label="Tipo de rendimento (IRS)" value={naoRenda?'nao_renda':''} onChange={v=>setNaoRenda(v==='nao_renda')} options={[{value:'',label:'Renda'},{value:'nao_renda',label:'Não é renda (reembolso, etc.)'}]}/>}
           {inSaudeScope&&<div style={{marginBottom:14}}>
@@ -1531,22 +1527,117 @@ const AllCategoriesScreen = ({transactions,accounts,tag,sel,initialMonth,subtitl
 // ─────────────────────────────────────────────────────────────────
 // RULES SCREEN — gestão de regras de categorização aprendidas (com bulk)
 // ─────────────────────────────────────────────────────────────────
+// Cartão de uma regra de associação a imóvel (separador Imóveis das Regras Aprendidas).
+// Fechado: resumo. Aberto: casa, valor de referência, tolerância, janela de dias e activa.
+const ImovelRegraCard = ({r,nomes,selectMode,isSel,onToggleSel,onDelete,onSaved,pal}:{r:ImovelRegra,nomes:{id:string,nome:string}[],selectMode:boolean,isSel:boolean,onToggleSel:()=>void,onDelete:()=>void,onSaved:()=>void|Promise<void>,pal:{accent:string,soft:string}}) => {
+  const [open,setOpen] = useState(false)
+  const [imovelId,setImovelId] = useState(r.imovel_id)
+  const [valorRef,setValorRef] = useState(String(r.valor_ref))
+  const [tol,setTol] = useState(String(r.tol_pct))
+  const [diasOn,setDiasOn] = useState(r.dia_tipico!=null)
+  const tolDia = r.dia_tol ?? 3
+  const [diaDe,setDiaDe] = useState(String(Math.max(1,(r.dia_tipico??1)-tolDia)))
+  const [diaAte,setDiaAte] = useState(String(Math.min(31,(r.dia_tipico??8)+tolDia)))
+  const [ativa,setAtiva] = useState(r.ativa)
+  const [saving,setSaving] = useState(false)
+  const nome = nomes.find(n=>n.id===r.imovel_id)?.nome ?? 'imóvel'
+  const fmt = (v:number) => `${Number(v).toFixed(2).replace('.',',')} €`
+  const small:React.CSSProperties = {fontSize:11,color:T.textSec,fontWeight:600,marginBottom:5,textTransform:'uppercase',letterSpacing:'0.06em'}
+  const inp:React.CSSProperties = {width:'100%',background:T.surface3,border:`1px solid ${T.border}`,borderRadius:10,padding:'10px 12px',color:T.text,fontSize:13,outline:'none',boxSizing:'border-box',fontFamily:T.mono}
+  const Switch = ({on,set}:{on:boolean,set:(v:boolean)=>void}) => (
+    <button type="button" onClick={()=>set(!on)} aria-pressed={on} style={{width:38,height:22,borderRadius:99,border:`1px solid ${on?pal.accent:T.border}`,background:on?pal.accent:T.surface3,position:'relative',cursor:'pointer',flexShrink:0,padding:0}}>
+      <span style={{position:'absolute',top:2,left:on?18:2,width:16,height:16,borderRadius:'50%',background:on?'#14110F':T.textSec,transition:'left .15s'}}/>
+    </button>
+  )
+  const save = async () => {
+    setSaving(true)
+    const de = Math.max(1,Math.min(31,parseInt(diaDe)||1))
+    const ate = Math.max(de,Math.min(31,parseInt(diaAte)||de))
+    const { error } = await updateImovelRegra(r.id,{
+      imovel_id:imovelId, valor_ref:Math.abs(parseNum(valorRef))||r.valor_ref, tol_pct:Number(tol), ativa,
+      dia_tipico:diasOn?Math.round((de+ate)/2):null, dia_tol:diasOn?Math.ceil((ate-de)/2):null,
+    })
+    if(error){ setSaving(false); alert('Não foi possível guardar. Já existe uma regra deste pagador para esse imóvel?'); return }
+    await onSaved(); setSaving(false); setOpen(false)
+  }
+  const diasTxt = r.dia_tipico!=null ? ` · dias ${Math.max(1,r.dia_tipico-(r.dia_tol??3))}–${Math.min(31,r.dia_tipico+(r.dia_tol??3))}` : ''
+  return (
+    <Card style={{marginBottom:8,padding:'12px 14px',background:isSel?pal.soft:T.surface}}>
+      <div onClick={()=>selectMode?onToggleSel():setOpen(!open)} style={{display:'flex',alignItems:'center',gap:10,cursor:'pointer',opacity:r.ativa?1:0.55}}>
+        {selectMode&&<div style={{flexShrink:0}}>{isSel?<CheckSquare size={18} color={pal.accent}/>:<Square size={18} color={T.textTer}/>}</div>}
+        <CatChip categoria="Habitação" size={34} opacity={35}/>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:13,fontWeight:600,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>"{r.pattern}"{!r.ativa&&<span style={{marginLeft:6,fontSize:9,fontWeight:700,letterSpacing:'0.08em',textTransform:'uppercase',color:T.textTer,border:`1px solid ${T.border}`,borderRadius:5,padding:'1px 5px',verticalAlign:1}}>desactivada</span>}</div>
+          <div style={{fontSize:11,color:T.textSec,marginTop:1}}>→ {nome} · usada {r.vezes_usada}× · {fmt(r.valor_ref)}{diasTxt}</div>
+        </div>
+        {!selectMode&&<button onClick={e=>{e.stopPropagation();onDelete()}} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><Trash2 size={14} color={T.textTer}/></button>}
+      </div>
+      {open&&!selectMode&&(
+        <div style={{marginTop:12,paddingTop:12,borderTop:`1px solid ${T.border}`,display:'grid',gap:12}}>
+          <div>
+            <div style={small}>Imóvel</div>
+            <select value={imovelId} onChange={e=>setImovelId(e.target.value)} style={{...inp,fontFamily:'inherit',appearance:'none' as any}}>
+              {nomes.map(n=><option key={n.id} value={n.id}>🏠 {n.nome}</option>)}
+            </select>
+          </div>
+          <div style={{display:'flex',gap:10}}>
+            <div style={{flex:1,minWidth:0}}><div style={small}>Valor de referência (€)</div><input inputMode="decimal" value={valorRef} onChange={e=>setValorRef(e.target.value)} style={inp}/></div>
+            <div style={{flex:1,minWidth:0}}><div style={small}>Tolerância</div>
+              <select value={tol} onChange={e=>setTol(e.target.value)} style={{...inp,appearance:'none' as any}}>
+                {Array.from(new Set(['2','5','10',String(r.tol_pct)])).sort((a,b)=>Number(a)-Number(b)).map(v=><option key={v} value={v}>±{v}%</option>)}
+              </select>
+            </div>
+          </div>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}>
+            <div><div style={{fontSize:13,fontWeight:600,color:T.text}}>Só em certos dias do mês</div><div style={{fontSize:11,color:T.textTer}}>Desligado: apanha pagamentos atrasados</div></div>
+            <Switch on={diasOn} set={setDiasOn}/>
+          </div>
+          {diasOn&&(
+            <div style={{display:'flex',gap:10}}>
+              <div style={{flex:1,minWidth:0}}><div style={small}>Do dia</div><input inputMode="numeric" value={diaDe} onChange={e=>setDiaDe(e.target.value.replace(/\D/g,'').slice(0,2))} style={inp}/></div>
+              <div style={{flex:1,minWidth:0}}><div style={small}>Ao dia</div><input inputMode="numeric" value={diaAte} onChange={e=>setDiaAte(e.target.value.replace(/\D/g,'').slice(0,2))} style={inp}/></div>
+            </div>
+          )}
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}>
+            <div><div style={{fontSize:13,fontWeight:600,color:T.text}}>Regra activa</div><div style={{fontSize:11,color:T.textTer}}>Desactiva-se sozinha se corrigires uma associação automática</div></div>
+            <Switch on={ativa} set={setAtiva}/>
+          </div>
+          <Btn onClick={saving?undefined:save} accent={pal.accent}>{saving?'A guardar…':'Guardar'}</Btn>
+        </div>
+      )}
+    </Card>
+  )
+}
+
 const RulesScreen = ({onClose,pal}:{onClose:()=>void,pal:{accent:string,soft:string}}) => {
   const [rules,setRules] = useState<CategoryRule[]>([])
+  const [regrasImv,setRegrasImv] = useState<ImovelRegra[]>([])
+  const [nomes,setNomes] = useState<{id:string,nome:string}[]>([])
+  const [tab,setTab] = useState<'cat'|'imv'>('cat')
   const [loading,setLoading] = useState(true)
   const [selectMode,setSelectMode] = useState(false)
   const [selected,setSelected] = useState<Set<string>>(new Set())
   const [showRecat,setShowRecat] = useState(false)
 
-  const load = useCallback(async()=>{ setLoading(true); const r = await loadCategoryRules(); setRules(r); setLoading(false) },[])
+  const load = useCallback(async()=>{
+    setLoading(true)
+    const [r,ri,nm] = await Promise.all([loadCategoryRules(),loadTodasImovelRegras(),loadImovelNomes()])
+    setRules(r); setRegrasImv(ri); setNomes(nm); setLoading(false)
+  },[])
   useEffect(()=>{ load() },[load])
 
+  const lista:{id:string}[] = tab==='cat' ? rules : regrasImv
   const toggleSel = (id:string) => { const n=new Set(selected); n.has(id)?n.delete(id):n.add(id); setSelected(n) }
-  const selectAll = () => { selected.size===rules.length ? setSelected(new Set()) : setSelected(new Set(rules.map(r=>r.id))) }
+  const selectAll = () => { selected.size===lista.length ? setSelected(new Set()) : setSelected(new Set(lista.map(r=>r.id))) }
+  const mudaTab = (t:'cat'|'imv') => { setTab(t); setSelectMode(false); setSelected(new Set()) }
   const doDelete = async () => {
-    if(!confirm(`Apagar ${selected.size} regras? As transações já categorizadas não são afectadas.`)) return
-    await deleteCategoryRules(Array.from(selected))
+    if(!confirm(`Apagar ${selected.size} regras? ${tab==='cat'?'As transações já categorizadas não são afectadas.':'As transações já associadas não são afectadas.'}`)) return
+    if(tab==='cat') await deleteCategoryRules(Array.from(selected)); else await deleteImovelRegras(Array.from(selected))
     setSelected(new Set()); setSelectMode(false); await load()
+  }
+  const doDeleteImv = async (id:string) => {
+    if(!confirm('Apagar esta regra? As transações já associadas não são afectadas.')) return
+    await deleteImovelRegras([id]); await load()
   }
   const doDeleteOne = async (id:string) => {
     if(!confirm('Apagar esta regra?')) return
@@ -1565,7 +1656,7 @@ const RulesScreen = ({onClose,pal}:{onClose:()=>void,pal:{accent:string,soft:str
             <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><ArrowLeft size={18} color={T.textSec}/></button>
             <div style={{flex:1}}>
               <div style={{fontSize:16,fontWeight:700,color:T.text}}>Regras Aprendidas</div>
-              <div style={{fontSize:11,color:T.textSec}}>{rules.length} padrões guardados</div>
+              <div style={{fontSize:11,color:T.textSec}}>{tab==='cat'?`${rules.length} padrões guardados`:`${regrasImv.length} regras de imóveis · ${regrasImv.filter(r=>r.ativa).length} activas`}</div>
             </div>
             <button onClick={()=>{setSelectMode(!selectMode);setSelected(new Set())}} style={{background:selectMode?pal.accent:T.surface2,border:'none',borderRadius:10,padding:'7px 10px',cursor:'pointer'}}>
               <CheckSquare size={14} color={selectMode?'#14110F':T.textSec}/>
@@ -1574,7 +1665,7 @@ const RulesScreen = ({onClose,pal}:{onClose:()=>void,pal:{accent:string,soft:str
           {selectMode&&(
             <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 16px',background:pal.soft,borderTop:`1px solid ${T.border}`}}>
               <button onClick={selectAll} style={{display:'flex',alignItems:'center',gap:6,background:'none',border:'none',cursor:'pointer'}}>
-                {selected.size===rules.length&&rules.length>0?<CheckSquare size={16} color={pal.accent}/>:<Square size={16} color={T.textSec}/>}
+                {selected.size===lista.length&&lista.length>0?<CheckSquare size={16} color={pal.accent}/>:<Square size={16} color={T.textSec}/>}
                 <span style={{fontSize:12,color:pal.accent,fontWeight:600}}>{selected.size>0?`${selected.size} selecionadas`:'Selecionar todas'}</span>
               </button>
             </div>
@@ -1582,17 +1673,34 @@ const RulesScreen = ({onClose,pal}:{onClose:()=>void,pal:{accent:string,soft:str
         </div>
 
         <div style={{padding:'14px 14px 100px'}}>
+          <div role="tablist" style={{display:'flex',background:T.surface,border:`1px solid ${T.border}`,borderRadius:11,padding:3,marginBottom:12}}>
+            {([['cat','Categorias',rules.length],['imv','Imóveis',regrasImv.length]] as const).map(([k,lbl,n])=>(
+              <button key={k} role="tab" aria-selected={tab===k} onClick={()=>mudaTab(k)}
+                style={{flex:1,border:'none',borderRadius:8,padding:'8px 6px',cursor:'pointer',fontSize:12.5,fontWeight:600,background:tab===k?pal.accent:'none',color:tab===k?'#14110F':T.textSec}}>
+                {lbl}<span style={{fontWeight:500,opacity:0.75,marginLeft:4}}>{n}</span>
+              </button>
+            ))}
+          </div>
+
           <Card style={{background:pal.soft,padding:'12px 14px',marginBottom:16}}>
             <div style={{fontSize:12,color:T.textSec,lineHeight:1.6}}>
               <BrainCircuit size={13} style={{display:'inline',marginRight:4,verticalAlign:-2}}/>
-              Sempre que categorizas uma transação manualmente (ou aceitas uma sugestão da IA), a app guarda o padrão aqui. Nas próximas importações, estas regras têm prioridade sobre a IA.
+              {tab==='cat'
+                ? 'Sempre que categorizas uma transação manualmente (ou aceitas uma sugestão da IA), a app guarda o padrão aqui. Nas próximas importações, estas regras têm prioridade sobre a IA.'
+                : 'Quando associas à mão a renda de um pagador a um imóvel, a app guarda a regra aqui. As rendas seguintes do mesmo pagador, com valor até à tolerância do último, entram sozinhas com a marca AUTO. Toca num cartão para ajustar.'}
             </div>
           </Card>
 
           {loading&&<div style={{textAlign:'center',padding:32,color:T.textSec,fontSize:13}}>A carregar…</div>}
-          {!loading&&rules.length===0&&<Card><div style={{padding:32,textAlign:'center',color:T.textSec,fontSize:13}}>Ainda sem regras. Categoriza algumas transações para começares a ensinar a app.</div></Card>}
+          {!loading&&tab==='cat'&&rules.length===0&&<Card><div style={{padding:32,textAlign:'center',color:T.textSec,fontSize:13}}>Ainda sem regras. Categoriza algumas transações para começares a ensinar a app.</div></Card>}
+          {!loading&&tab==='imv'&&regrasImv.length===0&&<Card><div style={{padding:32,textAlign:'center',color:T.textSec,fontSize:13}}>Ainda sem regras de imóveis. Associa à mão a próxima renda de cada pagador e a regra aparece aqui.</div></Card>}
 
-          {rules.map((r,i)=>{
+          {tab==='imv'&&regrasImv.map(r=>(
+            <ImovelRegraCard key={r.id+':'+r.valor_ref+r.ativa+r.tol_pct+r.imovel_id+r.dia_tipico+r.dia_tol} r={r} nomes={nomes} selectMode={selectMode} isSel={selected.has(r.id)}
+              onToggleSel={()=>toggleSel(r.id)} onDelete={()=>doDeleteImv(r.id)} onSaved={load} pal={pal}/>
+          ))}
+
+          {tab==='cat'&&rules.map((r,i)=>{
             const isSel = selected.has(r.id)
             return (
               <Card key={r.id} style={{marginBottom:8,padding:'12px 14px',background:isSel?pal.soft:T.surface}}>
@@ -1612,7 +1720,7 @@ const RulesScreen = ({onClose,pal}:{onClose:()=>void,pal:{accent:string,soft:str
 
         {selectMode && selected.size>0 && (
           <div style={{position:'fixed',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:440,background:T.surface,borderTop:`1px solid ${T.border}`,padding:'12px 16px 20px',display:'flex',gap:10,zIndex:20}}>
-            <Btn onClick={()=>setShowRecat(true)} variant="ghost" accent={pal.accent} style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',gap:6}}><Tag size={15}/> Mudar categoria</Btn>
+            {tab==='cat'&&<Btn onClick={()=>setShowRecat(true)} variant="ghost" accent={pal.accent} style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',gap:6}}><Tag size={15}/> Mudar categoria</Btn>}
             <Btn onClick={doDelete} variant="danger" accent={pal.accent} style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',gap:6}}><Trash2 size={15}/> Apagar ({selected.size})</Btn>
           </div>
         )}
