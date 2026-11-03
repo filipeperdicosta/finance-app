@@ -82,7 +82,7 @@ const BioIcon = ({size=20}:{size?:number}) => (
   </div>
 )
 const tagPal = (tag:string) => tag==='investimento' ? PAL.imoveis : (PAL[tag] ?? PAL.pessoal)
-const CAT_LIST = ['Receita','Groceries','Restauração','Compras','Saúde','Transportes','Lazer','Levantamentos','Habitação','Utilities','Subscrições','Investimentos','Comissões e Taxas','Transferências','Despesas Gerais']
+const CAT_LIST = ['Receita','Groceries','Restauração','Compras','Saúde','Transportes','Lazer','Levantamentos','Habitação','Utilities','Subscrições','Investimentos','Impostos e Comissões','Transferências','Despesas Gerais']
 const CAT_META: Record<string,{cor:string,Icon:React.ElementType}> = {
   'Receita':{cor:'#4ADE80',Icon:CurrencyEur},
   'Groceries':{cor:'#EAB308',Icon:ShoppingCart},
@@ -96,7 +96,7 @@ const CAT_META: Record<string,{cor:string,Icon:React.ElementType}> = {
   'Utilities':{cor:'#818CF8',Icon:Lightning},
   'Subscrições':{cor:'#FB7185',Icon:Rss},
   'Investimentos':{cor:'#60A5FA',Icon:Vault},
-  'Comissões e Taxas':{cor:'#94A3B8',Icon:Bank},
+  'Impostos e Comissões':{cor:'#94A3B8',Icon:Bank},
   'Transferências':{cor:'#94A3B8',Icon:ArrowsLeftRight},
   'Despesas Gerais':{cor:'#64748B',Icon:Package},
 }
@@ -211,7 +211,7 @@ function periodRangeLabel(refMonth:string|null, windowMonths:number):string {
 type Bucket = 'fixos'|'poupanca_investimento'|'guilt_free'
 
 const CATEGORY_BUCKET: Record<string,Bucket> = {
-  'Habitação':'fixos','Utilities':'fixos','Comissões e Taxas':'fixos','Groceries':'fixos','Saúde':'fixos','Transportes':'fixos',
+  'Habitação':'fixos','Utilities':'fixos','Impostos e Comissões':'fixos','Groceries':'fixos','Saúde':'fixos','Transportes':'fixos',
   'Investimentos':'poupanca_investimento',
   'Restauração':'guilt_free','Compras':'guilt_free','Lazer':'guilt_free','Subscrições':'guilt_free','Despesas Gerais':'guilt_free','Levantamentos':'guilt_free','Transferências':'guilt_free',
 }

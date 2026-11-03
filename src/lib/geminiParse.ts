@@ -1,6 +1,6 @@
 const GEMINI_MODEL = 'gemini-2.5-flash-lite'
 
-export const CATEGORIES = ['Receita','Groceries','Restauração','Compras','Saúde','Transportes','Lazer','Levantamentos','Habitação','Utilities','Subscrições','Investimentos','Comissões e Taxas','Transferências','Despesas Gerais']
+export const CATEGORIES = ['Receita','Groceries','Restauração','Compras','Saúde','Transportes','Lazer','Levantamentos','Habitação','Utilities','Subscrições','Investimentos','Impostos e Comissões','Transferências','Despesas Gerais']
 
 const PROMPT = `You are a financial data extraction specialist for Portuguese bank statements.
 
@@ -30,7 +30,7 @@ TRANSACTION RULES (apply to every single row in the statement):
 
 CATEGORY RULES:
 1. "categoria" must be exactly one of this list (copy the exact spelling): ${CATEGORIES.join(', ')}
-2. Choose based on the merchant/description. Examples: supermarket chains and grocery stores → "Groceries"; restaurants, cafés, bars → "Restauração"; fuel, tolls, public transport, ride-hailing → "Transportes"; pharmacy, clinics, hospitals → "Saúde"; ATM withdrawals → "Levantamentos"; mortgage/rent payments → "Habitação"; electricity/water/gas/internet/phone bills → "Utilities"; streaming/software/memberships → "Subscrições"; brokerage/stock purchases → "Investimentos"; bank fees/charges → "Comissões e Taxas"; transfers between own accounts or to other people → "Transferências"; salary/income/positive amounts → "Receita".
+2. Choose based on the merchant/description. Examples: supermarket chains and grocery stores → "Groceries"; restaurants, cafés, bars → "Restauração"; fuel, tolls, public transport, ride-hailing → "Transportes"; pharmacy, clinics, hospitals → "Saúde"; ATM withdrawals → "Levantamentos"; mortgage/rent payments → "Habitação"; electricity/water/gas/internet/phone bills → "Utilities"; streaming/software/memberships → "Subscrições"; brokerage/stock purchases → "Investimentos"; bank fees/charges and taxes (stamp duty, IMI, tax payments) → "Impostos e Comissões"; transfers between own accounts or to other people → "Transferências"; salary/income/positive amounts → "Receita".
 3. If genuinely unsure, use "Despesas Gerais" as a safe default — never invent a category outside the list.
 
 META RULES:
