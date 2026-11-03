@@ -926,8 +926,12 @@ Antes era tudo manual (fila "Por associar"). Agora a app **aprende com o clique*
   `deactivateImovelRule` (corrigir uma associação automática desactiva a regra),
   `loadImovelRegras`. Qualquer gravação manual limpa `imovel_auto`.
 - A notificação do sync/cron diz "N rendas associadas a imóvel".
-- **Pendente**: arranque a partir do histórico já classificado (regras iniciais),
-  e uma marca visível de "automática" com botão de desfazer nas listas.
+- **Marca por transacção**: pill "AUTO" (`AutoPill`) nas linhas de transacções
+  (`TxnRow` e lista de Imóveis) quando `imovel_auto`; no popup de edição um
+  aviso "Associada a X automaticamente" com **Desfazer** (volta à fila "Por
+  associar" e desactiva a regra).
+- **Decisão**: sem arranque a partir do histórico — as regras nascem da próxima
+  associação manual de cada pagador.
 
 ## Segurança — auditoria e endurecimento (2026-10-13)
 

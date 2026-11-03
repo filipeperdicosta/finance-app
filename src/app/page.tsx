@@ -887,6 +887,10 @@ const CatRow = ({nome,v,pct,cor,last,onClick}:{nome:string,v:number,pct:number,c
     <div style={{height:3,borderRadius:2,background:T.border}}><div style={{width:`${pct}%`,height:'100%',borderRadius:2,background:cor}}/></div>
   </div>
 )
+// Marca de "associada automaticamente ao imóvel por regra aprendida" (imovel_auto) — ao nível
+// da transacção, para se distinguir do que foi associado à mão.
+const AutoPill = () => <span title="Associada ao imóvel automaticamente" style={{fontSize:9,fontWeight:700,letterSpacing:0.5,textTransform:'uppercase',padding:'1px 5px',borderRadius:4,border:`1px solid ${T.border}`,color:T.textSec,marginLeft:6,verticalAlign:'middle'}}>auto</span>
+
 const TxnRow = ({t,last,onClick,accounts}:{t:Transaction,last:boolean,onClick?:()=>void,accounts?:Account[]}) => {
   const accountName = accounts?.find(a=>a.id===t.account_id)?.nome
   return (
@@ -895,7 +899,7 @@ const TxnRow = ({t,last,onClick,accounts}:{t:Transaction,last:boolean,onClick?:(
     <div style={{flex:1,minWidth:0}}>
       <div style={{fontSize:13,fontWeight:500,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div>
       <div style={{fontSize:11,color:T.textSec,marginTop:2}}>
-        {accountName&&<span style={{color:T.textTer}}>{accountName} · </span>}{t.categoria??'Sem categoria'} · {t.data}
+        {accountName&&<span style={{color:T.textTer}}>{accountName} · </span>}{t.categoria??'Sem categoria'} · {t.data}{t.imovel_auto&&<AutoPill/>}
       </div>
     </div>
     {onClick&&<Edit2 size={13} color={T.textTer} style={{flexShrink:0}}/>}
@@ -1003,6 +1007,14 @@ const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis,accounts,isDetectedTransfe
     if(saudeTouched && finalSaudeOverride) await learnSaudeOverride(descritivo, finalSaudeOverride)
     await onSaved(); setSaving(false); onClose()
   }
+  // Desfaz uma associação automática: volta à fila "Por associar" e a regra que a fez desactiva-se.
+  const desfazerAuto = async () => {
+    if(!txn.imovel_id) return
+    setSaving(true)
+    await updateTransaction(txn.id, { imovel_id:null, imovel_classificado:false, imovel_auto:false })
+    await deactivateImovelRule(txn.imovel_id, txn.descritivo)
+    await onSaved(); setSaving(false); onClose()
+  }
   const del = async () => {
     if(!confirm('Apagar esta transação?')) return
     setSaving(true); await deleteTransaction(txn.id); await onSaved(); setSaving(false); onClose()
@@ -1029,6 +1041,12 @@ const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis,accounts,isDetectedTransfe
             </div>
           ):(
             <CategoryPicker label="Categoria" value={categoria} onChange={setCategoria} categorias={CAT_LIST.filter(c=>c!=='Receita')}/>
+          )}
+          {hasImoveis&&txn.imovel_auto&&txn.imovel_id&&(
+            <div style={{display:'flex',alignItems:'center',gap:10,justifyContent:'space-between',background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,padding:'9px 12px',marginBottom:12,fontSize:12,color:T.textSec,lineHeight:1.4}}>
+              <span>Associada a <b style={{color:T.text}}>{imoveis!.find(i=>i.id===txn.imovel_id)?.nome??'imóvel'}</b> automaticamente. Para mudar, escolhe outro imóvel abaixo.</span>
+              <button disabled={saving} onClick={desfazerAuto} style={{flexShrink:0,background:'none',border:`1px solid ${T.border}`,borderRadius:8,padding:'5px 10px',fontSize:12,fontWeight:600,color:pal.accent,cursor:'pointer'}}>Desfazer</button>
+            </div>
           )}
           {hasImoveis&&<Sel label="Imóvel associado" value={imovelId} onChange={setImovelId} options={[{value:'',label:'Geral (nenhum imóvel)'},...imoveis!.map(im=>({value:im.id,label:`🏠 ${im.nome}`}))]}/>}
           {imovelId&&tipo==='despesa'&&<Sel label="Balde IRS (Anexo F)" value={irsSubcategoria} onChange={setIrsSubcategoria} options={[{value:'',label:'Não classificado'},...IRS_SUBCATEGORIAS.map(c=>({value:c,label:IRS_SUBCATEGORIA_LABELS[c]}))]}/>}
@@ -4701,7 +4719,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
                 <CatChip categoria={t.categoria??'Despesas Gerais'} size={38} opacity={35}/>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:13,fontWeight:500,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div>
-                  <div style={{fontSize:11,color:T.textSec,marginTop:2}}>{imN?`🏠 ${imN}`:(t.categoria??'Sem categoria')} · {t.data}</div>
+                  <div style={{fontSize:11,color:T.textSec,marginTop:2}}>{imN?`🏠 ${imN}`:(t.categoria??'Sem categoria')} · {t.data}{t.imovel_auto&&<AutoPill/>}</div>
                 </div>
                 <Edit2 size={13} color={T.textTer} style={{flexShrink:0}}/>
                 <div style={{fontSize:13,fontWeight:700,color:t.valor>=0?T.green:T.red,fontFamily:T.mono,whiteSpace:'nowrap'}}>{t.valor>=0?'+ ':'− '}{dec(t.valor)}</div>
