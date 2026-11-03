@@ -905,6 +905,30 @@ Aprendizagens, entrada Recharts, já corrigida.
 
 ---
 
+## Associação automática de rendas a imóveis (2026-11-03)
+
+Antes era tudo manual (fila "Por associar"). Agora a app **aprende com o clique**:
+- Tabela `imovel_regras` (`docs/sql/2026-11-03-imovel-regras.sql`; RLS por
+  `imovel_users` activos): `pattern` (descritivo normalizado), `valor_ref`,
+  `tol_pct` (5), `dia_tipico`/`dia_tol` (opcionais, **desligados**), `ativa`.
+  Coluna nova `transactions.imovel_auto` (marca as associadas por regra).
+- `src/lib/imovelMatch.ts`: `normalizeKey` (sem acentos, dígitos e pontuação),
+  `regraBate` (descritivo igual **e** valor ±5% do último associado; dia só se
+  a regra o tiver), `autoAssignImovel(admin, accountId)`, chamada no fim de
+  cada entrada de transacções (sync EB, cron EB, cron Drive, `/api/drive/import`).
+  Nunca lança (sem tabela ou erro → fica na fila manual).
+- Só **rendas** (valor > 0). Se bater mais que um imóvel, não adivinha. `valor_ref`
+  acompanha cada associação (inflação anual sem acumular desvio); um salto > 5%
+  cai na fila, com o imóvel do mesmo pagador **sugerido** (botão destacado ✦).
+- Decisão do Filipe: sem critério do dia por defeito — não esconde atrasos de
+  pagamento. As colunas existem para activar por regra no futuro (sem UI ainda).
+- Cliente (`supabase.ts`): `learnImovelRule` (na fila e no popup de edição),
+  `deactivateImovelRule` (corrigir uma associação automática desactiva a regra),
+  `loadImovelRegras`. Qualquer gravação manual limpa `imovel_auto`.
+- A notificação do sync/cron diz "N rendas associadas a imóvel".
+- **Pendente**: arranque a partir do histórico já classificado (regras iniciais),
+  e uma marca visível de "automática" com botão de desfazer nas listas.
+
 ## Segurança — auditoria e endurecimento (2026-10-13)
 
 Auditoria às rotas de API, ao `state` OAuth e ao Supabase (RLS/RPCs), com

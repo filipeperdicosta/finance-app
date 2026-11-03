@@ -25,6 +25,7 @@ import {
   saveTransactions, updateTransaction, deleteTransaction, deleteTransactions, recategorizeTransactions,
   saveImovel, updateImovel, deleteImovel, linkContaImovel, unlinkContaImovel,
   assignTransactionToImovel, assignTransactionsToImovel, loadUnclassifiedImovelTxns, loadImovelTxnsForYear,
+  learnImovelRule, deactivateImovelRule, loadImovelRegras,
   loadCategoryRules, learnFromCategorization, matchRule, deleteCategoryRule, deleteCategoryRules, updateCategoryRule,
   loadSaudeRules, learnSaudeOverride, matchSaudeRule,
   getDriveConnectionStatus, disconnectDrive, getDriveAuthUrl, updateAccountDriveFolder, loadDriveFiles,
@@ -46,6 +47,7 @@ import {
   type Profile, type AccountMember, type AccountInvite, type SuspiciousPair, type LedgerAutoConfig, type CustosCasaConfig,
   type PrejuizoReportavel, type ImovelInvite,
 } from '@/lib/supabase'
+import { regrasSugeridas, type ImovelRegra } from '@/lib/imovelMatch'
 import {
   IRS_SUBCATEGORIAS, IRS_SUBCATEGORIA_LABELS, limiteRendaAplicavel, contratoDuracaoAnos,
   sugerirRegimeIrs, computeIrsImovel, buildIrsLinhas, aplicarPrejuizosReportaveis,
@@ -982,10 +984,17 @@ const TxnEditForm = ({txn,onClose,onSaved,pal,imoveis,accounts,isDetectedTransfe
     if(hasImoveis){
       fields.imovel_id = imovelId || null
       fields.imovel_classificado = true
+      fields.imovel_auto = false // qualquer gravação manual tira a marca de "automática"
     }
     if(imovelId && tipo==='despesa') fields.subcategoria = irsSubcategoria || null
     if(imovelId && tipo==='receita') fields.subcategoria = naoRenda ? 'nao_renda' : null
     await updateTransaction(txn.id, fields)
+    // Associação a imóveis: aprende com a escolha manual; se corrigiu uma associação automática
+    // para outro imóvel (ou para "Geral"), a regra que a fez desactiva-se.
+    if(hasImoveis){
+      if(txn.imovel_auto && txn.imovel_id && txn.imovel_id!==imovelId) await deactivateImovelRule(txn.imovel_id,txn.descritivo)
+      if(imovelId && tipo==='receita') await learnImovelRule(imovelId,descritivo,finalVal)
+    }
     // Aprendizagem: reforça/cria a regra com base na categoria escolhida manualmente
     // (regras de "Receita" não trazem grande valor preditivo, mas não fazem mal)
     await learnFromCategorization(descritivo, finalCategoria)
@@ -3436,8 +3445,15 @@ const ImovelForm = ({initial,accounts,linkedAccountIds,onClose,onSaved,pal,imove
 // ─────────────────────────────────────────────────────────────────
 const AssignQueue = ({txns,imoveis,onClose,onRefresh,pal}:{txns:Transaction[],imoveis:Imovel[],onClose:()=>void,onRefresh:()=>void,pal:{accent:string,soft:string}}) => {
   const [busy,setBusy] = useState(false)
-  const assign = async (txnId:string, imovelId:string|null) => {
-    setBusy(true); await assignTransactionToImovel(txnId,imovelId); await onRefresh(); setBusy(false)
+  // Regras aprendidas: o imóvel do mesmo pagador vem destacado ("Sugerido"), mesmo quando o valor
+  // saiu da tolerância e por isso não foi associado sozinho.
+  const [regras,setRegras] = useState<ImovelRegra[]>([])
+  useEffect(()=>{ loadImovelRegras().then(setRegras) },[])
+  const assign = async (t:Transaction, imovelId:string|null) => {
+    setBusy(true)
+    await assignTransactionToImovel(t.id,imovelId)
+    if(imovelId) await learnImovelRule(imovelId,t.descritivo,Number(t.valor))
+    await onRefresh(); setBusy(false)
   }
   return (
     <div style={{position:'fixed',inset:0,background:T.bg,zIndex:95,overflowY:'auto',fontFamily:'var(--font-body),-apple-system,BlinkMacSystemFont,sans-serif'}}>
@@ -3457,10 +3473,13 @@ const AssignQueue = ({txns,imoveis,onClose,onRefresh,pal}:{txns:Transaction[],im
                 <div style={{fontSize:14,fontWeight:700,color:t.valor>=0?T.green:T.red,fontFamily:T.mono}}>{t.valor>=0?'+ ':'− '}{dec(t.valor)}</div>
               </div>
               <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
-                {imoveis.map(im=>(
-                  <button key={im.id} disabled={busy} onClick={()=>assign(t.id,im.id)} style={{background:pal.soft,border:`1px solid ${T.border}`,borderRadius:8,padding:'6px 11px',fontSize:12,fontWeight:600,color:pal.accent,cursor:'pointer'}}>{im.nome}</button>
-                ))}
-                <button disabled={busy} onClick={()=>assign(t.id,null)} style={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:8,padding:'6px 11px',fontSize:12,fontWeight:600,color:T.textSec,cursor:'pointer'}}>Geral (nenhum)</button>
+                {(()=>{
+                  const sug = new Set(regrasSugeridas(regras,t).map(r=>r.imovel_id))
+                  return [...imoveis].sort((a,b)=>Number(sug.has(b.id))-Number(sug.has(a.id))).map(im=>(
+                    <button key={im.id} disabled={busy} onClick={()=>assign(t,im.id)} style={{background:sug.has(im.id)?pal.accent:pal.soft,border:`1px solid ${sug.has(im.id)?pal.accent:T.border}`,borderRadius:8,padding:'6px 11px',fontSize:12,fontWeight:600,color:sug.has(im.id)?'#FFF':pal.accent,cursor:'pointer'}}>{sug.has(im.id)?'✦ ':''}{im.nome}</button>
+                  ))
+                })()}
+                <button disabled={busy} onClick={()=>assign(t,null)} style={{background:T.surface2,border:`1px solid ${T.border}`,borderRadius:8,padding:'6px 11px',fontSize:12,fontWeight:600,color:T.textSec,cursor:'pointer'}}>Geral (nenhum)</button>
               </div>
             </Card>
           ))}

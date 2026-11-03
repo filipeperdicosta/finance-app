@@ -4,6 +4,7 @@ import { parseStatementWithGemini, detectMimeType, categorizeSingleTransaction, 
 import { getT212Configs, getT212Portfolio } from '@/lib/t212'
 import { getEnableBankingBalance, getEnableBankingTransactions, getMccCategory, getKeywordCategory } from '@/lib/enableBanking'
 import { syncLedgerAutoForAllUsers } from '@/lib/ledgerSync'
+import { autoAssignImovel } from '@/lib/imovelMatch'
 import { syncCustosCasaForAllUsers } from '@/lib/custosCasaSync'
 
 // Verificação automática diária: para CADA utilizador com Drive ligada,
@@ -176,6 +177,7 @@ export async function GET(req: NextRequest) {
 
               if (newTxns.length) {
                 await supabaseAdmin.from('transactions').upsert(newTxns, { onConflict: 'hash', ignoreDuplicates: true })
+                await autoAssignImovel(supabaseAdmin, account.id)
               }
 
               const { data: batch } = await supabaseAdmin.from('import_batches').insert({
@@ -296,7 +298,7 @@ export async function GET(req: NextRequest) {
       const rules = (rulesData ?? []) as { pattern: string; categoria: string; vezes_usada: number }[]
 
       // Agrupa por utilizador para notificação única no fim
-      const ebResultsByUser: Record<string, { bankName: string; accountName: string; balance: number | null; newTxns: number; error?: string }[]> = {}
+      const ebResultsByUser: Record<string, { bankName: string; accountName: string; balance: number | null; newTxns: number; autoImovel?: number; error?: string }[]> = {}
 
       for (const ebAcc of ebAccounts ?? []) {
         const session = ebAcc.enablebanking_sessions as any
@@ -390,7 +392,8 @@ export async function GET(req: NextRequest) {
             })
             continue
           }
-          ebResultsByUser[userId].push({ bankName: session.bank_name, accountName, balance, newTxns })
+          const autoImovel = await autoAssignImovel(supabaseEB, ebAcc.account_id)
+          ebResultsByUser[userId].push({ bankName: session.bank_name, accountName, balance, newTxns, autoImovel })
           console.log(`EB cron: ${accountName} → €${balance?.toFixed(2) ?? 'N/A'}, ${newTxns} txns novas`)
 
         } catch (err: any) {
@@ -405,7 +408,7 @@ export async function GET(req: NextRequest) {
         const lines = results.map(r =>
           r.error
             ? `✗ ${r.accountName}: ${r.error}`
-            : `${r.accountName}: €${r.balance?.toFixed(2) ?? 'N/A'} · ${r.newTxns} nova${r.newTxns !== 1 ? 's' : ''}`
+            : `${r.accountName}: €${r.balance?.toFixed(2) ?? 'N/A'} · ${r.newTxns} nova${r.newTxns !== 1 ? 's' : ''}${r.autoImovel ? ` · ${r.autoImovel} renda${r.autoImovel !== 1 ? 's' : ''} associada${r.autoImovel !== 1 ? 's' : ''} a imóvel` : ''}`
         )
         await createNotification({
           userId,

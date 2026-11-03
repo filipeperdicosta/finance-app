@@ -1,4 +1,5 @@
 import { createBrowserClient } from '@supabase/ssr'
+import { normalizeKey, type ImovelRegra } from './imovelMatch'
 
 export const supabase = createBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -70,6 +71,7 @@ export type Transaction = {
   ai_confianca: number | null
   imovel_id: string | null
   imovel_classificado: boolean
+  imovel_auto?: boolean          // associada ao imóvel por regra aprendida (ver imovelMatch.ts)
   notas: string | null
   excluir_analise: boolean
   ordem_extrato: number
@@ -332,12 +334,43 @@ export async function assignTransactionToImovel(txnId: string, imovelId: string 
   return supabase.from('transactions').update({
     imovel_id: imovelId,
     imovel_classificado: true,
+    imovel_auto: false,
   }).eq('id', txnId)
+}
+
+// ── Regras de associação automática a imóveis (ver imovelMatch.ts) ──────
+// Aprende com a associação manual de uma renda (valor > 0): cria/reforça a regra do pagador
+// para esse imóvel e actualiza o valor de referência. Não crítico — nunca lança.
+export async function learnImovelRule(imovelId: string, descritivo: string, valor: number) {
+  try {
+    if (!(valor > 0)) return
+    const pattern = normalizeKey(descritivo)
+    if (!pattern) return
+    const { data: existing } = await supabase.from('imovel_regras').select('id, vezes_usada')
+      .eq('imovel_id', imovelId).eq('pattern', pattern).maybeSingle()
+    if (existing) {
+      await supabase.from('imovel_regras').update({ valor_ref: valor, vezes_usada: existing.vezes_usada + 1, ativa: true }).eq('id', existing.id)
+    } else {
+      await supabase.from('imovel_regras').insert({ imovel_id: imovelId, pattern, valor_ref: valor })
+    }
+  } catch (err) { console.warn('learnImovelRule:', err) }
+}
+// Corrigiu manualmente uma associação automática → a regra desse imóvel desactiva-se (nunca insiste
+// num padrão que o utilizador rejeitou). Reactiva-se se voltar a associar à mão o mesmo pagador.
+export async function deactivateImovelRule(imovelId: string, descritivo: string) {
+  try {
+    await supabase.from('imovel_regras').update({ ativa: false }).eq('imovel_id', imovelId).eq('pattern', normalizeKey(descritivo))
+  } catch (err) { console.warn('deactivateImovelRule:', err) }
+}
+export async function loadImovelRegras(): Promise<ImovelRegra[]> {
+  const { data } = await supabase.from('imovel_regras').select('*').eq('ativa', true)
+  return (data ?? []) as ImovelRegra[]
 }
 export async function assignTransactionsToImovel(txnIds: string[], imovelId: string | null) {
   return supabase.from('transactions').update({
     imovel_id: imovelId,
     imovel_classificado: true,
+    imovel_auto: false,
   }).in('id', txnIds)
 }
 

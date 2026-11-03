@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireUser, userOwnsAccount, forbidden } from '@/lib/requireUser'
 import { getValidAccessToken, getSupabaseAdmin, createNotification } from '@/lib/googleDrive'
 import { parseStatementWithGemini, detectMimeType, txnHash } from '@/lib/geminiParse'
+import { autoAssignImovel } from '@/lib/imovelMatch'
 
 type ConfirmedTxn = { data: string; descritivo: string; valor: number; categoria: string }
 
@@ -91,6 +92,7 @@ export async function POST(req: NextRequest) {
     if (newTxns.length) {
       const { error: insertError } = await supabaseAdmin.from('transactions').upsert(newTxns, { onConflict: 'hash', ignoreDuplicates: true })
       if (insertError) console.error('Erro ao inserir transações:', insertError)
+      else await autoAssignImovel(supabaseAdmin, account_id)
     }
 
     // Cria o import_batch para rastreio/notificações

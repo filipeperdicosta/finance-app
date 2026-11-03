@@ -3,6 +3,7 @@ import { requireUser } from '@/lib/requireUser'
 import { getEnableBankingBalance, getEnableBankingTransactions, getMccCategory, getKeywordCategory } from '@/lib/enableBanking'
 import { getSupabaseAdmin, createNotification } from '@/lib/googleDrive'
 import { categorizeSingleTransaction } from '@/lib/geminiParse'
+import { autoAssignImovel } from '@/lib/imovelMatch'
 
 export async function POST(req: NextRequest) {
   const auth = await requireUser(req)
@@ -150,7 +151,9 @@ export async function POST(req: NextRequest) {
               : `Banco não devolveu transacções (${txnError.includes('ASPSP_ERROR') ? 'erro do banco — re-liga o banco' : txnError})`,
           })
         } else {
-          results.push({ accountName, bank: session?.bank_name, balance, newTxns, balanceError })
+          // Rendas por classificar → imóvel, pelas regras aprendidas (nunca lança)
+          const autoImovel = await autoAssignImovel(supabaseAdmin, ebAcc.account_id)
+          results.push({ accountName, bank: session?.bank_name, balance, newTxns, balanceError, autoImovel })
         }
 
       } catch (err: any) {
@@ -168,7 +171,7 @@ export async function POST(req: NextRequest) {
     const lines = results.map(r =>
       r.error
         ? `✗ ${r.accountName}: ${r.error}`
-        : `${r.accountName}: ${r.balance != null ? `€${r.balance.toFixed(2)}` : 'saldo indisponível'} · ${r.newTxns} nova${r.newTxns !== 1 ? 's' : ''}`
+        : `${r.accountName}: ${r.balance != null ? `€${r.balance.toFixed(2)}` : 'saldo indisponível'} · ${r.newTxns} nova${r.newTxns !== 1 ? 's' : ''}${r.autoImovel ? ` · ${r.autoImovel} renda${r.autoImovel !== 1 ? 's' : ''} associada${r.autoImovel !== 1 ? 's' : ''} a imóvel` : ''}`
     )
     await createNotification({
       userId: user_id,
