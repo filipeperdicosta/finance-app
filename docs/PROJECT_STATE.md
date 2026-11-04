@@ -955,6 +955,21 @@ Antes era tudo manual (fila "Por associar"). Agora a app **aprende com o clique*
 - **Saúde financeira**: toggle "100% / Minha quota" (por defeito 100%); a lista de auditoria do
   rendimento mostra o valor que conta.
 
+## Saúde financeira — rendimento por âmbito (2026-11-04)
+
+- O rendimento de cada âmbito = receitas externas + transferências recebidas − transferências
+  enviadas **entre contas Familiar e Pessoal** (valor líquido). Ex.: ordenado 5 000 na Familiar,
+  3 000 para a Pessoal → Familiar 2 000, Pessoal 3 000; 2 000 de volta → 4 000 / 1 000. Em "Ambos"
+  as duas pernas estão dentro do âmbito e anulam-se (total inalterado).
+- `buildTransferLegs` emparelha UMA vez sobre todas as contas Familiar+Pessoal (alta confiança, e
+  média só se o utilizador a marcou "transferência"); cada perna aponta para a conta da outra.
+  `computeSaudeFinanceiraMonth`: outra perna no âmbito → ignora; fora → soma/subtrai ao rendimento
+  (e nunca entra nos baldes). Transferências para contas de Investimento não mudam.
+- Com "Minha quota" ligada, cada perna usa a quota da sua própria conta (Familiar × %, Pessoal × 1).
+- Rendimento líquido ≤ 0 num período: mostra o valor e "—" nas percentagens dos baldes.
+- A fila "por validar" e a lista de transferências identificadas passam a cobrir as duas contas
+  (Familiar+Pessoal), não só as do âmbito escolhido. Pernas "ignoradas" sem par continuam excluídas.
+
 ## Segurança — auditoria e endurecimento (2026-10-13)
 
 Auditoria às rotas de API, ao `state` OAuth e ao Supabase (RLS/RPCs), com

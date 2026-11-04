@@ -313,6 +313,24 @@ function detectTransferCandidates(txns:Transaction[]): TransferCandidate[] {
   ]
 }
 
+// Pernas de transferência CONFIRMADAS entre contas Familiar/Pessoal: pares de alta confiança, e de
+// média confiança que o utilizador marcou como "transferência". Calculado uma vez sobre TODAS as
+// contas Familiar+Pessoal (não por âmbito nem por mês), para que uma transferência entre âmbitos
+// seja reconhecida do lado de cada conta. Cada perna aponta para a conta da outra perna.
+type TransferLeg = { otherAccountId: string }
+function buildTransferLegs(accounts:Account[], transactions:Transaction[], rules:SaudeRule[]=[]): Map<string,TransferLeg> {
+  const pfIds = new Set(accounts.filter(a=>a.budget_tag==='pessoal'||a.budget_tag==='familiar').map(a=>a.id))
+  const txns = transactions.filter(t=>pfIds.has(t.account_id)&&!t.excluir_analise)
+  const legs = new Map<string,TransferLeg>()
+  const link = (a:Transaction,b:Transaction) => { legs.set(a.id,{otherAccountId:b.account_id}); legs.set(b.id,{otherAccountId:a.account_id}) }
+  const highIds = new Set<string>()
+  detectHighConfidenceTransferPairs(txns).forEach(({a,b})=>{ highIds.add(a.id); highIds.add(b.id); link(a,b) })
+  detectMediumConfidenceTransferPairs(txns, highIds).forEach(({a,b})=>{
+    if(effectiveSaudeOverride(a,rules)==='transferencia' || effectiveSaudeOverride(b,rules)==='transferencia') link(a,b)
+  })
+  return legs
+}
+
 type SaudeResult = {
   income: number
   buckets: Record<Bucket,number>
@@ -322,7 +340,7 @@ type SaudeResult = {
 
 // Cálculo de um único mês — bloco reutilizado pela agregação por janela abaixo.
 // usarQuota=false (por defeito): contas Familiares a 100%; true: só a tua quota (my_ownership_pct).
-function computeSaudeFinanceiraMonth(accounts:Account[], transactions:Transaction[], scope:'pessoal'|'familiar'|'ambos', ym:string, rules:SaudeRule[]=[], usarQuota:boolean=false): SaudeResult {
+function computeSaudeFinanceiraMonth(accounts:Account[], transactions:Transaction[], scope:'pessoal'|'familiar'|'ambos', ym:string, rules:SaudeRule[]=[], usarQuota:boolean=false, legs:Map<string,TransferLeg>=new Map()): SaudeResult {
   const scopeAccounts = accounts.filter(a=>{
     if(scope==='pessoal') return a.budget_tag==='pessoal'
     if(scope==='familiar') return a.budget_tag==='familiar'
@@ -330,37 +348,46 @@ function computeSaudeFinanceiraMonth(accounts:Account[], transactions:Transactio
   })
   const scopeIds = new Set(scopeAccounts.map(a=>a.id))
   const pctByAccount = new Map(scopeAccounts.map(a=>[a.id, usarQuota && a.budget_tag==='familiar' ? (a.my_ownership_pct??a.ownership_pct)/100 : 1]))
-  const monthTxns =transactions.filter(t=>scopeIds.has(t.account_id)&&t.data.startsWith(ym)&&!t.excluir_analise)
-  const transferIds = detectHighConfidenceTransfers(monthTxns)
+  const monthTxns = transactions.filter(t=>scopeIds.has(t.account_id)&&t.data.startsWith(ym)&&!t.excluir_analise)
 
   let income = 0
+  let internalLegs = 0
   const buckets: Record<Bucket,number> = {fixos:0,poupanca_investimento:0,guilt_free:0}
 
   for(const t of monthTxns){
     // Ajuste manual (saude_override) ou regra aprendida vencem sempre sobre a heurística e
-    // o mapeamento por categoria.
+    // o mapeamento por categoria. 'transferencia' não é um balde: trata-se mais abaixo.
     const eff = effectiveSaudeOverride(t, rules)
-    if(eff==='transferencia') continue
     const pct = pctByAccount.get(t.account_id) ?? 1
     const valor = Number(t.valor)*pct
-    if(eff){
+    if(eff && eff!=='transferencia'){
       if(valor>0){ income += valor; continue } // receitas nunca entram em baldes, mesmo com override
       buckets[eff as Bucket] += Math.abs(valor)
       continue
     }
-    if(transferIds.has(t.id)) continue
+    // Transferência com par (alta confiança, ou média confirmada pelo utilizador) entre contas
+    // Familiar/Pessoal: se a outra perna está dentro do âmbito é interna (ignora); se está fora, o
+    // movimento altera o rendimento deste âmbito (entrada soma, saída subtrai — valor líquido).
+    const leg = legs.get(t.id)
+    if(leg){
+      if(scopeIds.has(leg.otherAccountId)){ internalLegs++; continue }
+      income += valor
+      continue
+    }
+    if(eff==='transferencia') continue // ignorada à mão/por regra, sem par conhecido
     if(valor>0){ income += valor; continue }
     const bucket = CATEGORY_BUCKET[t.categoria??''] ?? 'guilt_free'
     buckets[bucket] += Math.abs(valor)
   }
 
-  return { income, buckets, transfersExcluded: transferIds.size/2, hasData: monthTxns.length>0 }
+  return { income, buckets, transfersExcluded: internalLegs/2, hasData: monthTxns.length>0 }
 }
 
 // Agrega N meses terminados em refMonth (inclusive). % de cada balde = soma/soma —
 // não média das percentagens mensais — para não deixar um mês de rendimento atípico
 // distorcer o peso relativo (soma pondera correctamente por rendimento de cada mês).
-function computeSaudeFinanceira(accounts:Account[], transactions:Transaction[], scope:'pessoal'|'familiar'|'ambos', refMonth:string, windowMonths:number=1, rules:SaudeRule[]=[], usarQuota:boolean=false): SaudeResult {
+function computeSaudeFinanceira(accounts:Account[], transactions:Transaction[], scope:'pessoal'|'familiar'|'ambos', refMonth:string, windowMonths:number=1, rules:SaudeRule[]=[], usarQuota:boolean=false, legsIn?:Map<string,TransferLeg>): SaudeResult {
+  const legs = legsIn ?? buildTransferLegs(accounts, transactions, rules)
   let income = 0
   let transfersExcluded = 0
   let hasData = false
@@ -368,7 +395,7 @@ function computeSaudeFinanceira(accounts:Account[], transactions:Transaction[], 
 
   for(let i=0;i<windowMonths;i++){
     const ym = shiftMonth(refMonth, -i)
-    const r = computeSaudeFinanceiraMonth(accounts, transactions, scope, ym, rules, usarQuota)
+    const r = computeSaudeFinanceiraMonth(accounts, transactions, scope, ym, rules, usarQuota, legs)
     income += r.income
     transfersExcluded += r.transfersExcluded
     hasData = hasData || r.hasData
@@ -5388,8 +5415,12 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
     return a.budget_tag==='pessoal'||a.budget_tag==='familiar'
   }),[accounts,scope])
   const scopeIds = useMemo(()=>new Set(scopeAccounts.map(a=>a.id)),[scopeAccounts])
-  const accountNome = useMemo(()=>new Map(scopeAccounts.map(a=>[a.id,a.nome])),[scopeAccounts])
+  // Todas as contas Familiar+Pessoal (independentemente do âmbito): as transferências entre
+  // âmbitos têm uma perna em cada, por isso a detecção e os nomes cobrem as duas.
+  const pfAccounts = useMemo(()=>accounts.filter(a=>a.budget_tag==='pessoal'||a.budget_tag==='familiar'),[accounts])
+  const accountNome = useMemo(()=>new Map(pfAccounts.map(a=>[a.id,a.nome])),[pfAccounts])
   const scopeTxns = useMemo(()=>transactions.filter(t=>scopeIds.has(t.account_id)),[transactions,scopeIds])
+  const pfTxns = useMemo(()=>{ const ids = new Set(pfAccounts.map(a=>a.id)); return transactions.filter(t=>ids.has(t.account_id)) },[transactions,pfAccounts])
 
   const latestMonth = latestMonthWithData(scopeTxns)
   let refMonth: string|null = latestMonth
@@ -5400,7 +5431,8 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
   }
   const canGoForward = monthOffset<0
 
-  const result = useMemo(()=>refMonth?computeSaudeFinanceira(accounts,transactions,scope,refMonth,windowMonths,saudeRules,showQuota):null,[accounts,transactions,scope,refMonth,windowMonths,saudeRules,showQuota])
+  const transferLegs = useMemo(()=>buildTransferLegs(accounts,transactions,saudeRules),[accounts,transactions,saudeRules])
+  const result = useMemo(()=>refMonth?computeSaudeFinanceira(accounts,transactions,scope,refMonth,windowMonths,saudeRules,showQuota,transferLegs):null,[accounts,transactions,scope,refMonth,windowMonths,saudeRules,showQuota,transferLegs])
   // Quota aplicada a cada conta no modo "Minha quota" (1 = 100%)
   const quotaDe = useCallback((accountId:string)=>{
     if(!showQuota) return 1
@@ -5420,41 +5452,50 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
   },[scopeTxns,refMonth,windowYMs])
 
   const windowTxnsAllSigns = useMemo(()=>scopeTxns.filter(t=>windowYMs.has(t.data.slice(0,7))),[scopeTxns,windowYMs])
-  // Candidatos a transferência dentro da janela actual — para a lista exaustiva (todos os níveis)
-  const windowCandidates = useMemo(()=>refMonth?detectTransferCandidates(windowTxnsAllSigns):[],[refMonth,windowTxnsAllSigns])
+  // Candidatos a transferência dentro da janela actual — para a lista exaustiva (todos os níveis).
+  // Sobre todas as contas Familiar+Pessoal, para apanhar também as transferências entre âmbitos.
+  const windowCandidates = useMemo(()=>refMonth?detectTransferCandidates(pfTxns.filter(t=>windowYMs.has(t.data.slice(0,7)))):[],[refMonth,pfTxns,windowYMs])
   // Candidatos por validar em TODO o histórico (não limitado à janela) — para o card, tal
   // como a fila "por associar" de Imóveis também não é filtrada ao mês.
-  const allCandidates = useMemo(()=>detectTransferCandidates(scopeTxns),[scopeTxns])
+  const allCandidates = useMemo(()=>detectTransferCandidates(pfTxns),[pfTxns])
   const pendingCandidates = useMemo(()=>allCandidates.filter(c=>c.confidence==='media' && !transferResolved(c,saudeRules)),[allCandidates,saudeRules])
   const altaIds = useMemo(()=>{
     const s = new Set<string>()
     windowCandidates.filter(c=>c.confidence==='alta').forEach(c=>{ s.add(c.a.id); if(c.b) s.add(c.b.id) })
     return s
   },[windowCandidates])
-  // IDs excluídos do cálculo: pares de alta confiança + qualquer override/regra='transferencia'
-  const excludedIdSet = useMemo(()=>{
-    const s = new Set<string>(altaIds)
-    windowTxnsAllSigns.forEach(t=>{ if(effectiveSaudeOverride(t,saudeRules)==='transferencia') s.add(t.id) })
-    return s
-  },[altaIds,windowTxnsAllSigns,saudeRules])
+  // Espelha computeSaudeFinanceiraMonth: IDs excluídos do cálculo (transferências internas ao âmbito
+  // e as ignoradas sem par) e IDs de transferências que CRUZAM o âmbito (entram no rendimento, líquidas).
+  const {excludedIdSet,crossIdSet} = useMemo(()=>{
+    const excl = new Set<string>(), cross = new Set<string>()
+    windowTxnsAllSigns.forEach(t=>{
+      if(t.excluir_analise) return
+      const eff = effectiveSaudeOverride(t,saudeRules)
+      if(eff && eff!=='transferencia') return
+      const leg = transferLegs.get(t.id)
+      if(leg){ (scopeIds.has(leg.otherAccountId) ? excl : cross).add(t.id); return }
+      if(eff==='transferencia') excl.add(t.id)
+    })
+    return {excludedIdSet:excl, crossIdSet:cross}
+  },[windowTxnsAllSigns,saudeRules,transferLegs,scopeIds])
 
-  // Transacções positivas da janela — auditoria do "Rendimento considerado"
+  // Entradas da janela + saídas para o outro âmbito — auditoria do "Rendimento considerado"
   const incomeTxnsForDetail = useMemo(()=>{
     if(!refMonth) return []
-    return windowTxnsAllSigns.filter(t=>!t.excluir_analise && Number(t.valor)>0)
+    return windowTxnsAllSigns.filter(t=>!t.excluir_analise && (Number(t.valor)>0 || crossIdSet.has(t.id)))
       .sort((a,b)=>b.data.localeCompare(a.data))
-  },[windowTxnsAllSigns,refMonth])
+  },[windowTxnsAllSigns,refMonth,crossIdSet])
 
   // Transacções (excluindo transferências) do balde seleccionado — respeita saude_override
   const bucketTxns = useMemo(()=>{
     if(!selectedBucket) return []
     return monthTxnsForDetail.filter(t=>{
-      if(excludedIdSet.has(t.id)) return false
+      if(excludedIdSet.has(t.id) || crossIdSet.has(t.id)) return false
       const eff = effectiveSaudeOverride(t,saudeRules)
       const bucket = (eff && eff!=='transferencia') ? eff : (CATEGORY_BUCKET[t.categoria??''] ?? 'guilt_free')
       return bucket===selectedBucket
     }).sort((a,b)=>Math.abs(Number(b.valor))-Math.abs(Number(a.valor)))
-  },[monthTxnsForDetail,excludedIdSet,selectedBucket,saudeRules])
+  },[monthTxnsForDetail,excludedIdSet,crossIdSet,selectedBucket,saudeRules])
 
   // Composição por categoria dentro do balde seleccionado
   const bucketBreakdown = useMemo(()=>{
@@ -5537,10 +5578,13 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8,marginBottom:10}}>
                 {BUCKET_ORDER.map(b=>{
                   const valor = result.buckets[b]
-                  const pct = result.income>0 ? (valor/result.income*100) : 0
+                  // Rendimento líquido ≤ 0 (ex: mais saídas para o outro âmbito do que entradas no período):
+                  // as percentagens não fazem sentido, mostra "—" em vez de números absurdos.
+                  const semRendimento = !(result.income>0)
+                  const pct = semRendimento ? 0 : (valor/result.income*100)
                   const target = BUCKET_TARGETS[b]
                   const severity = bucketSeverity(pct,target)
-                  const color = SEVERITY_COLOR[severity]
+                  const color = semRendimento ? T.textTer : SEVERITY_COLOR[severity]
                   const targetTxt = target.max!==undefined ? `≤${target.max}%` : `≥${target.min}%`
                   const isSel = selectedBucket===b
                   return (
@@ -5549,7 +5593,7 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
                         <div style={{fontSize:9.5,fontWeight:700,color:T.textSec,textTransform:'uppercase',letterSpacing:'0.04em',lineHeight:1.25}}>{BUCKET_LABELS[b]}</div>
                         <div style={{width:7,height:7,borderRadius:'50%',background:color,marginTop:3,flexShrink:0}}/>
                       </div>
-                      <div style={{fontSize:19,fontWeight:700,color,fontFamily:T.mono,marginBottom:2}}>{Math.round(pct)}%</div>
+                      <div style={{fontSize:19,fontWeight:700,color,fontFamily:T.mono,marginBottom:2}}>{semRendimento?'—':`${Math.round(pct)}%`}</div>
                       <div style={{fontSize:9,color:T.textTer,marginBottom:2}}>{targetTxt}</div>
                       <div style={{fontSize:10,color:T.textSec,fontFamily:T.mono,whiteSpace:'nowrap'}}>{dec(valor)}</div>
                     </div>
@@ -5612,6 +5656,11 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
                         <div style={{display:'flex',justifyContent:'space-between',gap:8}}>
                           <div style={{fontSize:10,color:T.textTer}}>{accountNome.get(t.account_id)} · {t.data}{quotaDe(t.account_id)!==1?` · ${Math.round(quotaDe(t.account_id)*100)}% de ${dec(Number(t.valor))}`:''}</div>
                           {!counted&&<span style={{fontSize:9,fontWeight:600,color:'#4ADE80'}}>↔ Transferência interna</span>}
+                          {crossIdSet.has(t.id)&&(()=>{
+                            const outra = accounts.find(a=>a.id===transferLegs.get(t.id)?.otherAccountId)
+                            const lbl = outra?.budget_tag==='familiar' ? 'Familiar' : 'Pessoal'
+                            return <span style={{fontSize:9,fontWeight:600,color:'#4ADE80'}}>{Number(t.valor)>0?`↔ da conta ${lbl.toLowerCase()}`:`↔ para a conta ${lbl.toLowerCase()}`}</span>
+                          })()}
                         </div>
                       </div>
                     )
