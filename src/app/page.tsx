@@ -320,15 +320,16 @@ type SaudeResult = {
 }
 
 // Cálculo de um único mês — bloco reutilizado pela agregação por janela abaixo.
-function computeSaudeFinanceiraMonth(accounts:Account[], transactions:Transaction[], scope:'pessoal'|'familiar'|'ambos', ym:string, rules:SaudeRule[]=[]): SaudeResult {
+// usarQuota=false (por defeito): contas Familiares a 100%; true: só a tua quota (my_ownership_pct).
+function computeSaudeFinanceiraMonth(accounts:Account[], transactions:Transaction[], scope:'pessoal'|'familiar'|'ambos', ym:string, rules:SaudeRule[]=[], usarQuota:boolean=false): SaudeResult {
   const scopeAccounts = accounts.filter(a=>{
     if(scope==='pessoal') return a.budget_tag==='pessoal'
     if(scope==='familiar') return a.budget_tag==='familiar'
     return a.budget_tag==='pessoal'||a.budget_tag==='familiar'
   })
   const scopeIds = new Set(scopeAccounts.map(a=>a.id))
-  const pctByAccount = new Map(scopeAccounts.map(a=>[a.id, a.budget_tag==='familiar' ? (a.my_ownership_pct??a.ownership_pct)/100 : 1]))
-  const monthTxns = transactions.filter(t=>scopeIds.has(t.account_id)&&t.data.startsWith(ym)&&!t.excluir_analise)
+  const pctByAccount = new Map(scopeAccounts.map(a=>[a.id, usarQuota && a.budget_tag==='familiar' ? (a.my_ownership_pct??a.ownership_pct)/100 : 1]))
+  const monthTxns =transactions.filter(t=>scopeIds.has(t.account_id)&&t.data.startsWith(ym)&&!t.excluir_analise)
   const transferIds = detectHighConfidenceTransfers(monthTxns)
 
   let income = 0
@@ -358,7 +359,7 @@ function computeSaudeFinanceiraMonth(accounts:Account[], transactions:Transactio
 // Agrega N meses terminados em refMonth (inclusive). % de cada balde = soma/soma —
 // não média das percentagens mensais — para não deixar um mês de rendimento atípico
 // distorcer o peso relativo (soma pondera correctamente por rendimento de cada mês).
-function computeSaudeFinanceira(accounts:Account[], transactions:Transaction[], scope:'pessoal'|'familiar'|'ambos', refMonth:string, windowMonths:number=1, rules:SaudeRule[]=[]): SaudeResult {
+function computeSaudeFinanceira(accounts:Account[], transactions:Transaction[], scope:'pessoal'|'familiar'|'ambos', refMonth:string, windowMonths:number=1, rules:SaudeRule[]=[], usarQuota:boolean=false): SaudeResult {
   let income = 0
   let transfersExcluded = 0
   let hasData = false
@@ -366,7 +367,7 @@ function computeSaudeFinanceira(accounts:Account[], transactions:Transaction[], 
 
   for(let i=0;i<windowMonths;i++){
     const ym = shiftMonth(refMonth, -i)
-    const r = computeSaudeFinanceiraMonth(accounts, transactions, scope, ym, rules)
+    const r = computeSaudeFinanceiraMonth(accounts, transactions, scope, ym, rules, usarQuota)
     income += r.income
     transfersExcluded += r.transfersExcluded
     hasData = hasData || r.hasData
@@ -5265,6 +5266,8 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
   const [editTxn,setEditTxn] = useState<{t:Transaction,alta:boolean}|null>(null)
   const [showWindowMenu,setShowWindowMenu] = useState(false)
   const [showIncomeDetail,setShowIncomeDetail] = useState(false)
+  // 100% (por defeito) vs. só a tua quota nas contas Familiares — mesmo padrão do resumo IRS
+  const [showQuota,setShowQuota] = useState(false)
   const windowMonths = me?.saude_window_months ?? 6
   const isPresetValue = (WINDOW_PRESETS as readonly number[]).includes(windowMonths)
   const [customMode,setCustomMode] = useState(!isPresetValue)
@@ -5293,7 +5296,13 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
   }
   const canGoForward = monthOffset<0
 
-  const result = useMemo(()=>refMonth?computeSaudeFinanceira(accounts,transactions,scope,refMonth,windowMonths,saudeRules):null,[accounts,transactions,scope,refMonth,windowMonths,saudeRules])
+  const result = useMemo(()=>refMonth?computeSaudeFinanceira(accounts,transactions,scope,refMonth,windowMonths,saudeRules,showQuota):null,[accounts,transactions,scope,refMonth,windowMonths,saudeRules,showQuota])
+  // Quota aplicada a cada conta no modo "Minha quota" (1 = 100%)
+  const quotaDe = useCallback((accountId:string)=>{
+    if(!showQuota) return 1
+    const a = accounts.find(x=>x.id===accountId)
+    return a && a.budget_tag==='familiar' ? (a.my_ownership_pct??a.ownership_pct)/100 : 1
+  },[showQuota,accounts])
 
   // Conjunto de meses (YYYY-MM) cobertos pela janela actual, terminando em refMonth
   const windowYMs = useMemo(()=>{
@@ -5346,15 +5355,14 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
   // Composição por categoria dentro do balde seleccionado
   const bucketBreakdown = useMemo(()=>{
     if(!selectedBucket) return []
-    const pctByAccount = new Map(scopeAccounts.map(a=>[a.id, a.budget_tag==='familiar' ? (a.my_ownership_pct??a.ownership_pct)/100 : 1]))
     const map: Record<string,number> = {}
     bucketTxns.forEach(t=>{
-      const pct = pctByAccount.get(t.account_id) ?? 1
+      const pct = quotaDe(t.account_id)
       const key = t.categoria ?? 'Outra'
       map[key] = (map[key]||0) + Math.abs(Number(t.valor)*pct)
     })
     return Object.entries(map).sort((a,b)=>b[1]-a[1])
-  },[bucketTxns,selectedBucket,scopeAccounts])
+  },[bucketTxns,selectedBucket,quotaDe])
 
   const SCOPE_LABEL = {pessoal:'Pessoal',familiar:'Familiar',ambos:'Ambos'}
 
@@ -5367,6 +5375,7 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
             <HeartPulse size={16} color={pal.accent}/>
             <div style={{fontSize:16,fontWeight:700,color:T.text}}>Saúde financeira</div>
           </div>
+          <button onClick={()=>setShowQuota(v=>!v)} title="100% das contas Familiares vs. a tua quota de propriedade" style={{background:showQuota?pal.accent:pal.soft,border:'none',borderRadius:8,padding:'5px 10px',cursor:'pointer',flexShrink:0}}><span style={{fontSize:11,color:showQuota?'#14110F':pal.accent,fontWeight:600}}>{showQuota?'Minha quota':'100%'}</span></button>
         </div>
 
         <div style={{padding:'16px 14px'}}>
@@ -5474,7 +5483,7 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
                             <div style={{fontSize:12,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div>
                             <div style={{fontSize:10,color:T.textTer,marginTop:1}}>{t.data} · {accountNome.get(t.account_id)}</div>
                           </div>
-                          <span style={{fontSize:12,color:T.textSec,fontFamily:T.mono,flexShrink:0}}>{dec(Math.abs(Number(t.valor)))}</span>
+                          <span style={{fontSize:12,color:T.textSec,fontFamily:T.mono,flexShrink:0}}>{dec(Math.abs(Number(t.valor))*quotaDe(t.account_id))}</span>
                         </div>
                       ))
                     )}
@@ -5494,10 +5503,10 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
                       <div key={t.id} onClick={()=>setEditTxn({t,alta:altaIds.has(t.id)})} style={{padding:'10px 14px',borderBottom:i<incomeTxnsForDetail.length-1?`1px solid ${T.border}`:'none',cursor:'pointer'}}>
                         <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8,marginBottom:3}}>
                           <div style={{fontSize:12,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div>
-                          <span style={{fontSize:12,color:counted?T.text:T.textTer,fontFamily:T.mono,flexShrink:0,textDecoration:counted?'none':'line-through'}}>{dec(Number(t.valor))}</span>
+                          <span style={{fontSize:12,color:counted?T.text:T.textTer,fontFamily:T.mono,flexShrink:0,textDecoration:counted?'none':'line-through'}}>{dec(Number(t.valor)*quotaDe(t.account_id))}</span>
                         </div>
                         <div style={{display:'flex',justifyContent:'space-between',gap:8}}>
-                          <div style={{fontSize:10,color:T.textTer}}>{accountNome.get(t.account_id)} · {t.data}</div>
+                          <div style={{fontSize:10,color:T.textTer}}>{accountNome.get(t.account_id)} · {t.data}{quotaDe(t.account_id)!==1?` · ${Math.round(quotaDe(t.account_id)*100)}% de ${dec(Number(t.valor))}`:''}</div>
                           {!counted&&<span style={{fontSize:9,fontWeight:600,color:'#4ADE80'}}>↔ Transferência interna</span>}
                         </div>
                       </div>
