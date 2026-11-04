@@ -36,6 +36,8 @@ export type Profile = {
   role: string | null
   avatar_url: string | null
   saude_window_months: number
+  tabs_ordem?: string[] | null      // ordem dos separadores (todos os ids); null = por defeito
+  tabs_ocultos?: string[] | null    // separadores escondidos pelo utilizador
 }
 
 export type AccountMember = {
@@ -440,6 +442,29 @@ export async function updateAccountBalance(id: string, saldo: number) {
 
 export async function saveTransactions(txns: Omit<Transaction, 'id' | 'created_at'>[]) {
   return supabase.from('transactions').upsert(txns, { onConflict: 'hash', ignoreDuplicates: true })
+}
+
+// Contas com automatismos (Enable Banking ou Trading 212; a pasta do Drive está na própria conta).
+// Uma conta fora deste conjunto e sem drive_folder_id é "manual": aceita transacções à mão.
+export async function loadAutomatedAccountIds(): Promise<Set<string>> {
+  const ids = new Set<string>()
+  try {
+    const { data: eb } = await supabase.from('enablebanking_accounts').select('account_id').not('account_id', 'is', null)
+    ;(eb ?? []).forEach((r: any) => r.account_id && ids.add(r.account_id))
+    const { data: t212 } = await supabase.from('t212_config').select('account_id')
+    ;(t212 ?? []).forEach((r: any) => r.account_id && ids.add(r.account_id))
+  } catch (err) { console.warn('loadAutomatedAccountIds:', err) }
+  return ids
+}
+
+// Transacção criada à mão numa conta manual. Hash 'man-<uuid>' nunca colide com 'eb-…' nem com o do Drive.
+export async function createManualTransaction(t: { account_id: string, data: string, descritivo: string, valor: number, categoria: string, imovel_id: string | null, imovel_classificado: boolean, subcategoria: string | null }) {
+  return supabase.from('transactions').insert({
+    ...t,
+    categoria_confirmada: true, ai_confianca: null, excluir_analise: false,
+    ordem_extrato: 0, hash: `man-${crypto.randomUUID()}`,
+    import_batch_id: null, notas: null, descritivo_norm: null, imovel_auto: false,
+  })
 }
 
 export async function updateTransaction(id: string, fields: Partial<Omit<Transaction, 'id' | 'created_at'>>) {
@@ -908,7 +933,7 @@ export async function getT212Status() {
 export async function getCurrentProfile(): Promise<Profile | null> {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
-  const { data } = await supabase.from('profiles').select('id, nome, email, role, avatar_url, saude_window_months').eq('id', user.id).maybeSingle()
+  const { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle()
   if (data) return data as Profile
   // Cria perfil em falta com email do auth como fallback de nome
   const fallback = (user.email ?? '').split('@')[0] || 'Utilizador'
@@ -916,7 +941,7 @@ export async function getCurrentProfile(): Promise<Profile | null> {
   return { id: user.id, nome: fallback, email: user.email ?? null, role: null, avatar_url: null, saude_window_months: 6 }
 }
 
-export async function updateMyProfile(fields: { nome?: string, saude_window_months?: number }) {
+export async function updateMyProfile(fields: { nome?: string, saude_window_months?: number, tabs_ordem?: string[], tabs_ocultos?: string[] }) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: { message: 'Não autenticado' } as any }
   return supabase.from('profiles').update(fields).eq('id', user.id)

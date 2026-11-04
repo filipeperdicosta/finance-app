@@ -938,6 +938,23 @@ Antes era tudo manual (fila "Por associar"). Agora a app **aprende com o clique*
 - **Decisão**: sem arranque a partir do histórico — as regras nascem da próxima
   associação manual de cada pagador.
 
+## Separadores configuráveis e transações manuais (2026-11-04)
+
+- **Separadores** (Definições › Separadores, `TabsConfigSection`): interruptor por separador +
+  setas ▲▼ para a ordem. Guardado por utilizador em `profiles.tabs_ordem` / `tabs_ocultos`
+  (SQL `docs/sql/2026-11-04-tabs-visiveis.sql`; null = os 4 por defeito). Mínimo de 1 visível
+  (o último não se desliga); com 1 só, o rodapé desaparece. Esconder é só visual. Um separador
+  sem dados pode ser ligado (mostra o ecrã vazio, como antes). `getCurrentProfile` passou a
+  `select('*')` para não falhar enquanto o SQL não correr.
+- **Transações manuais**: botão "+" à esquerda de "Ver todas →" na linha "Últimas transações"
+  (Familiar, Pessoal e Imóveis), só com UMA conta seleccionada que seja manual: sem
+  `drive_folder_id`, sem linha em `enablebanking_accounts` e sem `t212_config`
+  (`isContaManual`, `loadAutomatedAccountIds`). Popup `NewTxnForm`; hash `man-<uuid>`;
+  caixa "Actualizar o saldo da conta" marcada por defeito. Limitação: as ligações EB/T212 lidas
+  são as do utilizador (RLS), por isso uma conta ligada por outro membro pode parecer manual.
+- **Saúde financeira**: toggle "100% / Minha quota" (por defeito 100%); a lista de auditoria do
+  rendimento mostra o valor que conta.
+
 ## Segurança — auditoria e endurecimento (2026-10-13)
 
 Auditoria às rotas de API, ao `state` OAuth e ao Supabase (RLS/RPCs), com

@@ -27,6 +27,7 @@ import {
   assignTransactionToImovel, assignTransactionsToImovel, loadUnclassifiedImovelTxns, loadImovelTxnsForYear,
   learnImovelRule, deactivateImovelRule, loadImovelRegras,
   loadTodasImovelRegras, updateImovelRegra, deleteImovelRegras, loadImovelNomes,
+  loadAutomatedAccountIds, createManualTransaction,
   loadCategoryRules, learnFromCategorization, matchRule, deleteCategoryRule, deleteCategoryRules, updateCategoryRule,
   loadSaudeRules, learnSaudeOverride, matchSaudeRule,
   getDriveConnectionStatus, disconnectDrive, getDriveAuthUrl, updateAccountDriveFolder, loadDriveFiles,
@@ -490,12 +491,21 @@ function computeView(accounts:Account[], transactions:Transaction[], tag:string,
 const Card = ({children,style}:{children:React.ReactNode,style?:React.CSSProperties}) => (
   <div style={{background:T.surface,borderRadius:14,border:`1px solid ${T.border}`,overflow:'hidden',...style}}>{children}</div>
 )
-const Lbl = ({title,action,accent,onAction}:{title:string,action?:string,accent?:string,onAction?:()=>void}) => (
+const Lbl = ({title,action,accent,onAction,extra}:{title:string,action?:string,accent?:string,onAction?:()=>void,extra?:React.ReactNode}) => (
   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'0 2px'}}>
     <span style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase'}}>{title}</span>
-    {action&&<span onClick={onAction} style={{fontSize:12,color:accent,fontWeight:600,cursor:'pointer'}}>{action}</span>}
+    <div style={{display:'flex',alignItems:'center',gap:12}}>
+      {extra}
+      {action&&<span onClick={onAction} style={{fontSize:12,color:accent,fontWeight:600,cursor:'pointer'}}>{action}</span>}
+    </div>
   </div>
 )
+// Botão "+" da linha "Últimas transações": só aparece com UMA conta seleccionada e sem automatismos.
+const AddTxnBtn = ({onClick,accent,soft}:{onClick:()=>void,accent:string,soft:string}) => (
+  <button onClick={onClick} aria-label="Adicionar transação" title="Adicionar transação" style={{background:soft,border:'none',borderRadius:8,padding:'3px 7px',cursor:'pointer',display:'flex',alignItems:'center'}}><Plus size={14} color={accent}/></button>
+)
+// Conta "manual" = sem pasta do Drive, sem Enable Banking e sem Trading 212 (independente do separador).
+const isContaManual = (a:Account|undefined, automatedIds:Set<string>|undefined) => !!a && !a.drive_folder_id && !(automatedIds?.has(a.id))
 // Linha do P&L (IRS Imóveis) — cada nível fica sempre à mesma indentação, com ou sem botão de
 // abrir: `open` undefined reserva o espaço do chevron sem o desenhar (placeholder), mantendo o
 // texto alinhado entre linhas irmãs tocáveis e não-tocáveis. `level` 1 indenta e ganha guia
@@ -1144,6 +1154,89 @@ const RecategorizeSheet = ({count,onApply,onClose,pal}:{count:number,onApply:(ca
 // ─────────────────────────────────────────────────────────────────
 // ALL TRANSACTIONS SCREEN
 // ─────────────────────────────────────────────────────────────────
+// Nova transação à mão — só para contas sem automatismos (ver isContaManual). A conta é a que está
+// seleccionada no ecrã; por defeito actualiza também o saldo da conta (nas manuais o saldo é manual).
+const NewTxnForm = ({account,imoveis,onClose,onSaved,pal}:{account:Account,imoveis?:Imovel[],onClose:()=>void,onSaved:()=>void|Promise<void>,pal:{accent:string,soft:string}}) => {
+  const hoje = new Date().toISOString().split('T')[0]
+  const [descritivo,setDescritivo] = useState('')
+  const [tipo,setTipo] = useState<'despesa'|'receita'>('despesa')
+  const [valor,setValor] = useState('')
+  const [categoria,setCategoria] = useState('Despesas Gerais')
+  const [data,setData] = useState(hoje)
+  const [imovelId,setImovelId] = useState('')
+  const [irsSubcategoria,setIrsSubcategoria] = useState('')
+  const [naoRenda,setNaoRenda] = useState(false)
+  const [atualizarSaldo,setAtualizarSaldo] = useState(true)
+  const [saving,setSaving] = useState(false)
+  const [erro,setErro] = useState('')
+  const hasImoveis = !!imoveis && imoveis.length>0
+  const abs = Math.abs(parseNum(valor))
+  const valido = descritivo.trim().length>0 && abs>0 && !!data
+  const saldoAtual = Number(account.saldo_atual)||0
+  const delta = tipo==='receita' ? abs : -abs
+
+  const submit = async () => {
+    if(!valido||saving) return
+    setSaving(true); setErro('')
+    const finalCat = tipo==='receita' ? 'Receita' : categoria
+    let subcategoria: string|null = null
+    if(imovelId && tipo==='despesa') subcategoria = irsSubcategoria || null
+    if(imovelId && tipo==='receita') subcategoria = naoRenda ? 'nao_renda' : null
+    const { error } = await createManualTransaction({
+      account_id:account.id, data, descritivo:descritivo.trim(), valor:delta, categoria:finalCat,
+      imovel_id:imovelId||null, imovel_classificado:hasImoveis, subcategoria,
+    })
+    if(error){ setErro('Não foi possível guardar a transação. Tenta outra vez.'); setSaving(false); return }
+    if(atualizarSaldo) await updateAccount(account.id,{saldo_atual:saldoAtual+delta, saldo_data:hoje})
+    if(imovelId && tipo==='receita') await learnImovelRule(imovelId,descritivo.trim(),delta)
+    await learnFromCategorization(descritivo.trim(), finalCat)
+    await onSaved(); setSaving(false); onClose()
+  }
+
+  return (
+    <div onClick={onClose} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',zIndex:120,display:'flex',alignItems:'flex-end',justifyContent:'center'}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:T.surface,borderRadius:'20px 20px 0 0',width:'100%',maxWidth:440,maxHeight:'88vh',overflow:'auto',padding:'0 0 24px'}}>
+        <div style={{display:'flex',alignItems:'center',padding:'16px 18px',borderBottom:`1px solid ${T.border}`,position:'sticky',top:0,background:T.surface}}>
+          <div style={{flex:1}}>
+            <div style={{fontSize:15,fontWeight:700,color:T.text}}>Nova transação</div>
+            <div style={{fontSize:11,color:T.textTer,marginTop:2}}>{account.nome}</div>
+          </div>
+          <button onClick={onClose} style={{background:'none',border:'none',cursor:'pointer'}}><X size={18} color={T.textSec}/></button>
+        </div>
+        <div style={{padding:'20px 18px'}}>
+          <Inp label="Descritivo" value={descritivo} onChange={setDescritivo} placeholder="Ex: Renda Nov — Sra. Silva"/>
+          <Sel label="Tipo" value={tipo} onChange={v=>{ setTipo(v as 'despesa'|'receita'); if(v==='despesa'&&categoria==='Receita') setCategoria('Despesas Gerais') }} options={[{value:'despesa',label:'🔴 Despesa'},{value:'receita',label:'🟢 Receita'}]}/>
+          <MoneyInp label="Valor (€)" value={valor} onChange={setValor}/>
+          {tipo==='receita'?(
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:11,color:T.textSec,fontWeight:600,marginBottom:5,textTransform:'uppercase',letterSpacing:'0.06em'}}>Categoria</div>
+              <div style={{background:T.surface3,border:`1px solid ${T.border}`,borderRadius:10,padding:'10px 12px',color:T.textSec,fontSize:13}}>💰 Receita</div>
+            </div>
+          ):(
+            <CategoryPicker label="Categoria" value={categoria} onChange={setCategoria} categorias={CAT_LIST.filter(c=>c!=='Receita')}/>
+          )}
+          {hasImoveis&&<Sel label="Imóvel associado" value={imovelId} onChange={setImovelId} options={[{value:'',label:'Geral (nenhum imóvel)'},...imoveis!.map(im=>({value:im.id,label:`🏠 ${im.nome}`}))]}/>}
+          {imovelId&&tipo==='despesa'&&<Sel label="Balde IRS (Anexo F)" value={irsSubcategoria} onChange={setIrsSubcategoria} options={[{value:'',label:'Não classificado'},...IRS_SUBCATEGORIAS.map(c=>({value:c,label:IRS_SUBCATEGORIA_LABELS[c]}))]}/>}
+          {imovelId&&tipo==='receita'&&<Sel label="Tipo de rendimento (IRS)" value={naoRenda?'nao_renda':''} onChange={v=>setNaoRenda(v==='nao_renda')} options={[{value:'',label:'Renda'},{value:'nao_renda',label:'Não é renda (reembolso, etc.)'}]}/>}
+          <DateInp label="Data" value={data} onChange={setData}/>
+          <label style={{display:'flex',alignItems:'flex-start',gap:10,background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,padding:'10px 12px',marginBottom:16,cursor:'pointer'}}>
+            <input type="checkbox" checked={atualizarSaldo} onChange={e=>setAtualizarSaldo(e.target.checked)} style={{marginTop:2,accentColor:pal.accent}}/>
+            <span style={{fontSize:12,color:T.textSec,lineHeight:1.45}}>
+              <b style={{color:T.text,fontWeight:600}}>Actualizar o saldo da conta</b><br/>
+              {abs>0 ? `${dec(saldoAtual)} → ${dec(saldoAtual+delta)}` : `Saldo actual ${dec(saldoAtual)}`}
+            </span>
+          </label>
+          {erro&&<div style={{fontSize:12,color:T.red,marginBottom:12}}>{erro}</div>}
+          <div style={{display:'flex',gap:10}}>
+            <Btn onClick={onClose} variant="ghost" accent={pal.accent} style={{flex:1}}>Cancelar</Btn>
+            <Btn onClick={valido&&!saving?submit:undefined} variant="primary" accent={pal.accent} style={{flex:2,opacity:valido&&!saving?1:0.4}}>{saving?'A guardar…':'Adicionar'}</Btn>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const AllTransactionsScreen = ({allTxns,accounts,tag,pal,onClose,onRefresh,imoveis,initialCategoria,initialContaId,initialImovelId}:{allTxns:Transaction[],accounts:Account[],tag:string,pal:{grad:string,accent:string,soft:string},onClose:()=>void,onRefresh:()=>void,imoveis?:Imovel[],initialCategoria?:string,initialContaId?:string,initialImovelId?:string}) => {
   const [filters,setFilters] = useState<Filters>({
     ...emptyFilters,
@@ -3045,6 +3138,7 @@ const SettingsPanel = ({onClose,accounts,onRefresh,pal,me,onMembers,onShowInvite
           {accounts.length>0&&(
             <button onClick={resetAllSaldos} style={{width:'100%',background:'none',border:'none',cursor:'pointer',padding:'6px 4px',color:T.textTer,fontSize:11,marginBottom:14,textAlign:'left'}}>↺ Zerar saldo de todas as contas</button>
           )}
+          <TabsConfigSection me={me} onChanged={onProfileUpdated} pal={pal}/>
           <button onClick={()=>setShowDrive(true)} style={{width:'100%',display:'flex',alignItems:'center',gap:10,background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,padding:'12px 14px',cursor:'pointer',marginBottom:10}}>
             <HardDrive size={16} color={pal.accent}/>
             <span style={{flex:1,textAlign:'left',fontSize:13,fontWeight:600,color:T.text}}>Google Drive</span>
@@ -3410,8 +3504,9 @@ const ImportWizard = ({onClose,accounts,pal,onDone,onRefreshAccounts}:{onClose:(
 // ─────────────────────────────────────────────────────────────────
 // SCREENS
 // ─────────────────────────────────────────────────────────────────
-const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAllTxns,onRefresh,onSaudeFinanceira}:{accounts:Account[],transactions:Transaction[],tag:string,pal:{grad:string,accent:string,soft:string},title:string,onViewAllTxns:(categoria?:string,contaId?:string)=>void,onRefresh:()=>void,onSaudeFinanceira?:()=>void}) => {
+const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAllTxns,onRefresh,onSaudeFinanceira,automatedIds}:{accounts:Account[],transactions:Transaction[],tag:string,pal:{grad:string,accent:string,soft:string},title:string,onViewAllTxns:(categoria?:string,contaId?:string)=>void,onRefresh:()=>void,onSaudeFinanceira?:()=>void,automatedIds?:Set<string>}) => {
   const [sel,setSel] = useState<Set<string>>(new Set())
+  const [showNewTxn,setShowNewTxn] = useState(false)
   const [multi,setMulti] = useState(false)
   const [catSel,setCatSel] = useState<string|null>(null)
   const [editTxn,setEditTxn] = useState<Transaction|null>(null)
@@ -3433,6 +3528,8 @@ const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAllTxns,onRefre
   // Um único id quando faz sentido passá-lo a ecrãs que só suportam filtro por 1 conta
   // (Ver todas as transações, Ver todas as categorias) — com 2+ seleccionadas, sem filtro.
   const soloSelId = sel.size===1 ? Array.from(sel)[0] : undefined
+  // "+" só com uma única conta seleccionada e sem automatismos
+  const soloManualAcc = (()=>{ const a = tagAccs.find(x=>x.id===soloSelId); return isContaManual(a,automatedIds) ? a : undefined })()
   const selLabel = sel.size===0 ? null : (sel.size===1 ? tagAccs.find(a=>a.id===soloSelId)?.nome.split(' ').slice(-1)[0] : `${sel.size} contas`)
   const topCats = view.cats.slice(0,9)
   // Can't go forward past the latest month with data
@@ -3485,10 +3582,12 @@ const BudgetScreen = ({accounts,transactions,tag,pal,title,onViewAllTxns,onRefre
       </div>
       <TrendTile data={catTrend} accent={pal.accent} catFilter={catSel}/>
       <div style={{marginBottom:20}}>
-        <Lbl title={catSel?`Transações — ${catSel}`:'Últimas transações'} action="Ver todas →" accent={pal.accent} onAction={()=>onViewAllTxns(catSel??undefined, soloSelId)}/>
+        <Lbl title={catSel?`Transações — ${catSel}`:'Últimas transações'} action="Ver todas →" accent={pal.accent} onAction={()=>onViewAllTxns(catSel??undefined, soloSelId)}
+          extra={soloManualAcc&&<AddTxnBtn onClick={()=>setShowNewTxn(true)} accent={pal.accent} soft={pal.soft}/>}/>
         <Card>{catTxns.length?catTxns.map((t,i)=><TxnRow key={t.id} t={t} last={i===catTxns.length-1} onClick={()=>setEditTxn(t)} accounts={tagAccs}/>):<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>Sem transações. Importa o teu primeiro extracto.</div>}</Card>
       </div>
       {editTxn&&<TxnEditForm txn={editTxn} onClose={()=>setEditTxn(null)} onSaved={onRefresh} pal={pal} accounts={accounts}/>}
+      {showNewTxn&&soloManualAcc&&<NewTxnForm account={soloManualAcc} onClose={()=>setShowNewTxn(false)} onSaved={onRefresh} pal={pal}/>}
       {showAllCats&&<AllCategoriesScreen transactions={transactions} accounts={accounts} tag={tag} sel={soloSelId??null} initialMonth={view.refMonth} subtitle={title.replace('Conta Corrente ','')} onClose={()=>setShowAllCats(false)} onSelectCategoria={(cat,month)=>{setShowAllCats(false);onViewAllTxns(cat, soloSelId)}} pal={pal}/>}
     </div>
   )
@@ -4610,7 +4709,8 @@ const ImovelCard = ({im,idx,total,renda,custo,nLinks,selected,multi,onPress,pal,
 // ─────────────────────────────────────────────────────────────────
 // IMÓVEIS SCREEN — full management
 // ─────────────────────────────────────────────────────────────────
-const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,onViewAll,onMembers}:{imoveis:Imovel[],transactions:Transaction[],accounts:Account[],contaImovel:ContaImovel[],pal:{grad:string,accent:string,soft:string},onRefresh:()=>void,onViewAll:(imovelId?:string)=>void,onMembers:(imovelId:string)=>void}) => {
+const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,onViewAll,onMembers,automatedIds}:{imoveis:Imovel[],transactions:Transaction[],accounts:Account[],contaImovel:ContaImovel[],pal:{grad:string,accent:string,soft:string},onRefresh:()=>void,onViewAll:(imovelId?:string)=>void,onMembers:(imovelId:string)=>void,automatedIds?:Set<string>}) => {
+  const [showNewTxn,setShowNewTxn] = useState(false)
   const [formOpen,setFormOpen] = useState(false)
   const [editing,setEditing] = useState<Imovel|null>(null)
   const [showQueue,setShowQueue] = useState(false)
@@ -4658,6 +4758,8 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
   const pressAcc = (id:string, longPress:boolean) => { const n = nextSelection(selAcc,accMulti,id,longPress); setSelAcc(n.sel); setAccMulti(n.multi) }
   const pressImovel = (id:string, longPress:boolean) => { const n = nextSelection(selImovel,imovelMulti,id,longPress); setSelImovel(n.sel); setImovelMulti(n.multi) }
   const soloSelImovel = selImovel.size===1 ? Array.from(selImovel)[0] : undefined
+  // "+" só com uma única conta seleccionada e sem automatismos
+  const soloManualAcc = (()=>{ if(selAcc.size!==1) return undefined; const a = investAccounts.find(x=>selAcc.has(x.id)); return isContaManual(a,automatedIds) ? a : undefined })()
 
   const matchAcc = (t:Transaction) => selAcc.size ? selAcc.has(t.account_id) : true
   // Filtra pelos imóveis seleccionados se houver
@@ -4818,7 +4920,8 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
 
       {/* ── TRANSAÇÕES ── */}
       <div style={{marginBottom:20}}>
-        <Lbl title={selImovel.size?`Transações — ${selImovel.size===1?(imoveis.find(i=>i.id===soloSelImovel)?.nome??''):`${selImovel.size} imóveis`}`:(selAcc.size?`Transações — ${selAcc.size===1?investAccounts.find(a=>selAcc.has(a.id))?.nome.split(' ').slice(-1)[0]:`${selAcc.size} contas`}`:'Últimas transações')} action="Ver todas →" accent={pal.accent} onAction={()=>onViewAll(soloSelImovel)}/>
+        <Lbl title={selImovel.size?`Transações — ${selImovel.size===1?(imoveis.find(i=>i.id===soloSelImovel)?.nome??''):`${selImovel.size} imóveis`}`:(selAcc.size?`Transações — ${selAcc.size===1?investAccounts.find(a=>selAcc.has(a.id))?.nome.split(' ').slice(-1)[0]:`${selAcc.size} contas`}`:'Últimas transações')} action="Ver todas →" accent={pal.accent} onAction={()=>onViewAll(soloSelImovel)}
+          extra={soloManualAcc&&<AddTxnBtn onClick={()=>setShowNewTxn(true)} accent={pal.accent} soft={pal.soft}/>}/>
         <Card>
           {recentTxns.length===0&&<div style={{padding:24,textAlign:'center',color:T.textSec,fontSize:13}}>{selImovel.size?'Sem transações para este imóvel neste mês.':'Sem transações. Importa um extracto de uma conta de investimento.'}</div>}
           {recentTxns.map((t,i)=>{
@@ -4841,6 +4944,7 @@ const ImoveisScreen = ({imoveis,transactions,accounts,contaImovel,pal,onRefresh,
       {formOpen&&<ImovelForm initial={editing} accounts={accounts} linkedAccountIds={editing?linkedAccounts(editing.id):new Set()} onClose={()=>setFormOpen(false)} onSaved={onRefresh} pal={pal} imoveisLen={imoveis.length}/>}
       {showQueue&&<AssignQueue txns={porAssociar} imoveis={imoveis} onClose={()=>setShowQueue(false)} onRefresh={refreshComQueue} pal={pal}/>}
       {editTxn&&<TxnEditForm txn={editTxn} onClose={()=>setEditTxn(null)} onSaved={onRefresh} pal={pal} imoveis={imoveis} accounts={accounts}/>}
+      {showNewTxn&&soloManualAcc&&<NewTxnForm account={soloManualAcc} imoveis={imoveis} onClose={()=>setShowNewTxn(false)} onSaved={onRefresh} pal={pal}/>}
       {showIrs&&<IrsResumoScreen imoveis={imoveis} accounts={accounts} onClose={()=>setShowIrs(false)} onRefresh={onRefresh}/>}
     </div>
   )
@@ -5572,6 +5676,67 @@ const TABS = [
   {id:'imoveis',   label:'Imóveis',    Icon:Building2},
   {id:'patrimonio',label:'Património', Icon:TrendingUp},
 ]
+// Separadores do utilizador: `ordem` = todos os ids pela ordem escolhida; `visiveis` = os não escondidos.
+// Sem configuração (colunas a null) → os 4 pela ordem original. Nunca devolve zero visíveis.
+function tabsDoPerfil(me:Profile|null): {ordem:string[], visiveis:string[]} {
+  const ids = TABS.map(t=>t.id)
+  const guardada = (me?.tabs_ordem ?? []).filter(id=>ids.includes(id))
+  const ordem = [...guardada, ...ids.filter(id=>!guardada.includes(id))]
+  const ocultos = new Set(me?.tabs_ocultos ?? [])
+  const visiveis = ordem.filter(id=>!ocultos.has(id))
+  return {ordem, visiveis: visiveis.length>0 ? visiveis : ordem}
+}
+
+// Definições › Separadores: escolher quais aparecem e a ordem. O último visível não se pode desligar.
+const TabsConfigSection = ({me,onChanged,pal}:{me:Profile|null,onChanged:()=>void|Promise<void>,pal:{accent:string,soft:string}}) => {
+  const {ordem,visiveis} = tabsDoPerfil(me)
+  const [saving,setSaving] = useState(false)
+  const [erro,setErro] = useState('')
+  const guardar = async (novaOrdem:string[], novosVisiveis:string[]) => {
+    setSaving(true); setErro('')
+    const { error } = await updateMyProfile({tabs_ordem:novaOrdem, tabs_ocultos:novaOrdem.filter(id=>!novosVisiveis.includes(id))})
+    if(error) setErro('Não foi possível guardar. Falta correr o SQL dos separadores?')
+    else await onChanged()
+    setSaving(false)
+  }
+  const alternar = (id:string) => {
+    const vis = visiveis.includes(id)
+    if(vis && visiveis.length===1) return
+    guardar(ordem, vis ? visiveis.filter(x=>x!==id) : [...visiveis,id])
+  }
+  const mover = (idx:number, dir:-1|1) => {
+    const t = idx+dir
+    if(t<0||t>=ordem.length) return
+    const n = [...ordem]; [n[idx],n[t]] = [n[t],n[idx]]
+    guardar(n, visiveis)
+  }
+  const arrow:React.CSSProperties = {background:T.surface2,border:`1px solid ${T.border}`,borderRadius:4,padding:'2px 5px',fontSize:9,lineHeight:1,color:T.textTer,cursor:'pointer'}
+  return (
+    <div style={{marginBottom:14,opacity:saving?0.7:1}}>
+      <div style={{fontSize:11,fontWeight:700,color:T.textTer,letterSpacing:'0.09em',textTransform:'uppercase',margin:'0 2px 8px'}}>Separadores</div>
+      {ordem.map((id,idx)=>{
+        const tab = TABS.find(t=>t.id===id)!
+        const on = visiveis.includes(id)
+        const ultimo = on && visiveis.length===1
+        return (
+          <div key={id} style={{display:'flex',alignItems:'center',gap:10,background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,padding:'9px 12px',marginBottom:8}}>
+            <div style={{display:'flex',flexDirection:'column',gap:2}}>
+              <button onClick={()=>mover(idx,-1)} aria-label="Subir" style={{...arrow,opacity:idx===0?0.3:1}}>▲</button>
+              <button onClick={()=>mover(idx,1)} aria-label="Descer" style={{...arrow,opacity:idx===ordem.length-1?0.3:1}}>▼</button>
+            </div>
+            <tab.Icon size={16} color={on?pal.accent:T.textTer}/>
+            <span style={{flex:1,fontSize:13,fontWeight:600,color:on?T.text:T.textSec}}>{tab.label}{ultimo&&<span style={{fontSize:10,fontWeight:500,color:T.textTer,marginLeft:6}}>(tem de ficar um)</span>}</span>
+            <button type="button" onClick={()=>alternar(id)} aria-pressed={on} aria-label={tab.label} style={{width:38,height:22,borderRadius:99,border:`1px solid ${on?pal.accent:T.border}`,background:on?pal.accent:T.surface3,position:'relative',cursor:ultimo?'not-allowed':'pointer',flexShrink:0,padding:0,opacity:ultimo?0.5:1}}>
+              <span style={{position:'absolute',top:2,left:on?18:2,width:16,height:16,borderRadius:'50%',background:on?'#14110F':T.textSec,transition:'left .15s'}}/>
+            </button>
+          </div>
+        )
+      })}
+      <div style={{fontSize:11,color:T.textTer,margin:'2px 4px 0',lineHeight:1.5}}>Esconder um separador não apaga contas nem transações.</div>
+      {erro&&<div style={{fontSize:11,color:T.red,margin:'6px 4px 0'}}>{erro}</div>}
+    </div>
+  )
+}
 
 export default function Page() {
   const [session, setSession] = useState<any>(null)
@@ -5604,6 +5769,7 @@ export default function Page() {
   const [viewAllImovelId, setViewAllImovelId] = useState<string|undefined>(undefined)
   const [viewAllContaId, setViewAllContaId] = useState<string|undefined>(undefined)
   const [toast, setToast] = useState<string|null>(null)
+  const [automatedIds, setAutomatedIds] = useState<Set<string>>(new Set())
 
   const openAllTxns = useCallback((categoria?:string, contaId?:string)=>{ setViewAllCategoria(categoria); setViewAllContaId(contaId); setShowAllTxns(true) },[])
   const showToast = useCallback((msg:string)=>{setToast(msg);setTimeout(()=>setToast(null),msg.length>60?5000:2500)},[])
@@ -5611,6 +5777,7 @@ export default function Page() {
     const data = await loadAllData()
     setAccounts(data.accounts); setTransactions(data.transactions)
     setImoveis(data.imoveis); setContaImovel(data.contaImovel); setLoading(false)
+    setAutomatedIds(await loadAutomatedAccountIds())
   },[])
   const loadFull = useCallback(async()=>{ const all = await loadAllTransactions(); setAllTxns(all) },[])
   const refreshAll = useCallback(async()=>{ await load(); await loadFull() },[load,loadFull])
@@ -5652,6 +5819,9 @@ export default function Page() {
     }
   },[showToast])
 
+  const {visiveis:tabsVisiveis} = tabsDoPerfil(me)
+  // Se o separador activo foi escondido (ou o perfil acabou de carregar com outra configuração), vai para o primeiro visível
+  useEffect(()=>{ if(!tabsVisiveis.includes(tab)) setTab(tabsVisiveis[0]) },[tabsVisiveis,tab])
   const pal = PAL[tab]
 
   if(loading||!minSplashElapsed) return (
@@ -5697,15 +5867,15 @@ export default function Page() {
         </div>
       </div>
       <div style={{flex:1,overflowY:'auto',padding:'14px 12px 0'}}>
-        <div style={screenStyle('familiar')}><BudgetScreen accounts={accounts} transactions={transactions} tag="familiar" pal={PAL.familiar} title="Conta Corrente Familiar" onViewAllTxns={openAllTxns} onRefresh={async()=>{await refreshAll();showToast('✓ Transação actualizada')}} onSaudeFinanceira={()=>setShowSaude(true)}/></div>
-        <div style={screenStyle('pessoal')}><BudgetScreen accounts={accounts} transactions={transactions} tag="pessoal" pal={PAL.pessoal} title="Conta Corrente Pessoal" onViewAllTxns={openAllTxns} onRefresh={async()=>{await refreshAll();showToast('✓ Transação actualizada')}} onSaudeFinanceira={()=>setShowSaude(true)}/></div>
-        <div style={screenStyle('imoveis')}><ImoveisScreen imoveis={imoveis} transactions={transactions} accounts={accounts} contaImovel={contaImovel} pal={PAL.imoveis} onRefresh={async()=>{await refreshAll();showToast('✓ Imóveis actualizados')}} onViewAll={(imovelId)=>{setViewAllImovelId(imovelId);openAllTxns()}} onMembers={(id)=>setMembersImovelId(id)}/></div>
-        <div style={screenStyle('patrimonio')}><PatrimonioScreen accounts={accounts} imoveis={imoveis} transactions={transactions} pal={PAL.patrimonio}/></div>
+        {tabsVisiveis.includes('familiar')&&<div style={screenStyle('familiar')}><BudgetScreen accounts={accounts} transactions={transactions} tag="familiar" pal={PAL.familiar} title="Conta Corrente Familiar" onViewAllTxns={openAllTxns} onRefresh={async()=>{await refreshAll();showToast('✓ Transação actualizada')}} onSaudeFinanceira={()=>setShowSaude(true)} automatedIds={automatedIds}/></div>}
+        {tabsVisiveis.includes('pessoal')&&<div style={screenStyle('pessoal')}><BudgetScreen accounts={accounts} transactions={transactions} tag="pessoal" pal={PAL.pessoal} title="Conta Corrente Pessoal" onViewAllTxns={openAllTxns} onRefresh={async()=>{await refreshAll();showToast('✓ Transação actualizada')}} onSaudeFinanceira={()=>setShowSaude(true)} automatedIds={automatedIds}/></div>}
+        {tabsVisiveis.includes('imoveis')&&<div style={screenStyle('imoveis')}><ImoveisScreen imoveis={imoveis} transactions={transactions} accounts={accounts} contaImovel={contaImovel} pal={PAL.imoveis} onRefresh={async()=>{await refreshAll();showToast('✓ Imóveis actualizados')}} onViewAll={(imovelId)=>{setViewAllImovelId(imovelId);openAllTxns()}} onMembers={(id)=>setMembersImovelId(id)} automatedIds={automatedIds}/></div>}
+        {tabsVisiveis.includes('patrimonio')&&<div style={screenStyle('patrimonio')}><PatrimonioScreen accounts={accounts} imoveis={imoveis} transactions={transactions} pal={PAL.patrimonio}/></div>}
         <div style={{height:16}}/>
       </div>
-      <div style={{flexShrink:0,background:T.surface,borderTop:`1px solid ${T.border}`,display:'flex',padding:'8px 0 14px'}}>
-        {TABS.map(({id,label,Icon})=>{const active=tab===id,c=active?PAL[id].accent:T.textTer;return (<button key={id} onClick={()=>setTab(id)} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:3,background:'none',border:'none',cursor:'pointer',padding:'4px 0'}}><Icon size={20} color={c} strokeWidth={active?2.5:1.5}/><span style={{fontSize:10,fontWeight:active?700:400,color:c}}>{label}</span>{active&&<div style={{width:4,height:4,borderRadius:'50%',background:c}}/>}</button>)})}
-      </div>
+      {tabsVisiveis.length>1&&<div style={{flexShrink:0,background:T.surface,borderTop:`1px solid ${T.border}`,display:'flex',padding:'8px 0 14px'}}>
+        {tabsVisiveis.map(id=>TABS.find(t=>t.id===id)!).map(({id,label,Icon})=>{const active=tab===id,c=active?PAL[id].accent:T.textTer;return (<button key={id} onClick={()=>setTab(id)} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:3,background:'none',border:'none',cursor:'pointer',padding:'4px 0'}}><Icon size={20} color={c} strokeWidth={active?2.5:1.5}/><span style={{fontSize:10,fontWeight:active?700:400,color:c}}>{label}</span>{active&&<div style={{width:4,height:4,borderRadius:'50%',background:c}}/>}</button>)})}
+      </div>}
       {showImport&&<ImportWizard onClose={()=>setShowImport(false)} accounts={accounts} pal={pal} onDone={async()=>{await refreshAll();showToast('✓ Importação concluída')}} onRefreshAccounts={refreshAll}/>}
       {showSettings&&<SettingsPanel onClose={()=>setShowSettings(false)} accounts={accounts} onRefresh={async()=>{await refreshAll();showToast('✓ Dados actualizados')}} pal={pal} me={me} onMembers={(id)=>setMembersAccountId(id)} onShowInvites={()=>setShowInvites(true)} pendingInvitesCount={invites.length+imovelInvites.length} onProfileUpdated={refreshMe}/>}
       {showDuplicates&&<DuplicatesWizard onClose={()=>setShowDuplicates(false)} pal={pal} onResolved={async()=>{ setSuspeitasCount(await countSuspiciousDuplicates()) }} imoveis={imoveis} accounts={accounts}/>}
