@@ -131,6 +131,8 @@ const dec = (n:number) => {
   return '€'+i.toString().replace(/\B(?=(\d{3})+(?!\d))/g,' ')+','+Math.round((a-i)*100).toString().padStart(2,'0')
 }
 const sgn = (n:number) => (n>=0?'+ ':'− ')+dec(n)
+// Valor com sinal só quando negativo (dec() mostra sempre o valor absoluto)
+const decNeg = (n:number) => (n<0?'−':'')+dec(n)
 // Formato curto para eixo de gráfico: 600, 1 200, ou 1,2k (≥1000 com 1 casa se não for redondo)
 const compact = (n:number) => {
   const a = Math.abs(n)
@@ -5571,7 +5573,7 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
                   Rendimento considerado
                   <ChevronRight size={11} color={T.textTer} style={{transform:showIncomeDetail?'rotate(90deg)':'none',transition:'transform 0.15s'}}/>
                 </div>
-                <div style={{fontSize:22,fontWeight:700,color:T.text,fontFamily:T.mono}}>{dec(result.income)}</div>
+                <div style={{fontSize:22,fontWeight:700,color:T.text,fontFamily:T.mono}}>{decNeg(result.income)}</div>
               </div>
 
               {/* Grelha fixa — nunca reflui, só marca selecção */}
@@ -5651,7 +5653,7 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
                       <div key={t.id} onClick={()=>setEditTxn({t,alta:altaIds.has(t.id)})} style={{padding:'10px 14px',borderBottom:i<incomeTxnsForDetail.length-1?`1px solid ${T.border}`:'none',cursor:'pointer'}}>
                         <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8,marginBottom:3}}>
                           <div style={{fontSize:12,color:T.text,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.descritivo}</div>
-                          <span style={{fontSize:12,color:counted?T.text:T.textTer,fontFamily:T.mono,flexShrink:0,textDecoration:counted?'none':'line-through'}}>{dec(Number(t.valor)*quotaDe(t.account_id))}</span>
+                          <span style={{fontSize:12,color:counted?T.text:T.textTer,fontFamily:T.mono,flexShrink:0,textDecoration:counted?'none':'line-through'}}>{decNeg(Number(t.valor)*quotaDe(t.account_id))}</span>
                         </div>
                         <div style={{display:'flex',justifyContent:'space-between',gap:8}}>
                           <div style={{fontSize:10,color:T.textTer}}>{accountNome.get(t.account_id)} · {t.data}{quotaDe(t.account_id)!==1?` · ${Math.round(quotaDe(t.account_id)*100)}% de ${dec(Number(t.valor))}`:''}</div>
