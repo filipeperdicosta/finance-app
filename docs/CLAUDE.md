@@ -56,4 +56,12 @@ Banking criava uma conta duplicada "sem conta associada" porque o
 Trabalho mais recente (2026-09-26): reordenar contas (Pessoal/Familiar/
 investimento em Imóveis, mesmo padrão de setas ▲▼ já usado nos imóveis) +
 botão IRS movido para o Hero de Imóveis (era um card solto), e selecção
-múltipla de contas/imóveis por premir-e-segurar. Ver PROJECT_STATE.md.
+múltipla de contas/imóveis por premir-e-segurar. Em 2026-10-07: corrigido
+o sync de Custos Casa que apagava correcções manuais (Empregada), ícone de
+folha de cálculo nas notificações dos Excel e nome/pasta do ficheiro ligado
+nas Definições. Em 2026-11-03/04: associação automática de rendas a
+imóveis (regras aprendidas, gestão em Definições › Regras Aprendidas ›
+Imóveis, marca AUTO/MANUAL), separadores configuráveis por utilizador,
+transações manuais em contas sem automatismos (botão "+") e Saúde
+financeira com toggle 100%/Minha quota e rendimento líquido por âmbito
+(Familiar↔Pessoal). Ver PROJECT_STATE.md.

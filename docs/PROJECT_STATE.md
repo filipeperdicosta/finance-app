@@ -136,6 +136,16 @@ o Filipe removeu uma à mão depois do aviso.
   (incluindo testes/diagnóstico manuais via `curl`/script, não só o botão
   na UI) agora gera notificação — usar com cuidado ao testar em produção
   para não encher a caixa do utilizador.
+- **Notificações dos Excel (2026-10-07)**: títulos passam a "Excel Custos
+  Casa sincronizado" / "Excel Ledger Herança sincronizado"; `meta.source:'sheet'`
+  dá-lhes o novo `SheetIcon` (quadrado verde com grelha) em vez do ✅ genérico.
+  O corpo usa `" | "` para separar resumo de detalhes (formato que o ecrã já
+  sabe expandir).
+- **Ficheiro ligado visível nas Definições (2026-10-07)**: rota
+  `/api/drive/file-info` (nome + caminho de pastas buscados à Drive em
+  runtime, nada guardado → funciona em ligações antigas sem migração) +
+  componente `LinkedFile` nos cartões Custos Casa e Ledger (Definições e
+  `IrsResumoScreen`), acima do estado da sincronização.
 
 ### Cartão de crédito — modelação
 - Excluído dos totais agregados (Hero, Património) — `accountSaldoTotal()`
@@ -844,13 +854,27 @@ risco técnico bruto.
      última vez. Antes de reescrever, compara o valor actual na sheet com
      esse registo — se baterem, recalcula normalmente; se não baterem
      (o Filipe mexeu-lhe entretanto), a app nunca mais toca nessa célula
-     específica, adopta o valor dele como definitivo dali para a frente.
+     específica (**corrigido em 2026-10-07**: a versão original adoptava o
+     valor dele como nova base, o que fazia a célula "bater certo" na corrida
+     seguinte e ser reescrita — ver "Correcção" abaixo).
      Bootstrap cuidadoso na 1ª execução (sem registo anterior): célula já
      preenchida com valor diferente do calculado é tratada como manual por
      omissão (mais seguro do que arriscar apagar uma correcção só por
      ainda não a termos visto); célula vazia ou já correcta não gera
      dúvida. Comparação com tolerância a arredondamento de vírgula
      flutuante (`cellsEqual`), exacta para fórmulas/vazio.
+   - **Correcção — correcções manuais da Empregada eram apagadas
+     (2026-10-07)**: causa raiz — ao detectar uma edição manual, o código
+     actualizava `cell_snapshot` para o PRÓPRIO valor do Filipe; na
+     sincronização seguinte a célula batia com essa base, deixava de parecer
+     manual e era sobrescrita. Fix (`isManualCell` em `custosCasaSync.ts`): a
+     base fica sempre no último valor ESCRITO PELA APP, nunca passa a ser o
+     valor dele, para a diferença continuar a denunciar a edição manual em
+     todas as corridas. `SNAPSHOT_VERSION = 2` (`__v` dentro de
+     `cell_snapshot`) descarta uma vez snapshots da lógica antiga e volta ao
+     bootstrap seguro. A notificação lista célula a célula o valor manual
+     respeitado vs. o automático (`BUCKET_LABEL` dá nomes tipo "Empregada
+     202610").
 
 ### Backlog técnico (sem data)
 - **Modularizar `page.tsx`** (~3700 linhas) — combinado fazer numa sessão
@@ -969,6 +993,10 @@ Antes era tudo manual (fila "Por associar"). Agora a app **aprende com o clique*
 - Rendimento líquido ≤ 0 num período: mostra o valor e "—" nas percentagens dos baldes.
 - A fila "por validar" e a lista de transferências identificadas passam a cobrir as duas contas
   (Familiar+Pessoal), não só as do âmbito escolhido. Pernas "ignoradas" sem par continuam excluídas.
+- **Sinal negativo (2026-11-04)**: `dec()` devolve sempre o valor absoluto (`sgn()` acrescenta o
+  sinal onde é preciso). O rendimento líquido −111,60 aparecia como 111,60; novo `decNeg()` mostra
+  "−" só quando o valor é negativo — usado no total de rendimento e nas linhas da auditoria.
+  Um "—" nas percentagens dos baldes é a pista de rendimento ≤ 0.
 
 ## Segurança — auditoria e endurecimento (2026-10-13)
 
@@ -1193,3 +1221,5 @@ correcções aplicadas e verificadas. Registo SQL completo (para repetir/rever):
   pontos caem centrados nas fronteiras — comparar só as etiquetas entre
   gráficos não basta, porque os dois lados do bug podem estar "errados
   juntos" da mesma forma.
+- **Formatadores de dinheiro**: `dec(n)` é sempre absoluto (não mostra o "−"); para valores que podem
+  ser negativos usar `decNeg(n)` ou `sgn(n)`. Esquecer isto esconde saídas/rendimentos líquidos negativos.
