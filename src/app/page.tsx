@@ -234,27 +234,70 @@ const BUCKET_ORDER: Bucket[] = ['fixos','poupanca_investimento','guilt_free']
 // posta em causa só por coincidência de valor/data.
 const isTransferEligible = (t:Transaction) => t.categoria==='Transferências' || t.categoria==='Receita' || !t.categoria
 
+// Contexto do emparelhamento — só serve para desempatar (ver `matchTransferPairs`): regras
+// aprendidas (para saber que pernas já estão marcadas como transferência) e contas (titulares).
+type PairCtx = { rules?:SaudeRule[], accounts?:Account[] }
+
+// Palavras que não identificam ninguém num nome (partículas)
+const NAME_STOP = new Set(['DA','DE','DO','DAS','DOS','LDA'])
+const nameWords = (s:string):string[] => s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().split(/[^A-Z]+/).filter(w=>w.length>=3&&!NAME_STOP.has(w))
+// O descritivo de uma perna menciona o titular da conta da outra? (ex: a entrada "FILIPE PERDIGAO
+// DA COSTA" vinda da conta cujo titular é o Filipe)
+const mentionsHolder = (descritivo:string, acc?:Account) => {
+  if(!acc?.titular) return false
+  const d = nameWords(descritivo)
+  return nameWords(acc.titular).some(w=>d.includes(w))
+}
+
+// Emparelha pernas de transferência entre contas diferentes. Quando a mesma saída tem mais do que
+// uma contraparte possível (ex: duas entradas de 1 245€ no mesmo dia — uma do Filipe, outra da
+// Cecília — e uma só saída da conta pessoal), a ordem em que aparecem na lista NÃO decide: cada par
+// possível é pontuado e emparelha-se do melhor para o pior. Desempate, por esta ordem: (1) o
+// descritivo de uma perna menciona o titular da conta da outra; (2) pernas já marcadas como
+// transferência (override/regra aprendida) — uma perna marcada que fique sem par é ignorada, por
+// isso levar o par errado fazia desaparecer a entrada certa (bug de 2026-11-05: o Familiar contava
+// só uma das duas entradas). Se nada destas distingue os pares, fica a ordem da lista, como
+// sempre foi (mesmo resultado de antes quando não há empate nem marcas).
+function matchTransferPairs(txns:Transaction[], amountOk:(va:number,vb:number)=>boolean, maxDays:number, ctx:PairCtx, excludeIds?:Set<string>): {a:Transaction,b:Transaction}[] {
+  const accById = new Map((ctx.accounts??[]).map(x=>[x.id,x]))
+  const marked = (t:Transaction) => effectiveSaudeOverride(t,ctx.rules)==='transferencia' ? 1 : 0
+  // Pré-cálculo (o ciclo duplo corre sobre todo o histórico): valores e elegibilidade uma só vez,
+  // e a comparação de valores — a mais barata e que descarta quase tudo — antes do resto.
+  const vals = txns.map(t=>Number(t.valor))
+  const elig = txns.map(t=>!excludeIds?.has(t.id) && isTransferEligible(t))
+  const edges: {i:number,j:number,score:number[]}[] = []
+  for(let i=0;i<txns.length;i++){
+    const va = vals[i]
+    if(!elig[i] || va===0) continue
+    const a = txns[i]
+    for(let j=i+1;j<txns.length;j++){
+      if(!elig[j] || !amountOk(va,vals[j])) continue
+      const b = txns[j]
+      if(a.account_id===b.account_id) continue
+      const diffDays = Math.abs(new Date(a.data).getTime()-new Date(b.data).getTime())/86400000
+      if(diffDays>maxDays) continue
+      const names = mentionsHolder(b.descritivo,accById.get(a.account_id)) || mentionsHolder(a.descritivo,accById.get(b.account_id))
+      edges.push({i,j,score:[names?1:0, marked(a)+marked(b)]})
+    }
+  }
+  edges.sort((x,y)=>{
+    for(let k=0;k<x.score.length;k++) if(x.score[k]!==y.score[k]) return y.score[k]-x.score[k]
+    return x.i-y.i || x.j-y.j
+  })
+  const used = new Set<number>()
+  const picked: {i:number,j:number}[] = []
+  for(const e of edges){
+    if(used.has(e.i) || used.has(e.j)) continue
+    used.add(e.i); used.add(e.j); picked.push(e)
+  }
+  return picked.sort((x,y)=>x.i-y.i).map(e=>({a:txns[e.i],b:txns[e.j]}))
+}
+
 // Detecta pares de transferência de ALTA confiança entre contas próprias:
 // valor exactamente simétrico (soma ~0), datas no mesmo dia ou +1 dia, contas diferentes.
 // Devolve os pares completos (para auditoria na UI).
-function detectHighConfidenceTransferPairs(txns:Transaction[]): {a:Transaction,b:Transaction}[] {
-  const used = new Set<string>()
-  const pairs: {a:Transaction,b:Transaction}[] = []
-  for(let i=0;i<txns.length;i++){
-    const a = txns[i]
-    if(used.has(a.id) || Number(a.valor)===0 || !isTransferEligible(a)) continue
-    for(let j=i+1;j<txns.length;j++){
-      const b = txns[j]
-      if(used.has(b.id) || a.account_id===b.account_id || !isTransferEligible(b)) continue
-      if(Math.abs(Number(a.valor)+Number(b.valor))>0.01) continue
-      const diffDays = Math.abs(new Date(a.data).getTime()-new Date(b.data).getTime())/86400000
-      if(diffDays>1) continue
-      pairs.push({a,b})
-      used.add(a.id); used.add(b.id)
-      break
-    }
-  }
-  return pairs
+function detectHighConfidenceTransferPairs(txns:Transaction[], ctx:PairCtx={}): {a:Transaction,b:Transaction}[] {
+  return matchTransferPairs(txns,(va,vb)=>Math.abs(va+vb)<=0.01,1,ctx)
 }
 // Devolve só os IDs a excluir (usado no cálculo agregado)
 function detectHighConfidenceTransfers(txns:Transaction[]): Set<string> {
@@ -267,27 +310,8 @@ function detectHighConfidenceTransfers(txns:Transaction[]): Set<string> {
 // tolerância relaxada (diferença de valor até 2€ ou 5%, o que for maior; janela de data até
 // 5 dias). Ficam para o utilizador validar — não são excluídos automaticamente do cálculo.
 // excludeIds evita reaproveitar transacções já emparelhadas como alta confiança.
-function detectMediumConfidenceTransferPairs(txns:Transaction[], excludeIds:Set<string>): {a:Transaction,b:Transaction}[] {
-  const used = new Set<string>()
-  const pairs: {a:Transaction,b:Transaction}[] = []
-  for(let i=0;i<txns.length;i++){
-    const a = txns[i]
-    if(used.has(a.id) || excludeIds.has(a.id) || Number(a.valor)===0 || !isTransferEligible(a)) continue
-    for(let j=i+1;j<txns.length;j++){
-      const b = txns[j]
-      if(used.has(b.id) || excludeIds.has(b.id) || a.account_id===b.account_id || !isTransferEligible(b)) continue
-      const va = Number(a.valor), vb = Number(b.valor)
-      const bigger = Math.max(Math.abs(va),Math.abs(vb))
-      const tolerance = Math.max(2, bigger*0.05)
-      if(Math.abs(va+vb)>tolerance) continue
-      const diffDays = Math.abs(new Date(a.data).getTime()-new Date(b.data).getTime())/86400000
-      if(diffDays>5) continue
-      pairs.push({a,b})
-      used.add(a.id); used.add(b.id)
-      break
-    }
-  }
-  return pairs
+function detectMediumConfidenceTransferPairs(txns:Transaction[], excludeIds:Set<string>, ctx:PairCtx={}): {a:Transaction,b:Transaction}[] {
+  return matchTransferPairs(txns,(va,vb)=>Math.abs(va+vb)<=Math.max(2,Math.max(Math.abs(va),Math.abs(vb))*0.05),5,ctx,excludeIds)
 }
 
 type TransferConfidence = 'alta'|'media'
@@ -302,10 +326,10 @@ const transferResolved = (c:TransferCandidate, rules:SaudeRule[]=[]) => effectiv
 // pares de média confiança (por validar) e transacções isoladas de categoria "Transferências"
 // sem par correspondente (ex: saída para conta de Investimento fora do âmbito) — hoje caem
 // sempre em Guilt-free por defeito sem aviso.
-function detectTransferCandidates(txns:Transaction[]): TransferCandidate[] {
-  const highPairs = detectHighConfidenceTransferPairs(txns)
+function detectTransferCandidates(txns:Transaction[], ctx:PairCtx={}): TransferCandidate[] {
+  const highPairs = detectHighConfidenceTransferPairs(txns, ctx)
   const highIds = new Set<string>(); highPairs.forEach(({a,b})=>{highIds.add(a.id);highIds.add(b.id)})
-  const mediumPairs = detectMediumConfidenceTransferPairs(txns, highIds)
+  const mediumPairs = detectMediumConfidenceTransferPairs(txns, highIds, ctx)
   const mediumIds = new Set<string>(); mediumPairs.forEach(({a,b})=>{mediumIds.add(a.id);mediumIds.add(b.id)})
   const standalone = txns.filter(t=>t.categoria==='Transferências' && !highIds.has(t.id) && !mediumIds.has(t.id))
   return [
@@ -325,9 +349,10 @@ function buildTransferLegs(accounts:Account[], transactions:Transaction[], rules
   const txns = transactions.filter(t=>pfIds.has(t.account_id)&&!t.excluir_analise)
   const legs = new Map<string,TransferLeg>()
   const link = (a:Transaction,b:Transaction) => { legs.set(a.id,{otherAccountId:b.account_id}); legs.set(b.id,{otherAccountId:a.account_id}) }
+  const ctx: PairCtx = { rules, accounts }
   const highIds = new Set<string>()
-  detectHighConfidenceTransferPairs(txns).forEach(({a,b})=>{ highIds.add(a.id); highIds.add(b.id); link(a,b) })
-  detectMediumConfidenceTransferPairs(txns, highIds).forEach(({a,b})=>{
+  detectHighConfidenceTransferPairs(txns, ctx).forEach(({a,b})=>{ highIds.add(a.id); highIds.add(b.id); link(a,b) })
+  detectMediumConfidenceTransferPairs(txns, highIds, ctx).forEach(({a,b})=>{
     if(effectiveSaudeOverride(a,rules)==='transferencia' || effectiveSaudeOverride(b,rules)==='transferencia') link(a,b)
   })
   return legs
@@ -5456,10 +5481,10 @@ const SaudeFinanceiraScreen = ({accounts,transactions,me,onWindowChanged,onRefre
   const windowTxnsAllSigns = useMemo(()=>scopeTxns.filter(t=>windowYMs.has(t.data.slice(0,7))),[scopeTxns,windowYMs])
   // Candidatos a transferência dentro da janela actual — para a lista exaustiva (todos os níveis).
   // Sobre todas as contas Familiar+Pessoal, para apanhar também as transferências entre âmbitos.
-  const windowCandidates = useMemo(()=>refMonth?detectTransferCandidates(pfTxns.filter(t=>windowYMs.has(t.data.slice(0,7)))):[],[refMonth,pfTxns,windowYMs])
+  const windowCandidates = useMemo(()=>refMonth?detectTransferCandidates(pfTxns.filter(t=>windowYMs.has(t.data.slice(0,7))),{rules:saudeRules,accounts}):[],[refMonth,pfTxns,windowYMs,saudeRules,accounts])
   // Candidatos por validar em TODO o histórico (não limitado à janela) — para o card, tal
   // como a fila "por associar" de Imóveis também não é filtrada ao mês.
-  const allCandidates = useMemo(()=>detectTransferCandidates(pfTxns),[pfTxns])
+  const allCandidates = useMemo(()=>detectTransferCandidates(pfTxns,{rules:saudeRules,accounts}),[pfTxns,saudeRules,accounts])
   const pendingCandidates = useMemo(()=>allCandidates.filter(c=>c.confidence==='media' && !transferResolved(c,saudeRules)),[allCandidates,saudeRules])
   const altaIds = useMemo(()=>{
     const s = new Set<string>()
