@@ -997,6 +997,19 @@ Antes era tudo manual (fila "Por associar"). Agora a app **aprende com o clique*
   sinal onde é preciso). O rendimento líquido −111,60 aparecia como 111,60; novo `decNeg()` mostra
   "−" só quando o valor é negativo — usado no total de rendimento e nas linhas da auditoria.
   Um "—" nas percentagens dos baldes é a pista de rendimento ≤ 0.
+- **Emparelhamento com desempate (2026-11-05)**: com duas entradas iguais no mesmo dia na Familiar
+  (1 245 € do Filipe + 1 245 € da Cecília) e uma só saída na Pessoal, o par era feito com a
+  PRIMEIRA entrada da lista (dependia da ordem). A da Cecília ficava "↔ da conta pessoal" e a do
+  Filipe — já marcada "Transferência interna" por regra aprendida — ficava sem par e era ignorada:
+  Familiar 1 245 em vez de 2 490 e "Ambos" 4,40 em vez de 1 249,40 (a Pessoal estava certa). Agora
+  `matchTransferPairs` (alta e média confiança) pontua cada par possível — (1) o descritivo de uma
+  perna menciona o `titular` da conta da outra, (2) pernas já marcadas como transferência — e
+  emparelha do melhor para o pior; sem sinais mantém a ordem da lista (resultado igual ao anterior,
+  verificado em dados aleatórios). `windowCandidates`/`allCandidates` usam o mesmo contexto (regras +
+  contas), para a lista "Transferências identificadas" não discordar do cálculo.
+  **Armadilha**: uma entrada marcada "Transferência interna" (override ou regra aprendida) SEM par é
+  ignorada; e escolher "Rendimento" no popup grava `null`, que NÃO anula uma regra aprendida
+  (`effectiveSaudeOverride` = override ?? regra) — e não há UI para apagar regras de `saude_rules`.
 
 ## Segurança — auditoria e endurecimento (2026-10-13)
 
