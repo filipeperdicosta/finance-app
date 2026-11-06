@@ -97,6 +97,11 @@ Enable Banking espera — já tivemos 2 erros 422 por nome errado.
 **Spuerkeess (Luxemburgo) — 2026-11-06.** Entrada em `ALL_BANKS`: `name` `Spuerkeess`, `country` `LU`,
 `dbBanco` `Spuerkeess` (o campo Banco da conta é texto livre e tem de ser igual, letra a letra).
 
+**Crédito Agrícola (PT) — 2026-11-06.** Entrada em `ALL_BANKS`: `name` `Crédito Agrícola`, `country` `PT`,
+`dbBanco` `Crédito Agrícola` (com acentos). A lista pública de PT tem mais entradas deste grupo, todas em beta:
+`Caixa Central de Crédito Agrícola Mutuo` (mesmo BIC, CCCMPTPL) e caixas regionais (Chamusca, Leiria, Mafra,
+Torres Vedras, Bombarral). Se o banco recusar a autorização com `Crédito Agrícola`, é aí que se procura.
+
 **Como acrescentar um banco novo ao ecrã Enable Banking.** O "Ligar" só aparece para bancos da lista fixa
 `ALL_BANKS` (`EnableBankingScreen`, em `page.tsx`) quando existe uma conta na app com o campo Banco igual
 ao `dbBanco` da linha. Não há lista no servidor: `/api/auth/enablebanking` passa `bank`/`country` tal como
