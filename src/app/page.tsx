@@ -2023,6 +2023,7 @@ const EnableBankingScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
                   {name:'Santander Totta',    country:'PT', label:'Santander',      domain:'santander.pt',      color:'#EC0000', dbBanco:'Santander'},
                   {name:'Caixa Geral de Depósitos', country:'PT', label:'CGD',     domain:'cgd.pt',            color:'#0072C6', dbBanco:'CGD'},
                   {name:'Spuerkeess',         country:'LU', label:'Spuerkeess',     domain:'spuerkeess.lu',     color:'#E30613', dbBanco:'Spuerkeess'},
+                  {name:'Crédito Agrícola',   country:'PT', label:'Crédito Agrícola', domain:'creditoagricola.pt', color:'#00964B', dbBanco:'Crédito Agrícola'},
                 ]
                 // Só bancos onde o utilizador tem pelo menos 1 conta na BD
                 const dbBancos = new Set(accounts.map((a:Account)=>a.banco))
