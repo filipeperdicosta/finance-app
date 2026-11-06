@@ -64,4 +64,5 @@ imóveis (regras aprendidas, gestão em Definições › Regras Aprendidas ›
 Imóveis, marca AUTO/MANUAL), separadores configuráveis por utilizador,
 transações manuais em contas sem automatismos (botão "+") e Saúde
 financeira com toggle 100%/Minha quota e rendimento líquido por âmbito
-(Familiar↔Pessoal). Ver PROJECT_STATE.md.
+(Familiar↔Pessoal). Em 2026-11-06: recuperar password ("Esqueci-me" no login) e
+alterar password nas Definições. Ver PROJECT_STATE.md.

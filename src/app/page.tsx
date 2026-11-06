@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo, useSyncExternalStore } from 'react'
 import {
   ComposedChart, BarChart, LineChart, AreaChart,
   Bar, Line, Area, XAxis, YAxis, ResponsiveContainer, Tooltip, ReferenceLine,
@@ -10,7 +10,7 @@ import {
   ArrowLeft, Trash2, FileText, HardDrive, Zap, RefreshCw, Edit2, CreditCard,
   Filter, CheckSquare, Square, Tag, Calendar, SlidersHorizontal, Link2, Inbox,
   Sparkles, Target, BrainCircuit, Folder, ChevronRight, AlertTriangle, Bell,
-  Users, UserPlus, Mail, HeartPulse, ChevronUp, ChevronDown,
+  Users, UserPlus, Mail, HeartPulse, ChevronUp, ChevronDown, KeyRound,
 } from 'lucide-react'
 // Ícones de categoria — família à parte (Phosphor, peso "fill"): a chrome da app
 // (setas, botões, cabeçalhos) fica lucide-outline; as categorias, sólidas a branco
@@ -55,6 +55,8 @@ import {
   sugerirRegimeIrs, computeIrsImovel, buildIrsLinhas, aplicarPrejuizosReportaveis,
   type IrsSubcategoria, type IrsImovelResumo, type IrsLinha, type PrejuizoDisponivel,
 } from '@/lib/irs'
+import { validateNewPassword, authErrorPT, MIN_PASSWORD_LENGTH } from '@/lib/authPassword'
+import { requestPasswordRecovery, getRecoveryState, getServerRecoveryState, subscribeRecovery, clearRecovery } from '@/lib/authRecovery'
 
 // ─────────────────────────────────────────────────────────────────
 // DESIGN TOKENS
@@ -587,10 +589,10 @@ const Btn = ({children,onClick,variant='primary',accent,style={}}:{children:Reac
   }
   return <button onClick={onClick} style={{border:'none',borderRadius:10,cursor:'pointer',fontWeight:600,...v[variant],...style}}>{children}</button>
 }
-const Inp = ({label,value,onChange,placeholder,type='text'}:{label:string,value:string,onChange:(v:string)=>void,placeholder?:string,type?:string}) => (
+const Inp = ({label,value,onChange,placeholder,type='text',autoComplete}:{label:string,value:string,onChange:(v:string)=>void,placeholder?:string,type?:string,autoComplete?:string}) => (
   <div style={{marginBottom:14}}>
     <div style={{fontSize:11,color:T.textSec,fontWeight:600,marginBottom:5,textTransform:'uppercase',letterSpacing:'0.06em'}}>{label}</div>
-    <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
+    <input type={type} autoComplete={autoComplete} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
       style={{width:'100%',background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,padding:'10px 12px',color:T.text,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
   </div>
 )
@@ -1467,13 +1469,15 @@ const PropHero = ({im,renda,custos}:{im:Imovel,renda:number,custos:number}) => {
 // ─────────────────────────────────────────────────────────────────
 // LOGIN
 // ─────────────────────────────────────────────────────────────────
-const LoginScreen = ({onLogin}:{onLogin:()=>void}) => {
-  const [mode,setMode] = useState<'login'|'signup'>('login')
+const LoginScreen = ({onLogin,notice}:{onLogin:()=>void,notice?:string}) => {
+  const [mode,setMode] = useState<'login'|'signup'|'forgot'>('login')
   const [email,setEmail] = useState('')
   const [pass,setPass] = useState('')
   const [err,setErr] = useState('')
   const [msg,setMsg] = useState('')
   const [loading,setLoading] = useState(false)
+  // Aviso vindo de fora (ex.: o link do email expirou): mostra-o e deixa pedir logo outro link
+  useEffect(()=>{ if(notice){ setErr(notice); setMsg(''); setMode('forgot') } },[notice])
   const login = async () => {
     setLoading(true); setErr('')
     const {error} = await supabase.auth.signInWithPassword({email,password:pass})
@@ -1491,7 +1495,18 @@ const LoginScreen = ({onLogin}:{onLogin:()=>void}) => {
     setMsg('Conta criada. Confirma o email que acabámos de enviar para poderes entrar.')
     setLoading(false)
   }
-  const submit = mode==='login' ? login : signup
+  // "Esqueci-me da password": o Supabase envia um link por email. A resposta é a mesma exista ou
+  // não a conta, para não revelar quem tem conta. O link funciona em qualquer aparelho (lib/authRecovery.ts).
+  const forgot = async () => {
+    const addr = email.trim()
+    if (!addr) { setErr('Escreve o teu email.'); return }
+    setLoading(true); setErr(''); setMsg('')
+    const {error} = await requestPasswordRecovery(addr)
+    setLoading(false)
+    if (error) { setErr(authErrorPT(error)); return }
+    setMsg('Se existir uma conta com este email, enviámos um link para definires uma nova password. Procura um email com o assunto “Reset Your Password” (vem em inglês) e vê também o spam.')
+  }
+  const submit = mode==='login' ? login : mode==='signup' ? signup : forgot
   return (
     <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100vh',background:`radial-gradient(ellipse 420px 340px at 50% 30%, rgba(74,222,128,0.16), transparent 70%), ${T.bg}`,padding:24,fontFamily:'var(--font-body),-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
       <div style={{width:'100%',maxWidth:360}}>
@@ -1504,26 +1519,72 @@ const LoginScreen = ({onLogin}:{onLogin:()=>void}) => {
         <Card style={{padding:24}}>
           {/* form real para que browsers/iOS/Android ofereçam guardar a password */}
           <form onSubmit={e=>{e.preventDefault();submit()}} autoComplete="on">
+            {mode==='forgot'&&<div style={{fontSize:12,color:T.textSec,lineHeight:1.5,marginBottom:14}}>Escreve o email da tua conta e enviamos-te um link para definires uma nova password.</div>}
             <div style={{marginBottom:14}}>
               <div style={{fontSize:11,color:T.textSec,fontWeight:600,marginBottom:5,textTransform:'uppercase',letterSpacing:'0.06em'}}>Email</div>
               <input name="email" type="email" autoComplete="username email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="o-teu@email.com"
                 style={{width:'100%',background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,padding:'10px 12px',color:T.text,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
             </div>
-            <div style={{marginBottom:14}}>
+            {mode!=='forgot'&&<div style={{marginBottom:14}}>
               <div style={{fontSize:11,color:T.textSec,fontWeight:600,marginBottom:5,textTransform:'uppercase',letterSpacing:'0.06em'}}>Password</div>
               <input name="password" type="password" autoComplete={mode==='login'?'current-password':'new-password'} value={pass} onChange={e=>setPass(e.target.value)} placeholder="••••••••"
                 style={{width:'100%',background:T.surface2,border:`1px solid ${T.border}`,borderRadius:10,padding:'10px 12px',color:T.text,fontSize:13,outline:'none',boxSizing:'border-box'}}/>
-            </div>
+            </div>}
+            {mode==='login'&&<div style={{textAlign:'right',marginTop:-6,marginBottom:14}}>
+              <button type="button" onClick={()=>{setMode('forgot');setErr('');setMsg('')}} style={{background:'none',border:'none',cursor:'pointer',color:T.textSec,fontSize:12,padding:0}}>Esqueci-me da password</button>
+            </div>}
             {err&&<div style={{fontSize:12,color:T.red,marginBottom:12}}>{err}</div>}
             {msg&&<div style={{fontSize:12,color:T.green,marginBottom:12,lineHeight:1.5}}>{msg}</div>}
             <button type="submit" disabled={loading} style={{width:'100%',background:T.green,color:'#14110F',border:'none',borderRadius:10,padding:'12px',fontSize:14,fontWeight:700,cursor:'pointer'}}>
-              {loading?(mode==='login'?'A entrar…':'A criar…'):(mode==='login'?'Entrar':'Criar conta')}
+              {loading?(mode==='login'?'A entrar…':mode==='signup'?'A criar…':'A enviar…'):(mode==='login'?'Entrar':mode==='signup'?'Criar conta':'Enviar link')}
             </button>
           </form>
           <div style={{textAlign:'center',marginTop:16}}>
             <button onClick={()=>{setMode(mode==='login'?'signup':'login');setErr('');setMsg('')}} style={{background:'none',border:'none',cursor:'pointer',color:T.textSec,fontSize:12}}>
-              {mode==='login'?'Não tens conta? Criar conta':'Já tens conta? Entrar'}
+              {mode==='login'?'Não tens conta? Criar conta':mode==='signup'?'Já tens conta? Entrar':'Voltar a entrar'}
             </button>
+          </div>
+        </Card>
+      </div>
+    </div>
+  )
+}
+
+// Chegada pelo link do email "recuperar password" (lib/authRecovery.ts): a sessão já existe,
+// falta escolher a nova password. "Agora não" deixa seguir para a app, já autenticado.
+const ResetPasswordScreen = ({onDone,onCancel}:{onDone:()=>void,onCancel:()=>void}) => {
+  const [nova,setNova] = useState('')
+  const [conf,setConf] = useState('')
+  const [err,setErr] = useState('')
+  const [saving,setSaving] = useState(false)
+  const save = async () => {
+    const v = validateNewPassword({nova,confirmar:conf})
+    if (v) { setErr(v); return }
+    setSaving(true); setErr('')
+    const {error} = await supabase.auth.updateUser({password:nova})
+    if (error) { setErr(authErrorPT(error)); setSaving(false); return }
+    onDone()
+  }
+  return (
+    <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',minHeight:'100vh',background:`radial-gradient(ellipse 420px 340px at 50% 30%, rgba(74,222,128,0.16), transparent 70%), ${T.bg}`,padding:24,fontFamily:'var(--font-body),-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif'}}>
+      <div style={{width:'100%',maxWidth:360}}>
+        <div style={{textAlign:'center',marginBottom:32}}>
+          <div style={{display:'flex',justifyContent:'center',marginBottom:14}}><BioIcon size={56}/></div>
+          <div style={{fontSize:32,fontWeight:600,fontStyle:'italic',fontFamily:T.display,color:T.text,letterSpacing:'-0.01em'}}>Bio<span style={{color:T.green,fontStyle:'normal'}}>.</span></div>
+        </div>
+        <Card style={{padding:24}}>
+          <form onSubmit={e=>{e.preventDefault();save()}} autoComplete="on">
+            <div style={{fontSize:15,fontWeight:700,color:T.text,marginBottom:4}}>Nova password</div>
+            <div style={{fontSize:12,color:T.textSec,lineHeight:1.5,marginBottom:16}}>Escolhe a password com que vais entrar. Mínimo de {MIN_PASSWORD_LENGTH} caracteres.</div>
+            <Inp label="Nova password" type="password" autoComplete="new-password" value={nova} onChange={setNova} placeholder="••••••••"/>
+            <Inp label="Repete a nova password" type="password" autoComplete="new-password" value={conf} onChange={setConf} placeholder="••••••••"/>
+            {err&&<div style={{fontSize:12,color:T.red,marginBottom:12}}>{err}</div>}
+            <button type="submit" disabled={saving} style={{width:'100%',background:T.green,color:'#14110F',border:'none',borderRadius:10,padding:'12px',fontSize:14,fontWeight:700,cursor:'pointer'}}>
+              {saving?'A guardar…':'Guardar nova password'}
+            </button>
+          </form>
+          <div style={{textAlign:'center',marginTop:16}}>
+            <button onClick={onCancel} style={{background:'none',border:'none',cursor:'pointer',color:T.textSec,fontSize:12}}>Agora não</button>
           </div>
         </Card>
       </div>
@@ -3099,6 +3160,56 @@ const DriveSettingsScreen = ({onClose,accounts,onRefresh,pal}:{onClose:()=>void,
 // ─────────────────────────────────────────────────────────────────
 // SETTINGS
 // ─────────────────────────────────────────────────────────────────
+// Alterar password (Definições › Perfil). Pede a actual e confirma-a com um login novo antes de
+// mudar: protege contra um telemóvel desbloqueado e renova o "login recente" que o Supabase
+// pode exigir para mudar a password (opção "Secure password change").
+const ChangePasswordSection = ({pal}:{pal:{accent:string,soft:string}}) => {
+  const [open,setOpen] = useState(false)
+  const [atual,setAtual] = useState('')
+  const [nova,setNova] = useState('')
+  const [conf,setConf] = useState('')
+  const [err,setErr] = useState('')
+  const [ok,setOk] = useState(false)
+  const [saving,setSaving] = useState(false)
+  const close = () => { setOpen(false); setAtual(''); setNova(''); setConf(''); setErr('') }
+  const save = async () => {
+    const v = validateNewPassword({nova,confirmar:conf,actual:atual})
+    if (v) { setErr(v); return }
+    setSaving(true); setErr('')
+    const {data:{user}} = await supabase.auth.getUser()
+    if (!user?.email) { setErr(authErrorPT({code:'session_not_found'})); setSaving(false); return }
+    const {error:e1} = await supabase.auth.signInWithPassword({email:user.email,password:atual})
+    if (e1) { setErr(authErrorPT(e1)); setSaving(false); return }
+    const {error:e2} = await supabase.auth.updateUser({password:nova})
+    setSaving(false)
+    if (e2) { setErr(authErrorPT(e2)); return }
+    close(); setOk(true); setTimeout(()=>setOk(false),4000)
+  }
+  return (
+    <div style={{marginBottom:14}}>
+      <button onClick={()=>open?close():setOpen(true)} style={{width:'100%',display:'flex',alignItems:'center',gap:10,background:T.surface,border:`1px solid ${T.border}`,borderRadius:10,padding:'12px 14px',cursor:'pointer'}}>
+        <KeyRound size={16} color={pal.accent}/>
+        <span style={{flex:1,textAlign:'left',fontSize:13,fontWeight:600,color:T.text}}>Alterar password</span>
+        {ok ? <span style={{fontSize:11,fontWeight:600,color:T.green}}>✓ Alterada</span> : <span style={{fontSize:11,color:T.textTer}}>{open?'✕':'›'}</span>}
+      </button>
+      {open&&(
+        <Card style={{marginTop:8,padding:'16px 16px 4px'}}>
+          <form onSubmit={e=>{e.preventDefault();save()}} autoComplete="on">
+            <Inp label="Password actual" type="password" autoComplete="current-password" value={atual} onChange={setAtual}/>
+            <Inp label="Nova password" type="password" autoComplete="new-password" value={nova} onChange={setNova} placeholder={`Mínimo ${MIN_PASSWORD_LENGTH} caracteres`}/>
+            <Inp label="Repete a nova password" type="password" autoComplete="new-password" value={conf} onChange={setConf}/>
+            {err&&<div style={{fontSize:12,color:T.red,marginBottom:12}}>{err}</div>}
+            <div style={{display:'flex',gap:8,marginBottom:12}}>
+              <button type="submit" disabled={saving} style={{flex:1,background:pal.accent,color:'#14110F',border:'none',borderRadius:10,padding:'10px',fontSize:13,fontWeight:700,cursor:'pointer'}}>{saving?'A guardar…':'Guardar'}</button>
+              <button type="button" onClick={close} style={{background:T.surface2,color:T.text,border:'none',borderRadius:10,padding:'10px 14px',fontSize:13,fontWeight:600,cursor:'pointer'}}>Cancelar</button>
+            </div>
+          </form>
+        </Card>
+      )}
+    </div>
+  )
+}
+
 const SettingsPanel = ({onClose,accounts,onRefresh,pal,me,onMembers,onShowInvites,pendingInvitesCount,onProfileUpdated}:{onClose:()=>void,accounts:Account[],onRefresh:()=>void,pal:{accent:string,soft:string},me:Profile|null,onMembers:(accountId:string)=>void,onShowInvites:()=>void,pendingInvitesCount:number,onProfileUpdated:()=>void}) => {
   const [formOpen,setFormOpen] = useState(false)
   const [editing,setEditing] = useState<Account|null>(null)
@@ -3160,6 +3271,8 @@ const SettingsPanel = ({onClose,accounts,onRefresh,pal,me,onMembers,onShowInvite
               {!editingName && <button onClick={()=>{setNameValue(me?.nome??'');setEditingName(true)}} style={{background:'none',border:'none',cursor:'pointer',padding:4}}><Edit2 size={14} color={pal.accent}/></button>}
             </div>
           </Card>
+
+          <ChangePasswordSection pal={pal}/>
 
           {/* CONVITES PENDENTES */}
           {pendingInvitesCount > 0 && (
@@ -5847,6 +5960,8 @@ export default function Page() {
   const [viewAllContaId, setViewAllContaId] = useState<string|undefined>(undefined)
   const [toast, setToast] = useState<string|null>(null)
   const [automatedIds, setAutomatedIds] = useState<Set<string>>(new Set())
+  // Chegada pelo link do email de "recuperar password" (lê-se em lib/authRecovery.ts, antes do React arrancar)
+  const recovery = useSyncExternalStore(subscribeRecovery, getRecoveryState, getServerRecoveryState)
 
   const openAllTxns = useCallback((categoria?:string, contaId?:string)=>{ setViewAllCategoria(categoria); setViewAllContaId(contaId); setShowAllTxns(true) },[])
   const showToast = useCallback((msg:string)=>{setToast(msg);setTimeout(()=>setToast(null),msg.length>60?5000:2500)},[])
@@ -5896,6 +6011,11 @@ export default function Page() {
     }
   },[showToast])
 
+  // O link do email deixa a sessão no endereço (#access_token=…): já foi lida (lib/authRecovery.ts), tira-a
+  useEffect(()=>{
+    if(/access_token=|error_code=|error_description=/.test(window.location.hash)) window.history.replaceState({}, '', window.location.pathname + window.location.search)
+  },[])
+
   const {visiveis:tabsVisiveis} = tabsDoPerfil(me)
   // Se o separador activo foi escondido (ou o perfil acabou de carregar com outra configuração), vai para o primeiro visível
   useEffect(()=>{ if(!tabsVisiveis.includes(tab)) setTab(tabsVisiveis[0]) },[tabsVisiveis,tab])
@@ -5911,7 +6031,8 @@ export default function Page() {
       </div>
     </div>
   )
-  if(!session) return <LoginScreen onLogin={()=>{setLoading(true);load();loadFull()}}/>
+  if(session && recovery.pending) return <ResetPasswordScreen onDone={()=>{clearRecovery();showToast('✓ Password actualizada')}} onCancel={clearRecovery}/>
+  if(!session) return <LoginScreen onLogin={()=>{setLoading(true);load();loadFull()}} notice={recovery.linkError?authErrorPT(recovery.linkError):undefined}/>
 
   // Os 4 ecrãs ficam sempre montados (escondidos via CSS, nunca desmontados) para que os
   // filtros/estado local de cada um (mês, categoria, conta seleccionada) persistam ao mudar

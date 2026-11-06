@@ -57,11 +57,54 @@ passo à parte, pelo convite de membros de uma conta financeira específica
 do Supabase, o `signUp` não autentica de imediato — o ecrã trata os dois
 casos (confirmação pendente vs. sessão imediata).
 
+### Auth — recuperar e alterar password (2026-11-06)
+`LoginScreen` ganhou "Esqueci-me da password" (modo `forgot`); `ResetPasswordScreen`
+(ecrã "Nova password") aparece ao chegar pelo link do email; Definições › Perfil tem
+"Alterar password" (`ChangePasswordSection`: pede a actual, confirma-a com um
+`signInWithPassword` novo e só então faz `updateUser`). Regras e mensagens de erro em PT
+(mín. 8 caracteres): `src/lib/authPassword.ts`. Pedido do email e leitura do link:
+`src/lib/authRecovery.ts`.
+- **Link implícito, não PKCE.** O cliente principal (`createBrowserClient` do `@supabase/ssr`)
+  força PKCE: o link do email só completaria no browser que o pediu (a chave fica lá
+  guardada) e, no iPhone, o link abre no Safari e não na app instalada. Por isso o pedido usa
+  um 2.º cliente com `flowType:'implicit'` (`requestPasswordRecovery`) e o link volta com a
+  sessão no fragmento (`#access_token=…&type=recovery`), que se lê à mão (o cliente PKCE
+  recusa-o). Funciona em qualquer aparelho. O `Page` tira o fragmento do endereço logo a seguir.
+- **Armadilha — evento perdido.** O auth-js emite `PASSWORD_RECOVERY` uma só vez e não o repete a
+  quem se subscreve tarde (só dá `INITIAL_SESSION`). Por isso o fragmento é lido quando
+  `authRecovery.ts` carrega (antes do React arrancar) e o resultado fica num store lido com
+  `useSyncExternalStore`. Sem isto o utilizador podia cair no dashboard sem ver o ecrã.
+- **Armadilha — `?code=` ignorado em silêncio.** Num link PKCE sem a chave guardada
+  (`_isPKCECallback` falso) o auth-js não dá erro nem sessão. Já não é o caminho usado, mas
+  explica porque é que um link PKCE "não faz nada".
+- **Painel do Supabase (feito 2026-11-06):** Authentication › URL Configuration com Site URL
+  `https://biofinance-alpha.vercel.app` e Redirect URL `https://biofinance-alpha.vercel.app/**`.
+  Os templates dos emails só se editam com SMTP próprio, por isso o email é o padrão do Supabase
+  (em inglês, assunto "Reset Your Password"). O serviço de email incluído tem limite baixo
+  (cerca de 2/hora, segundo guias de terceiros) e, ao que parece, só envia para membros da
+  organização Supabase (a confirmar): `authErrorPT` já traduz `email_address_not_authorized` e
+  os limites. Se a Cici (ou outra pessoa) não receber o email, o remédio é configurar SMTP próprio.
+- Testado contra um Supabase falso local (utilizador e tokens inventados, sem tocar na conta
+  real nem enviar emails): link, validações, gravação, "Alterar password", pedido do email e link
+  expirado. Por confirmar no real: email → link → nova password, no telemóvel.
+
 ### Enable Banking (PSD2)
 Bancos ligados: Revolut, Abanca, MBCP (`Millennium BCP`), Santander
 (`Santander Totta` — nome exacto exigido pela API), CGD
 (`Caixa Geral de Depósitos`). Nomes ASPSP têm de bater certo com o que a
 Enable Banking espera — já tivemos 2 erros 422 por nome errado.
+
+**Spuerkeess (Luxemburgo) — 2026-11-06.** Entrada em `ALL_BANKS`: `name` `Spuerkeess`, `country` `LU`,
+`dbBanco` `Spuerkeess` (o campo Banco da conta é texto livre e tem de ser igual, letra a letra).
+
+**Como acrescentar um banco novo ao ecrã Enable Banking.** O "Ligar" só aparece para bancos da lista fixa
+`ALL_BANKS` (`EnableBankingScreen`, em `page.tsx`) quando existe uma conta na app com o campo Banco igual
+ao `dbBanco` da linha. Não há lista no servidor: `/api/auth/enablebanking` passa `bank`/`country` tal como
+vêm ao Enable Banking. Uma linha nova precisa de `name` + `country` exactos — confirmar na lista pública,
+sem autenticação, `https://enablebanking.com/api/aspsps?country=XX` (traz também `maximum_consent_validity`:
+o código pede sempre 180 dias e há bancos com menos, ex.: Trade Republic LU = 90, que podem rejeitar o
+pedido) —, mais `label`, `domain` (logótipo) e `dbBanco`. Pendente: lista dinâmica (rota própria que chame
+`GET /aspsps` com o JWT da app).
 
 - Ecrã reestruturado: só mostra bancos onde o user TEM conta na BD
   (cruza `accounts.banco` com mapping `dbBanco`), "Por ligar" em cima,
