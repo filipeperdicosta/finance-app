@@ -106,6 +106,18 @@ o código pede sempre 180 dias e há bancos com menos, ex.: Trade Republic LU = 
 pedido) —, mais `label`, `domain` (logótipo) e `dbBanco`. Pendente: lista dinâmica (rota própria que chame
 `GET /aspsps` com o JWT da app).
 
+**Spuerkeess (Luxemburgo) — 2026-11-06.** Entrada em `ALL_BANKS`: `name` `Spuerkeess`, `country` `LU`,
+`dbBanco` `Spuerkeess` (o campo Banco da conta é texto livre e tem de ser igual, letra a letra).
+
+**Como acrescentar um banco novo ao ecrã Enable Banking.** O "Ligar" só aparece para bancos da lista fixa
+`ALL_BANKS` (`EnableBankingScreen`, em `page.tsx`) quando existe uma conta na app com o campo Banco igual
+ao `dbBanco` da linha. Não há lista no servidor: `/api/auth/enablebanking` passa `bank`/`country` tal como
+vêm ao Enable Banking. Uma linha nova precisa de `name` + `country` exactos — confirmar na lista pública,
+sem autenticação, `https://enablebanking.com/api/aspsps?country=XX` (traz também `maximum_consent_validity`:
+o código pede sempre 180 dias e há bancos com menos, ex.: Trade Republic LU = 90, que podem rejeitar o
+pedido) —, mais `label`, `domain` (logótipo) e `dbBanco`. Pendente: lista dinâmica (rota própria que chame
+`GET /aspsps` com o JWT da app).
+
 - Ecrã reestruturado: só mostra bancos onde o user TEM conta na BD
   (cruza `accounts.banco` com mapping `dbBanco`), "Por ligar" em cima,
   "Ligados" em baixo com logos reais (Google favicon service)
